@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
-import { PROBLEM_LABEL, problemOf, useStore } from "@/lib/store";
+import { PROBLEM_LABEL, problemsOf, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
 
@@ -78,7 +78,7 @@ export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "dis
  */
 export const RankBar = memo(function RankBar({ index, height = 14 }: { index: number; height?: number }) {
   const rank = useStore((s) => s.ranks[index]);
-  const problem = useStore((s) => problemOf(s.ai[index], s.compared[index]));
+  const problem = useStore((s) => problemsOf(s)[index] ?? null);
   if (!rank && problem !== "eyesClosed") return null;
 
   let colour = "#525252";
@@ -97,7 +97,7 @@ export const RankBar = memo(function RankBar({ index, height = 14 }: { index: nu
 
 /** Whether a thumbnail has a strip along its bottom, so what sits there can make room. */
 export function useHasRankBar(index: number): boolean {
-  return useStore((s) => s.ranks[index] !== undefined || problemOf(s.ai[index]) === "eyesClosed");
+  return useStore((s) => s.ranks[index] !== undefined || problemsOf(s)[index] === "eyesClosed");
 }
 
 /** Pick or reject, as a small badge in the corner of a thumbnail. */

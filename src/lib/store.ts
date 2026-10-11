@@ -8,7 +8,7 @@ import { filtered, groupOf, marksOf, rankRun, runsOf, sorted, uprightOf } from "
 import { baseName } from "./format";
 
 // What views take from the culling rules, from where they always have.
-export { BLINK, groupOf, groupsOf, hasFilter as hasActiveFilter, PROBLEM_LABEL, problemOf, type Problem } from "./cull-logic";
+export { BLINK, groupOf, groupsOf, hasFilter as hasActiveFilter, PROBLEM_LABEL, problemOf, problemsOf, type Problem } from "./cull-logic";
 import { FILE_KINDS, SORT_KEYS, type AiFace, type AiResult, type Color, type Compared, type FileKinds, type Flag, type FlagFilter, type Marks, type MetaEvent, type Photo, type Rank, type SortKey, type ViewMode } from "./types";
 
 interface Session {

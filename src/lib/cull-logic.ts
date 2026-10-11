@@ -158,3 +158,16 @@ export function sorted(photos: Photo[], key: SortKey, ascending: boolean): numbe
     return ta === tb ? a - b : (ta < tb ? -1 : 1) * dir;
   });
 }
+
+/**
+ * Every photo's worst problem, by its number in the folder. Worked out once
+ * each time analysis or comparison moves on, not by every thumbnail on screen
+ * on every change to anything.
+ */
+let problemsMemo: { ai: (AiResult | undefined)[]; compared: (Compared | undefined)[]; problems: (Problem | null)[] } | null = null;
+export function problemsOf(s: { ai: (AiResult | undefined)[]; compared: (Compared | undefined)[] }): (Problem | null)[] {
+  if (problemsMemo && problemsMemo.ai === s.ai && problemsMemo.compared === s.compared) return problemsMemo.problems;
+  const problems = Array.from({ length: s.ai.length }, (_, i) => problemOf(s.ai[i], s.compared[i]));
+  problemsMemo = { ai: s.ai, compared: s.compared, problems };
+  return problems;
+}

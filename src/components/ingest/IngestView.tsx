@@ -14,13 +14,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ThumbImage } from "@/components/cull/Thumb";
-import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type IngestProgress, type Volume, logged } from "@/lib/api";
+import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type Volume, logged } from "@/lib/api";
 import { usePersistentState } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { SORT_KEYS, type Scanned, type SortKey } from "@/lib/types";
 import { useVolumes } from "@/lib/volumes";
+import { useCopyProgress } from "./progress";
 import { CardIcon } from "@/components/cull/symbols";
 
 
@@ -68,24 +69,6 @@ function timeLabel(item: Item, long = false): string {
   return new Date(takenAt(item)).toLocaleString(undefined, item.captureMs === null ? options : { ...options, timeZone: "UTC" });
 }
 
-function rateText(bytesPerSecond: number): string {
-  const mb = bytesPerSecond / 1_000_000;
-  if (mb >= 1000) return `${(mb / 1000).toFixed(1)} GB/s`;
-  if (mb >= 100) return `${mb.toFixed(0)} MB/s`;
-  if (mb >= 1) return `${mb.toFixed(1)} MB/s`;
-  return `${(bytesPerSecond / 1000).toFixed(0)} KB/s`;
-}
-
-function timeLeftText(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 90) return "about a minute";
-  return `about ${Math.round(seconds / 60)} min`;
-}
-
-/** How long a burst of speed is remembered for, in seconds, and how often the speed is measured. */
-const RATE_MEMORY = 3;
-const RATE_SAMPLE = 0.4;
-
 const SELECTED_ROW = "bg-[#4073f2]/45";
 
 /**
@@ -111,10 +94,7 @@ export function IngestView() {
   const [ascending, setAscending] = usePersistentState("ingestSortAscending", true);
   const [destination, setDestination] = usePersistentState<string | null>("ingestDestination", null);
 
-  const [progress, setProgress] = useState<IngestProgress | null>(null);
-  const [fraction, setFraction] = useState(0);
-  const [rate, setRate] = useState<number | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const { progress, fraction, status, start: startProgress, report, stop: stopProgress } = useCopyProgress();
 
   /** Where a shift-click's range starts from, as a place in the sorted list. */
   const anchor = useRef(0);
@@ -306,7 +286,6 @@ export function IngestView() {
   };
 
   const canIngest = selected.size > 0 && destination !== null && !busy;
-  const sample = useRef({ at: 0, bytes: 0, rate: null as number | null });
   /** Set when the photographer cancels. A copy that then finishes anyway must not carry on as if they had not. */
   const cancelled = useRef(false);
 
@@ -324,43 +303,18 @@ export function IngestView() {
     if (!destination) return;
     cancelled.current = false;
     setPhase({ is: "copying" });
-    setProgress({ done: 0, total: chosen.length, bytesCopied: 0, bytesSettled: 0, bytesTotal: 0 });
-    setFraction(0);
-    setRate(null);
-    setSecondsLeft(null);
-    sample.current = { at: performance.now() / 1000, bytes: 0, rate: null };
-
-    const onProgress = (p: IngestProgress) => {
-      setProgress(p);
-      // By bytes, so a card of large files does not sit still and then
-      // jump. Never backwards: reports from copies running side by side can
-      // arrive a little out of order.
-      const now = p.bytesTotal > 0 ? p.bytesSettled / p.bytesTotal : p.total > 0 ? p.done / p.total : 0;
-      setFraction((was) => Math.min(1, Math.max(was, now)));
-
-      const s = sample.current;
-      const t = performance.now() / 1000;
-      const elapsed = t - s.at;
-      if (elapsed < RATE_SAMPLE) return;
-      const measured = (p.bytesCopied - s.bytes) / elapsed;
-      // Smoothed, so one slow file does not swing the estimate about.
-      const weight = 1 - Math.exp(-elapsed / RATE_MEMORY);
-      const smoothed = s.rate === null ? measured : s.rate + weight * (measured - s.rate);
-      sample.current = { at: t, bytes: p.bytesCopied, rate: smoothed };
-      setRate(smoothed);
-      setSecondsLeft(smoothed > 0 ? Math.max(0, p.bytesTotal - p.bytesSettled) / smoothed : null);
-    };
+    startProgress(chosen.length);
 
     let result;
     try {
-      result = await api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, onProgress);
+      result = await api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, report);
     } catch (e) {
       result = { status: "failed" as const, message: String(e), warnings: [] };
     }
     // Cancelled, and perhaps already closed: whatever came of it, the
     // photographer asked for it to stop, so nothing more is opened.
     if (cancelled.current) return;
-    setProgress(null);
+    stopProgress();
     if (result.status === "failed") return setPhase({ is: "failed", message: result.message ?? "Something went wrong while copying." });
     setPhase({ is: "ready" });
     if (result.status === "success") {
@@ -382,16 +336,8 @@ export function IngestView() {
     cancelled.current = true;
     void api.ingestCancel().catch(logged("cancelling the copy"));
     setPhase((p) => (p.is === "copying" ? { is: "ready" } : p));
-    setProgress(null);
+    stopProgress();
   };
-
-  const status = (() => {
-    if (!progress) return "";
-    const parts = [`Copying ${progress.done}/${progress.total}`];
-    if (rate !== null && rate > 0) parts.push(rateText(rate));
-    if (secondsLeft !== null && Number.isFinite(secondsLeft) && secondsLeft >= 1) parts.push(`${timeLeftText(secondsLeft)} left`);
-    return parts.length === 1 ? `${parts[0]}…` : parts.join(" · ");
-  })();
 
   const cards = volumes.filter((v) => v.cameraCard);
   const drives = volumes.filter((v) => !v.cameraCard);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtered, groupOf, groupsOf, problemOf, rankRun, runsOf, sorted, type Filters } from "./cull-logic";
+import { filtered, groupOf, groupsOf, problemOf, problemsOf, rankRun, runsOf, sorted, type Filters } from "./cull-logic";
 import type { AiFace, AiResult, Compared, Photo, Rank } from "./types";
 
 /** A photo with nothing marked, taken at `captureMs`. */
@@ -117,6 +117,14 @@ describe("problemOf", () => {
 
   it("sees a blink against the same person's best in the burst", () => {
     expect(problemOf(result([face()]), { pose: 0, score: 50, eyes: [0.4] } as Compared)).toBe("blinking");
+  });
+
+  it("is worked out once for the whole folder until analysis moves on", () => {
+    const ai = [result([face({ eyesShut: true })]), undefined, result([face()])];
+    const compared: (Compared | undefined)[] = [];
+    const first = problemsOf({ ai, compared });
+    expect(first).toEqual(["eyesClosed", null, null]);
+    expect(problemsOf({ ai, compared })).toBe(first);
   });
 
   it("has nothing to say about a photo that could not be analysed", () => {

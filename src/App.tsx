@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CullingView } from "@/components/cull/CullingView";
-import { NoticeDialog, SettingsDialog, ShortcutsDialog, TrashDialog } from "@/components/cull/Dialogs";
+import { NoticeDialog, ShortcutsDialog, TrashDialog } from "@/components/cull/Dialogs";
+import { SettingsDialog } from "@/components/cull/SettingsDialog";
 import { ShipDialog } from "@/components/cull/ShipDialog";
 import { IngestView } from "@/components/ingest/IngestView";
 import { HomeView } from "@/components/home/HomeView";
