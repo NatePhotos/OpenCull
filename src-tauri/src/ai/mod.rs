@@ -79,13 +79,19 @@ const READ_MAX_TURN: f32 = 0.45;
 const HIDDEN: f32 = 0.5;
 /// How high the looking-away score must be.
 ///
-/// MEASURED on 615 faces labelled by hand that the judge never learned from
-/// (339 looking away, 276 at the camera): at 0.90, with the glance test
-/// below, it catches 79% of those looking away and wrongly accuses 5.4% of
-/// those looking at the camera; the Mac app's own test, on the 95 of them it
-/// had a reading for, caught 64% and accused 8.8%. On 1,360 faces known to
-/// be looking at the camera, it accuses 13.
-const AWAY: f32 = 0.90;
+/// The score is the judge's own answer to "is this person looking somewhere
+/// other than the camera".
+/// MEASURED on 185 faces graded by hand, from photographs it never learned
+/// from (112 looking away, 73 at the camera), each counted for as many faces
+/// as its kind is common: at 0.5, with the glance test below, it catches 62% of
+/// those looking away and wrongly accuses 1.3% of those looking at the
+/// camera. The score it replaced, cut at 0.90, caught 53% and accused none.
+/// On 658 faces in posed groups, held back and all but a handful of them
+/// looking at the camera, it accuses 14 where the old one accused 10.
+const AWAY: f32 = 0.5;
+/// What a face found to be looking away counts as when the photo is marked:
+/// well up the scale, however narrowly it was found so.
+const AWAY_MARK: f32 = 0.90;
 /// How far the pupils may sit to one side, once the turn of the head is
 /// allowed for, before the face is taken to be looking away. Someone whose
 /// head is turned and whose eyes are on the lens has pupils well off centre
@@ -109,6 +115,15 @@ const NOT_A_FACE: f32 = 0.8;
 /// A box the finder itself is this sure of is kept whatever the judge says.
 /// MEASURED: none of the junk seen on 1,236 photos reached 0.83.
 const FINDER_CERTAIN: f32 = 0.88;
+/// Where the finder itself was this unsure of a box, less is asked of the
+/// judge: half sure it is not a face is enough. A balloon the finder was
+/// 0.62 sure of and the judge 0.77 sure was not a face was being shown as
+/// one. MEASURED on the same 1,420 pictures: 14 more of 409 wrongly boxed
+/// things thrown out, and 20 more of 7,842 faces. Of ten such boxes graded
+/// by hand, one was not a face, four were people in the background, five
+/// could not be told, and none was a subject.
+const FINDER_UNSURE: f32 = 0.70;
+const NOT_A_FACE_IF_UNSURE: f32 = 0.5;
 /// The patch around each eye that focus is measured on, as a share of the
 /// face's box. About what the Mac app took around each eye's landmarks.
 const EYE_PATCH: (f64, f64) = (0.28, 0.18);
@@ -189,7 +204,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
         .map(|f| {
             // A face caught glancing aside is marked as looking away, even
             // where the looking-away score alone would have let it pass.
-            let away = if f.looking_away { f.verdict.away.max(AWAY) } else { f.verdict.away };
+            let away = if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away };
             score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away as f64) }
         })
         .collect();
@@ -208,7 +223,7 @@ fn about(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, String> {
 
 /// Whether a box the finder drew is something other than a face.
 fn is_junk(sure: f32, v: &Verdict) -> bool {
-    sure < FINDER_CERTAIN && v.validity[2] >= NOT_A_FACE
+    (sure < FINDER_CERTAIN && v.validity[2] >= NOT_A_FACE) || (sure < FINDER_UNSURE && v.validity[2] >= NOT_A_FACE_IF_UNSURE)
 }
 
 /// Whether a face is looking somewhere other than the camera.
@@ -289,10 +304,19 @@ mod tests {
     }
 
     #[test]
+    fn where_the_finder_was_unsure_less_is_asked_of_the_judge() {
+        assert!(is_junk(0.62, &verdict(0.77, 0.0, 0.0, 0.0)), "the balloon: neither was sure it was a face");
+        assert!(!is_junk(0.75, &verdict(0.77, 0.0, 0.0, 0.0)), "the finder was surer, and the judge short of certain");
+        assert!(!is_junk(0.62, &verdict(0.45, 0.0, 0.0, 0.0)), "the judge leans towards a face");
+    }
+
+    #[test]
     fn a_sideways_glance_from_a_square_on_face_is_looking_away() {
         assert!(is_away(&verdict(0.0, 0.01, 0.20, 0.0), 130.0), "pupils well to one side, head straight");
         assert!(is_away(&verdict(0.0, 0.01, -0.20, 0.0), 130.0), "and to the other side");
         assert!(is_away(&verdict(0.0, 0.97, 0.0, 0.0), 130.0), "the looking-away score still counts alone");
+        assert!(is_away(&verdict(0.0, 0.55, 0.0, 0.0), 130.0), "and from half way up");
+        assert!(!is_away(&verdict(0.0, 0.45, 0.0, 0.0), 130.0), "but not below it");
         assert!(!is_away(&verdict(0.0, 0.01, 0.05, 0.0), 130.0), "pupils near the middle");
     }
 

@@ -116,10 +116,10 @@ function Canvas({ photo }: { photo: Photo }) {
   const { zoom, zoomed, marquee, glide, inMotion, laid, transform, onPointerDown } = useZoom({ photoIndex: photo.index, frame, sheet, box, shown, actual });
 
   // Addresses of the pictures.
-  // Held still while the strip's edge is dragged: the frame changes size
-  // every frame of that, and each step it crossed asked for this photo, its
-  // neighbours and then the folder around it all over again at the new size.
-  const resizing = useStore((s) => s.stripResizing);
+  // Held still while the strip or a side panel is dragged: the frame changes
+  // size every frame of that, and each step it crossed asked for this photo,
+  // its neighbours and then the folder around it all over again at the new size.
+  const resizing = useStore((s) => s.stripResizing || s.panelResizing);
   const liveFit = bucket(FIT_SIZES, Math.max(box.w, box.h) * dpr);
   const heldFit = useRef(liveFit);
   if (!resizing) heldFit.current = liveFit;

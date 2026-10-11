@@ -54,5 +54,9 @@ src-tauri/gen/schemas
 *.JPEG
 *.xmp
 
+# The one exception: the picture of the app in the README, put here on
+# purpose and with the leave of the people in it.
+!docs/images/screenshot.jpg
+
 # Labelled photos for src-tauri/examples/evaluate.rs. Never committed.
 private-eval/

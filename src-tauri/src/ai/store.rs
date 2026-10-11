@@ -18,7 +18,7 @@ use super::{focus, Analysis};
 /// from an earlier version are never shown as this one's. Bump it when any
 /// threshold or weight in `ai/` changes. The models themselves need no bump:
 /// `version()` adds a fingerprint of them.
-pub const VERSION: &str = "finder-yunet-0.6|judge-3|junk-0.8|shut-0.9|away-0.90-glance-0.15|rules-2|key-1";
+pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";
 
 /// `VERSION` plus a fingerprint of the two models, so swapping a model
 /// invalidates old verdicts on its own.

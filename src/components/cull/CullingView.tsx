@@ -12,12 +12,34 @@ import { Loupe } from "./Loupe";
 import { SceneView } from "./SceneView";
 import { Toolbar } from "./Toolbar";
 
+/** How narrow and how wide each side panel may be, as a share of the workspace. */
+const PANEL_LIMITS = {
+  exifPanelWidth: { min: 0.125, max: 0.25 },
+  facePanelWidth: { min: 0.125, max: 0.4 },
+} as const;
+type PanelWidth = keyof typeof PANEL_LIMITS;
+
+/**
+ * A panel's width as it is drawn: the width it was dragged to, held within
+ * its share of the window as the window is NOW.
+ *
+ * The width is kept in pixels and remembered between runs, and the limits
+ * were applied only while dragging. Both panels dragged wide on a large
+ * screen, and the window then made small — or the app opened next on a
+ * laptop — left no room between them: the photo was drawn nought pixels
+ * wide and the face panel ran off the edge. Held here, the two can never
+ * take more than 65% between them, whatever was remembered.
+ */
+const held = (panel: PanelWidth, width: number) => `clamp(${PANEL_LIMITS[panel].min * 100}%, ${width}px, ${PANEL_LIMITS[panel].max * 100}%)`;
+
 /** The main workspace: toolbar, photo, filmstrip. */
 export function CullingView() {
   const viewMode = useStore((s) => s.viewMode);
   const showExif = useStore((s) => s.showExif);
   const showFilmstrip = useStore((s) => s.showFilmstrip);
   const showFaces = useStore((s) => s.showFaces);
+  const exifPanelWidth = useStore((s) => s.exifPanelWidth);
+  const facePanelWidth = useStore((s) => s.facePanelWidth);
   const empty = useStore((s) => !s.loading && s.photos.length === 0);
   useWarmAhead();
   useFaceScan();
@@ -34,9 +56,27 @@ export function CullingView() {
           </div>
         ) : (
           <>
-            {showExif && <ExifPanel />}
-            <div className="min-w-0 flex-1">{viewMode === "scene" ? <SceneView /> : <Loupe />}</div>
-            {showFaces && <FacePanel />}
+            {showExif && (
+              <div
+                className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
+                style={{ width: held("exifPanelWidth", exifPanelWidth) }}
+              >
+                <ExifPanel />
+              </div>
+            )}
+            {showExif && <PanelHandle panel="exifPanelWidth" direction={1} />}
+            <div className="min-w-0 flex-1 overflow-hidden">
+              {viewMode === "scene" ? <SceneView /> : <Loupe />}
+            </div>
+            {showFaces && <PanelHandle panel="facePanelWidth" direction={-1} />}
+            {showFaces && (
+              <div
+                className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
+                style={{ width: held("facePanelWidth", facePanelWidth) }}
+              >
+                <FacePanel />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -45,6 +85,60 @@ export function CullingView() {
           <Filmstrip />
         </div>
       )}
+    </div>
+  );
+}
+
+/** The edge between a side panel and the photo, which drags to make the panel wider or narrower. */
+function PanelHandle({ panel, direction }: { panel: PanelWidth; direction: 1 | -1 }) {
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    // Or the drag selects whatever text it passes over in the panel.
+    e.preventDefault();
+    const target = e.currentTarget;
+    const startX = e.clientX;
+    // From the width the panel IS, not the width remembered: where the
+    // window has since shrunk the two differ, and the panel would jump.
+    const beside = (direction === 1 ? target.previousElementSibling : target.nextElementSibling) as HTMLElement | null;
+    const startWidth = beside?.getBoundingClientRect().width ?? useStore.getState()[panel];
+    const containerWidth = target.parentElement?.clientWidth ?? window.innerWidth;
+    target.setPointerCapture(e.pointerId);
+    useStore.getState().set("panelResizing", true);
+
+    // A mouse reports several times a frame. The panel and the photo beside
+    // it are both laid out again for each width, so only the latest width
+    // of each frame is acted on — as the filmstrip's edge does.
+    const { min, max } = PANEL_LIMITS[panel];
+    let wanted = Math.round(startWidth);
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      if (wanted !== useStore.getState()[panel]) useStore.getState().set(panel, wanted);
+    };
+    const onMove = (ev: globalThis.PointerEvent) => {
+      wanted = Math.round(Math.max(min * containerWidth, Math.min(max * containerWidth, startWidth + direction * (ev.clientX - startX))));
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
+    const onUp = () => {
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onUp);
+      target.removeEventListener("lostpointercapture", onUp);
+      cancelAnimationFrame(frame);
+      apply();
+      useStore.getState().set("panelResizing", false);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onUp);
+    target.addEventListener("lostpointercapture", onUp);
+  };
+  // The line between panel and photo is as fine as it was before the panels
+  // could be dragged; what is grabbed is a wider strip laid over it, seen
+  // only when the pointer is on it.
+  return (
+    <div role="separator" aria-orientation="vertical" onPointerDown={onPointerDown} className="group relative z-10 w-px shrink-0 cursor-col-resize bg-[#333]">
+      <span className="absolute inset-y-0 -left-[2px] w-[5px] group-hover:bg-[#4d8cff]/60 group-active:bg-[#4d8cff]/60" />
     </div>
   );
 }

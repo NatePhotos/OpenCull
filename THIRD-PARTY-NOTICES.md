@@ -38,7 +38,7 @@ SHA-256 of each model file:
 | File | SHA-256 |
 |---|---|
 | `src-tauri/models/finder.onnx` | `c9d7f075034be96ce7ae4791a1c8b23b06180250885af870b8ee461e14c506c5` |
-| `src-tauri/models/judge.onnx` | `4a4b5edfe02c6502995d2b68d7ca3b240a90d22ed9d0e2b9eb28d9e49c4c0118` |
+| `src-tauri/models/judge.onnx` | `91d9404620ab6c948c96c85ebf079d347c4bd59262a732819a6e78e4df7de3d0` |
 
 A test (`ai::store::tests`) fails if a model changes without this table.
 

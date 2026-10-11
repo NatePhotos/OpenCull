@@ -222,8 +222,10 @@ function ResizeHandle() {
   };
 
   return (
-    <div onPointerDown={onPointerDown} className="group flex shrink-0 cursor-row-resize items-center justify-center bg-[#262626]" style={{ height: HANDLE }}>
-      <span className="h-[3px] w-9 rounded-full bg-[#4d8cff] opacity-0 group-hover:opacity-100" />
+    // Lit along its whole length while the pointer is on it, as the edges of
+    // the side panels are: the line above it and the bar itself, five pixels.
+    <div onPointerDown={onPointerDown} className="group relative z-10 shrink-0 cursor-row-resize bg-[#262626]" style={{ height: HANDLE }}>
+      <span className="absolute inset-x-0 -top-px bottom-0 group-hover:bg-[#4d8cff]/60 group-active:bg-[#4d8cff]/60" />
     </div>
   );
 }

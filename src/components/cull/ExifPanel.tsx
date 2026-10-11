@@ -11,7 +11,7 @@ export function ExifPanel() {
   const photo = useStore((s) => (s.current >= 0 ? s.photos[s.current] : undefined));
 
   return (
-    <div className="flex w-[250px] shrink-0 flex-col border-r border-[#333] bg-panel">
+    <div className="flex h-full min-h-0 w-full flex-col bg-panel">
       <div className="flex items-center gap-2 bg-toolbar px-3.5 py-3">
         <Info className="size-3.5 fill-brand text-toolbar" />
         <span className="flex-1 text-[13px] font-bold text-white">EXIF Data</span>
@@ -128,6 +128,7 @@ const H = 96;
 function Histogram({ photo }: { photo: Photo | undefined }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [data, setData] = useState<HistogramData | null>(null);
+  const [width, setWidth] = useState(0);
   const rgb = useStore((s) => s.rgbHistogram);
   const path = photo?.display;
   const version = photo?.version;
@@ -144,11 +145,23 @@ function Histogram({ photo }: { photo: Photo | undefined }) {
     };
   }, [path, version]);
 
+  // The canvas is sized to the panel. Dragging the panel changes that, and
+  // the drawing has to follow or it stays the width the panel opened at.
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;
+    const measure = () => setWidth((w) => (el.clientWidth === w ? w : el.clientWidth));
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || width === 0) return;
     const dpr = window.devicePixelRatio;
-    const w = el.clientWidth;
+    const w = width;
     el.width = w * dpr;
     el.height = H * dpr;
     const ctx = el.getContext("2d")!;
@@ -181,7 +194,7 @@ function Histogram({ photo }: { photo: Photo | undefined }) {
     draw(data.b, "rgba(70, 120, 245, .62)");
     ctx.globalCompositeOperation = "source-over";
     draw(data.luma, "rgba(255, 255, 255, .16)");
-  }, [data, rgb]);
+  }, [data, rgb, width]);
 
   return <canvas ref={canvas} className="block w-full bg-[#101014]" style={{ height: H }} />;
 }

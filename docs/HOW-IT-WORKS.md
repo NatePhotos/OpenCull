@@ -121,11 +121,16 @@ was found is not a face at all — a hand, a plate of food, the back of a head.
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
-faces, nearly all seen from behind. Looking away is called on the judge's
-looking-away score or on pupils sitting to one side of a face held square:
-on 615 labelled faces that catches 79% and wrongly accuses 5.4%, and on 1,360
-faces known to be looking at the camera it wrongly accuses 12. Bursts are split
-by the clock; within a burst, frames are grouped into poses by where the same
+faces, nearly all seen from behind; where the finder itself was unsure of a
+box, less is asked of the judge before it goes. Looking away is called on
+the judge's looking-away score or on pupils sitting to one side of a face
+held square. In a test of 185 faces graded by hand, from photographs it
+never learned from and each counted for as many as its kind is common, it
+catches 62% of those looking away and wrongly
+accuses 1.3% of those looking at the camera; what it replaced caught 53%
+and accused none. On 658 faces in posed groups, nearly all of them looking
+at the camera, it accuses 14 where the old one accused 10. Bursts are split by
+the clock; within a burst, frames are grouped into poses by where the same
 people stand (below).
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a

@@ -61,6 +61,8 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
+[![OpenCull, with a photo open: the camera's settings on the left, the photo in the middle, each face cut out large on the right, and the filmstrip below][product-screenshot]](docs/images/screenshot.jpg)
+
 Culling is the first job after a shoot: going through every frame and
 deciding what to keep. OpenCull is built to make that fast.
 
@@ -189,11 +191,18 @@ Every shortcut can be changed in Settings. In **Ingest from Card**, `⌘A` /
 `Ctrl+A` selects every photo on the card and `Esc` clears the selection;
 those two are fixed.
 
+<div align="center">
+  <img src="docs/images/shortcuts.png" alt="The Keyboard Shortcuts window, listing every shortcut and the key it is on" width="520">
+</div>
+
 The face panel on the right shows each face in the photo, cut out large
 enough to judge. The top square on each is its eyes (green for open, through
 to red for shut); the bottom one is its sharpness out of ten. Point at them
 for the words. The coloured bar under each thumbnail is the photo's rank
 among the frames it was shot with, with **1** the one to look at first.
+
+Drag the edge of either side panel, or the top of the filmstrip, to make it
+larger or smaller. The sizes are remembered.
 
 _For how any of this works, and how well, see
 [How it works](docs/HOW-IT-WORKS.md)._
@@ -259,6 +268,7 @@ Project Link: [https://github.com/NatePhotos/OpenCull](https://github.com/NatePh
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- MARKDOWN LINKS & IMAGES -->
+[product-screenshot]: docs/images/screenshot.jpg
 [release-shield]: https://img.shields.io/github/v/release/NatePhotos/OpenCull?include_prereleases&style=for-the-badge
 [release-url]: https://github.com/NatePhotos/OpenCull/releases
 [build-shield]: https://img.shields.io/github/actions/workflow/status/NatePhotos/OpenCull/build.yml?branch=main&style=for-the-badge
