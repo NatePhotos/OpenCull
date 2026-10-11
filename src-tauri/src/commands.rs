@@ -814,9 +814,18 @@ pub fn ai_set_yield(app: AppState, on: bool) {
 
 /// How much is remembered of past analysis: bytes, and folders.
 #[tauri::command]
-pub async fn ai_cache_usage(app: AppState<'_>) -> Result<(u64, usize), String> {
+pub async fn ai_cache_usage(app: AppState<'_>) -> Result<AiCacheUsage, String> {
     let store = app.faces.clone();
-    tauri::async_runtime::spawn_blocking(move || store.usage()).await.map_err(|e| e.to_string())
+    let (bytes, folders) = tauri::async_runtime::spawn_blocking(move || store.usage()).await.map_err(|e| e.to_string())?;
+    Ok(AiCacheUsage { bytes, folders })
+}
+
+/// What remembered analysis takes on disk.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCacheUsage {
+    bytes: u64,
+    folders: usize,
 }
 
 /// Forgets all past analysis. Folders are analysed again when next opened.

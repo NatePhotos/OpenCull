@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { api } from "./api";
+import { api, logged } from "./api";
 import { useStore } from "./store";
 
 /**
@@ -59,7 +59,14 @@ export function useWarmAhead(): void {
         if (behind) near.push({ path: behind.display, version: behind.version });
       }
       centre.current = { view, at, size: fitSize };
-      void api.warm(near, fitSize).then((n) => useStore.setState({ warmRemaining: n, warmTotal: n }));
+      void api
+        .warm(near, fitSize)
+        .then((n) => {
+          const s = useStore.getState();
+          s.set("warmRemaining", n);
+          s.set("warmTotal", n);
+        })
+        .catch(logged("preparing the folder ahead"));
     }, SETTLE_MS);
     return () => clearTimeout(timer);
   }, [ready, enabled, view, current, fitSize]);
@@ -68,7 +75,11 @@ export function useWarmAhead(): void {
   useEffect(() => {
     if (enabled && ready) return;
     centre.current = null;
-    if (!enabled) void api.warm([], 0).then(() => useStore.getState().set("warmRemaining", 0));
+    if (!enabled)
+      void api
+        .warm([], 0)
+        .then(() => useStore.getState().set("warmRemaining", 0))
+        .catch(logged("stopping preparing ahead"));
   }, [enabled, ready]);
 
   // While there is preparing left to do, keep the count on screen honest.
@@ -76,7 +87,12 @@ export function useWarmAhead(): void {
   useEffect(() => {
     if (!preparing) return;
     const timer = setInterval(() => {
-      void api.warmRemaining().then((n) => useStore.getState().set("warmRemaining", n));
+      // A count that fails to come back is asked for again in a second; not
+      // reported, or a stalled backend would fill the log once a second.
+      void api.warmRemaining().then(
+        (n) => useStore.getState().set("warmRemaining", n),
+        () => {},
+      );
     }, 1000);
     return () => clearInterval(timer);
   }, [preparing]);

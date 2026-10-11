@@ -80,7 +80,7 @@ export function useFaceScan(): void {
     const here = Math.max(0, order.indexOf(current));
     const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index);
 
-    useStore.setState({ aiRunning: true });
+    useStore.getState().set("aiRunning", true);
     void api
       .aiScan(session, nearest, (event) => {
         const s = useStore.getState();
@@ -88,11 +88,11 @@ export function useFaceScan(): void {
         if (event.type === "batch") s.addAnalysis(event.items);
         else s.set("aiRunning", false);
       })
-      .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
+      .catch(() => useStore.getState().session?.id === session && useStore.getState().set("aiRunning", false));
 
     return () => {
       void api.aiStop().catch(logged("stopping analysis"));
-      if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
+      if (useStore.getState().session?.id === session) useStore.getState().set("aiRunning", false);
     };
   }, [enabled, session, rescan]);
 }

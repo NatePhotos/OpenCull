@@ -2,7 +2,15 @@
 //
 // Settings the whole app shares live in the store, which saves them as they
 // change (PERSISTED in store.ts). Settings that belong to one view use
-// usePersistentState below. Nothing else saves settings.
+// usePersistentState below. Two others save themselves, for reasons of
+// their own:
+//
+// - the loupe's zoom level (useZoom.ts), which lives outside React so every
+//   photo and view shares it, and which a self-test must not save;
+// - keyboard shortcuts (shortcuts.ts), saved whole when changed in Settings
+//   and merged over the defaults when read, so a new action gets its key.
+//
+// Nothing else saves settings.
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 

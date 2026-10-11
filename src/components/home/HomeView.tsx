@@ -96,7 +96,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         </button>
         <button
           type="button"
-          onClick={() => useStore.setState({ ingestOpen: true, ingestFrom: null })}
+          onClick={() => useStore.getState().openIngest(null)}
           className="mr-3 flex items-center gap-2 rounded-[10px] bg-[#2e2e2e] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#383838]"
         >
           <CardIcon className="size-4 text-white" /> Ingest from Card
@@ -117,7 +117,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
           <button
             type="button"
             onClick={() => {
-              useStore.setState({ ingestOpen: true, ingestFrom: arrived.path });
+              useStore.getState().openIngest(arrived.path);
               setArrived(null);
             }}
             className="rounded-md bg-[#4d80ff] px-3 py-1.5 text-xs font-bold text-white hover:brightness-110"

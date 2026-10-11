@@ -102,7 +102,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     }, LIMIT_SETTLE_MS);
   };
 
-  const [faceMemory, setFaceMemory] = useState<[number, number] | null>(null);
+  const [faceMemory, setFaceMemory] = useState<{ bytes: number; folders: number } | null>(null);
   useEffect(() => {
     void api.aiCacheUsage().then(setFaceMemory, () => setFaceMemory(null));
   }, []);
@@ -278,11 +278,11 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             title="Analysis cache"
             detail={
               faceMemory
-                ? `${fileSize(faceMemory[0])} for ${faceMemory[1].toLocaleString()} folder${faceMemory[1] === 1 ? "" : "s"}, so a folder is only ever analysed once. Clearing makes folders scan again on their next visit. Ratings, flags and colours are never affected.`
+                ? `${fileSize(faceMemory.bytes)} for ${faceMemory.folders.toLocaleString()} folder${faceMemory.folders === 1 ? "" : "s"}, so a folder is only ever analysed once. Clearing makes folders scan again on their next visit. Ratings, flags and colours are never affected.`
                 : "What analysis found, kept so a folder is only ever analysed once."
             }
             control={
-              <Button variant="outline" size="sm" disabled={!faceMemory || faceMemory[1] === 0} onClick={() => void clearFaces()}>
+              <Button variant="outline" size="sm" disabled={!faceMemory || faceMemory.folders === 0} onClick={() => void clearFaces()}>
                 Clear
               </Button>
             }

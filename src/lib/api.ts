@@ -164,7 +164,7 @@ export interface Backend {
   /** Whether analysis stands aside while the photographer moves between photos. */
   aiSetYield(on: boolean): Promise<void>;
   /** Bytes remembered of past analysis, and how many folders that is. */
-  aiCacheUsage(): Promise<[number, number]>;
+  aiCacheUsage(): Promise<{ bytes: number; folders: number }>;
   aiClearCache(): Promise<void>;
   ingestVolumes(): Promise<Volume[]>;
   ingestBrowse(path: string): Promise<{ folders: IngestFolder[]; imageCount: number }>;

@@ -104,7 +104,7 @@ export function IngestView() {
   const copying = phase.is === "copying";
   const busy = copying || phase.is === "scanning";
 
-  const close = useCallback(() => useStore.setState({ ingestOpen: false, ingestFrom: null }), []);
+  const close = useCallback(() => useStore.getState().closeIngest(), []);
 
   // ── Sources ───────────────────────────────────────────────────────────────
 

@@ -198,6 +198,9 @@ interface Actions {
   toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces"): void;
   /** Compares every analysed photo afresh, after a change to what counts as a group. */
   regroup(): void;
+  /** Shows Ingest, starting from the card at `from` if one is given. */
+  openIngest(from: string | null): void;
+  closeIngest(): void;
   /** Forgets what analysis found for the folder on screen and starts it again. */
   rescanFaces(): void;
   /** Takes in a batch of analysed photos, and compares the frames of any pose they complete. */
@@ -825,6 +828,9 @@ export const useStore = create<Store>((set, get) => {
     set: (key, value) => set({ [key]: value } as Pick<State, typeof key>),
     toggle: (key) => set((s) => ({ [key]: !s[key] }) as Pick<State, typeof key>),
     zoomCommand: (kind) => set((s) => ({ zoom: { kind, nonce: s.zoom.nonce + 1 } })),
+
+    openIngest: (from) => set({ ingestOpen: true, ingestFrom: from }),
+    closeIngest: () => set({ ingestOpen: false, ingestFrom: null }),
 
     rescanFaces: () => set((s) => ({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRescan: s.aiRescan + 1 })),
 
