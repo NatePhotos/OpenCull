@@ -86,26 +86,96 @@ pub fn sidecar_candidates(image: &Path) -> [PathBuf; 2] {
     [image.with_extension("xmp"), PathBuf::from(with_ext)]
 }
 
-/// The sidecars that exist beside a photo, under either naming. Anything
-/// that moves, copies or trashes a photo takes all of these with it.
+/// The sidecars that belong to a photo, under either naming. Anything that
+/// moves, copies or trashes a photo takes all of these with it — but never
+/// a `NAME.xmp` that another photo of the same name also reads.
 pub fn sidecars_of(image: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = sidecar_candidates(image).into_iter().filter(|p| p.is_file()).collect();
+    let [standard, with_ext] = sidecar_candidates(image);
+    let mut found: Vec<PathBuf> = if shares_name(image) { vec![with_ext] } else { vec![standard, with_ext] };
+    found.retain(|p| p.is_file());
     found.dedup();
     found
 }
 
 /// Where a photo's sidecar is, or would be.
 ///
-/// `photo.xmp` normally. `photo.ARW.xmp` only when that one already exists and
+/// `photo.xmp` normally. `photo.ARW.xmp` when that one already exists and
 /// the plain one does not — some programs write it that way, and the marks in
-/// it should be read and updated where they are rather than duplicated.
+/// it should be read and updated where they are rather than duplicated — and
+/// always for a photo that shares its name with another (`shares_name`).
 pub fn sidecar_path(image: &Path) -> PathBuf {
     let [standard, with_ext] = sidecar_candidates(image);
-    if with_ext.exists() && !standard.exists() {
+    if shares_name(image) || (with_ext.exists() && !standard.exists()) {
         with_ext
     } else {
         standard
     }
+}
+
+/// Whether another photo in `image`'s folder has the same name, so that a
+/// `NAME.xmp` would be read by both: `A.ARW` beside `A.DNG`, or `A.JPG`
+/// beside `A.png`. A RAW and its JPEG are one photo and share a sidecar on
+/// purpose (scan.rs); that is not this.
+///
+/// Such a photo keeps its marks in `NAME.ext.xmp`, its own. Otherwise
+/// rating one would rate the other, and trashing one would take the other's
+/// develop settings with it.
+pub fn shares_name(image: &Path) -> bool {
+    let (Some(folder), Some(stem)) = (image.parent(), image.file_stem()) else { return false };
+    shared_names(folder).contains(&stem.to_string_lossy().to_lowercase())
+}
+
+/// The names in `folder` that more than one photo goes by, lowercased.
+///
+/// Worked out from one listing of the folder, remembered for as long as the
+/// folder's own date says nothing has been added or taken away. Opening a
+/// folder reads every photo's marks, and listing it again for each would be
+/// as many listings as photos.
+fn shared_names(folder: &Path) -> std::collections::HashSet<String> {
+    type Known = HashMap<PathBuf, (Option<std::time::SystemTime>, std::collections::HashSet<String>)>;
+    static KNOWN: OnceLock<Mutex<Known>> = OnceLock::new();
+    let changed = std::fs::metadata(folder).and_then(|m| m.modified()).ok();
+    let known = KNOWN.get_or_init(Default::default);
+    let mut known = known.lock().unwrap();
+    if let Some((when, names)) = known.get(folder) {
+        if *when == changed && changed.is_some() {
+            return names.clone();
+        }
+    }
+
+    // Per name: RAWs, JPEGs, and other pictures.
+    let mut kinds: HashMap<String, (usize, usize, usize)> = HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ext = crate::raw::extension(&path);
+            if !crate::scan::is_image(&ext) || !entry.file_type().is_ok_and(|t| t.is_file()) {
+                continue;
+            }
+            let Some(stem) = path.file_stem() else { continue };
+            let count = kinds.entry(stem.to_string_lossy().to_lowercase()).or_default();
+            if crate::raw::RAW_EXTENSIONS.contains(&ext.as_str()) {
+                count.0 += 1;
+            } else if crate::raw::JPEG_EXTENSIONS.contains(&ext.as_str()) {
+                count.1 += 1;
+            } else {
+                count.2 += 1;
+            }
+        }
+    }
+    // How many photos a name stands for, as the scan pairs them: a RAW takes
+    // the JPEGs of its name as its own, so they do not count apart from it.
+    let names: std::collections::HashSet<String> = kinds
+        .into_iter()
+        .filter(|(_, (raws, jpegs, others))| raws + others + if *raws == 0 { *jpegs } else { 0 } >= 2)
+        .map(|(name, _)| name)
+        .collect();
+
+    if known.len() > 256 {
+        known.clear();
+    }
+    known.insert(folder.to_path_buf(), (changed, names.clone()));
+    names
 }
 
 fn first_match(xml: &str, patterns: &[&'static str]) -> Option<String> {
@@ -165,7 +235,11 @@ pub fn parse(xml: &str) -> Marks {
 /// A sidecar wins outright, even an empty one. It is the newer statement, and
 /// merging the two would bring back a rating the photographer had cleared.
 pub fn read(image: &Path, probe: Option<&Probe>) -> Marks {
-    for candidate in sidecar_candidates(image) {
+    // A photo that shares its name reads only its own sidecar: the plain
+    // one is the other photo's too.
+    let [standard, with_ext] = sidecar_candidates(image);
+    let candidates = if shares_name(image) { vec![with_ext] } else { vec![standard, with_ext] };
+    for candidate in candidates {
         if let Ok(xml) = std::fs::read_to_string(&candidate) {
             return parse(&xml);
         }
@@ -566,6 +640,35 @@ mod tests {
         writer.enqueue(photo.clone(), Marks { rating: 3, ..Default::default() });
         writer.flush();
         assert_eq!(*told.lock().unwrap(), [(photo, Wrote::Sidecar)]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn two_photos_of_one_name_keep_their_marks_apart() {
+        let dir = scratch("twins");
+        let (arw, dng) = (dir.join("A7V00020.ARW"), dir.join("A7V00020.DNG"));
+        std::fs::write(&arw, b"sony").unwrap();
+        std::fs::write(&dng, b"converted").unwrap();
+
+        write(&arw, Marks { rating: 5, ..Default::default() }).unwrap();
+        write(&dng, Marks { rating: 1, ..Default::default() }).unwrap();
+
+        assert_eq!(read(&arw, None).rating, 5);
+        assert_eq!(read(&dng, None).rating, 1);
+        assert!(!dir.join("A7V00020.xmp").exists(), "no sidecar both would read");
+        assert_eq!(sidecars_of(&arw), vec![dir.join("A7V00020.ARW.xmp")], "trashing one takes only its own");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_raw_and_its_jpeg_still_share_one_sidecar() {
+        let dir = scratch("pairshare");
+        let (arw, jpg) = (dir.join("A7V00021.ARW"), dir.join("A7V00021.JPG"));
+        std::fs::write(&arw, b"raw").unwrap();
+        std::fs::write(&jpg, b"jpeg").unwrap();
+        assert!(!shares_name(&arw));
+        write(&arw, Marks { rating: 3, ..Default::default() }).unwrap();
+        assert!(dir.join("A7V00021.xmp").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
