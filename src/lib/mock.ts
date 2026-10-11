@@ -135,7 +135,7 @@ export const mock: Backend = {
           }));
           // Nobody in it: what it is about instead, somewhere off centre.
           const key = n === 0 ? { x: 0.2 + (index % 3) * 0.1, y: 0.15 + (index % 2) * 0.2, w: 0.4, h: 0.4 } : null;
-          return { index, faces, score: 20 + ((index * 37) % 75), focus: n === 0 ? null : 0.8, gaze: n === 0 ? null : 1, key };
+          return { index, failed: false, faces, score: 20 + ((index * 37) % 75), focus: n === 0 ? null : 0.8, gaze: n === 0 ? null : 1, key };
         }),
       });
     }

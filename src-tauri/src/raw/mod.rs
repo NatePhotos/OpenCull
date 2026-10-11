@@ -551,16 +551,7 @@ pub fn capture_time_source(src: &dyn ReadAt) -> Option<f64> {
         time_from_image_directory(&tiff)
     } else if head.len() >= 8 && &head[4..8] == b"ftyp" {
         let cr3 = bmff::scan(src)?;
-        // Canon keeps the exposure directory in a box of its own; the camera
-        // directory is the fallback, as it is everywhere else.
-        let from_exif = cr3
-            .exif
-            .and_then(|at| Tiff::open(src, at))
-            .and_then(|tiff| tiff.ifd(tiff.first_ifd()).and_then(|(entries, _)| time_from_exif_entries(&tiff, &entries)));
-        from_exif.or_else(|| {
-            let tiff = Tiff::open(src, cr3.main?)?;
-            time_from_image_directory(&tiff)
-        })
+        time_from_cr3(src, &cr3)
     } else {
         time_from_image_directory(&Tiff::open(src, 0)?)
     }
@@ -587,10 +578,42 @@ fn time_from_image_directory(tiff: &Tiff) -> Option<f64> {
     clock_ms(&date, subsec.as_deref())
 }
 
-fn time_from_exif_entries(tiff: &Tiff, entries: &[tiff::Entry]) -> Option<f64> {
-    let text = |tag: u16| entries.iter().find(|e| e.tag == tag).and_then(|e| tiff.text(e));
-    let date = text(0x9003).or_else(|| text(0x9004))?;
-    clock_ms(&date, text(0x9291).as_deref())
+/// A CR3's capture time, by the same precedence a full probe ends up with.
+///
+/// Canon keeps the exposure directory (CMT2) in a box of its own, and a probe
+/// walks the camera directory (CMT1, with any EXIF it points to) first and
+/// CMT2 after. A capture time from anywhere wins, CMT2's over the camera
+/// directory's; failing that, the first fallback date met — the camera
+/// directory's file date, then its EXIF's digitised date, then CMT2's.
+fn time_from_cr3(src: &dyn ReadAt, cr3: &bmff::Cr3) -> Option<f64> {
+    let first = |at: Option<u64>| -> Option<(Tiff<'_>, Vec<tiff::Entry>)> {
+        let tiff = Tiff::open(src, at?)?;
+        let (entries, _) = tiff.ifd(tiff.first_ifd())?;
+        Some((tiff, entries))
+    };
+    let main = first(cr3.main);
+    let main_exif = main.as_ref().and_then(|(tiff, entries)| {
+        let at = entries.iter().find(|e| e.tag == 0x8769).and_then(|e| tiff.int(e))?;
+        let (entries, _) = tiff.ifd(at)?;
+        Some(entries)
+    });
+    let exposure = first(cr3.exif);
+
+    let text_in = |tiff: Option<&Tiff>, entries: Option<&Vec<tiff::Entry>>, tag: u16| -> Option<String> {
+        entries?.iter().find(|e| e.tag == tag).and_then(|e| tiff?.text(e))
+    };
+    let main_tiff = main.as_ref().map(|(t, _)| t);
+    let in_main = |tag| text_in(main_tiff, main.as_ref().map(|(_, e)| e), tag);
+    let in_main_exif = |tag| text_in(main_tiff, main_exif.as_ref(), tag);
+    let in_exposure = |tag| text_in(exposure.as_ref().map(|(t, _)| t), exposure.as_ref().map(|(_, e)| e), tag);
+
+    let date = in_exposure(0x9003)
+        .or_else(|| in_main_exif(0x9003))
+        .or_else(|| in_main(0x0132))
+        .or_else(|| in_main_exif(0x9004))
+        .or_else(|| in_exposure(0x9004))?;
+    let subsec = in_exposure(0x9291).or_else(|| in_main_exif(0x9291));
+    clock_ms(&date, subsec.as_deref())
 }
 
 /// A JPEG's own metadata: the EXIF block it carries, and any XMP.
@@ -908,6 +931,24 @@ mod tests {
         raf.resize(148, 0);
         raf.extend_from_slice(&jpeg_file);
         assert_eq!(assert_same_time(&raf), expected);
+    }
+
+    #[test]
+    fn the_quick_time_matches_the_full_probe_for_a_cr3() {
+        let camera = |extra: Vec<(u16, u16, Vec<u8>, u32)>| build(&[[vec![ascii(0x0110, "EOS R5")], extra].concat()]);
+
+        // Exposure directory with a capture time: that wins.
+        let file = bmff::testing::cr3(&camera(vec![ascii(0x0132, "2026:10:06 20:00:00")]), &build(&[vec![ascii(0x9003, "2026:10:06 19:41:07"), ascii(0x9291, "50")]]));
+        assert_eq!(assert_same_time(&file), clock_ms("2026:10:06 19:41:07", Some("50")));
+
+        // No capture time anywhere: the camera directory's file date comes
+        // before the exposure directory's digitised date, as a probe has it.
+        let file = bmff::testing::cr3(&camera(vec![ascii(0x0132, "2026:10:06 20:00:00")]), &build(&[vec![ascii(0x9004, "2026:10:06 21:00:00")]]));
+        assert_eq!(assert_same_time(&file), clock_ms("2026:10:06 20:00:00", None));
+
+        // Only the digitised date.
+        let file = bmff::testing::cr3(&camera(vec![]), &build(&[vec![ascii(0x9004, "2026:10:06 21:00:00")]]));
+        assert_eq!(assert_same_time(&file), clock_ms("2026:10:06 21:00:00", None));
     }
 
     #[test]

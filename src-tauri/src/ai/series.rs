@@ -264,7 +264,7 @@ mod tests {
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {
-        Record { faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None }
+        Record { failed: false, faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None }
     }
 
     fn marks(frames: &[Record]) -> Vec<Compared> {

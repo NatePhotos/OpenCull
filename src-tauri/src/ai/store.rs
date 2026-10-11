@@ -57,7 +57,12 @@ pub struct FaceRecord {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Record {
+    /// The photo could not be analysed. It has no faces, no score and no
+    /// key, and is left out of ranking rather than counted as empty.
+    #[serde(default)]
+    pub failed: bool,
     pub faces: Vec<FaceRecord>,
     pub score: Option<f32>,
     /// The parts of the mark that are not about how open the eyes are, each
@@ -70,6 +75,7 @@ pub struct Record {
 
 /// What a photo with nobody in it is about, as it is remembered.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct KeyRecord {
     /// Left, top, width and height, as fractions of the upright photo.
     pub x: f32,
@@ -98,7 +104,14 @@ impl From<&Analysis> for Record {
             })
             .collect();
         let key = a.key.map(|k| KeyRecord { x: k.x as f32, y: k.y as f32, w: k.w as f32, h: k.h as f32 });
-        Record { faces, score: a.score.map(|s| s as f32), focus: a.parts.map(|p| p.focus as f32), gaze: a.parts.map(|p| p.gaze as f32), key }
+        Record { failed: false, faces, score: a.score.map(|s| s as f32), focus: a.parts.map(|p| p.focus as f32), gaze: a.parts.map(|p| p.gaze as f32), key }
+    }
+}
+
+impl Record {
+    /// For a photo that could not be analysed.
+    pub fn failed() -> Self {
+        Record { failed: true, ..Default::default() }
     }
 }
 
@@ -169,7 +182,7 @@ mod tests {
 
     fn record(score: f32) -> Record {
         let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true };
-        Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
+        Record { failed: false, faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
     }
 
     #[test]

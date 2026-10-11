@@ -183,6 +183,11 @@ pub struct Upright {
 /// For anything that has to look at the photograph itself rather than hand
 /// it to the view: finding faces, and cutting them out to be judged.
 pub fn decode_upright(path: &Path, long_edge: u32) -> Result<Upright, String> {
+    // A PNG is its own picture, with no preview inside and no orientation.
+    if raw::extension(path) == "png" {
+        let pixels = shrink_to(decode_png(path)?, long_edge)?;
+        return Ok(Upright { rgb: pixels.data, width: pixels.width, height: pixels.height });
+    }
     let src = FileSource::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let probe = raw::probe_source(&src);
     let pixels = orient(decode_embedded(&src, &probe, long_edge)?, probe.orientation);
@@ -446,6 +451,17 @@ fn render_png(path: &Path, tier: Tier) -> Result<Rendered, String> {
         return Ok(Rendered { bytes, mime: "image/png" });
     }
 
+    let pixels = decode_png(path)?;
+    match tier {
+        Tier::Thumb(n) => encode(shrink_to(pixels, n)?, THUMB_QUALITY),
+        Tier::Fit(n) => encode(shrink_to(pixels, n.max(2400))?, FIT_QUALITY),
+        Tier::Screen => Err("a PNG has no embedded preview".into()),
+        Tier::Full => unreachable!("handled above"),
+    }
+}
+
+/// A PNG, decoded to 8-bit RGB.
+fn decode_png(path: &Path) -> Result<Pixels, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
@@ -462,14 +478,7 @@ fn render_png(path: &Path, tier: Tier) -> Result<Rendered, String> {
         png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0]]).collect(),
         png::ColorType::Indexed => return Err("indexed PNG was not expanded".into()),
     };
-    let pixels = Pixels { data, width: frame.width, height: frame.height, icc: None };
-
-    match tier {
-        Tier::Thumb(n) => encode(shrink_to(pixels, n)?, THUMB_QUALITY),
-        Tier::Fit(n) => encode(shrink_to(pixels, n.max(2400))?, FIT_QUALITY),
-        Tier::Screen => Err("a PNG has no embedded preview".into()),
-        Tier::Full => unreachable!("handled above"),
-    }
+    Ok(Pixels { data, width: frame.width, height: frame.height, icc: None })
 }
 
 /// Width and height of a rendered JPEG, read back from its header.

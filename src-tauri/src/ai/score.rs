@@ -74,6 +74,8 @@ pub fn parts(faces: &[Reading], with_background: bool) -> Option<Parts> {
     let least = |get: fn(&Reading) -> Option<f64>| marked.iter().filter_map(|f| get(f)).min_by(f64::total_cmp);
     let most_away = marked.iter().filter_map(|f| f.away).max_by(f64::total_cmp);
 
+    // The focus range here is not the one `focus::score` shows faces on;
+    // see the note there before bringing the two together.
     Some(Parts { eye: eye_alone(least(|f| f.eye)), focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze: 1.0 - between(most_away, 0.50, 0.98, 0.25) })
 }
 

@@ -80,6 +80,12 @@ fn variance(values: &[f32]) -> f64 {
 /// The measure as a mark out of 100. The ends come from a hand-labelled set:
 /// eyes out of focus sat below 0.033, eyes in focus between 0.24 and 0.55.
 /// On a log scale, because the measure runs over two factors of ten.
+///
+/// This is the sharpness shown for each face. The photo's own mark uses the
+/// same measure on a different scale (`score::parts`, -1.2 to 0.6 in log10),
+/// so a face shown as 100 sharp counts for about half the focus credit there.
+/// The two were not set together, but the rankings they give have been judged
+/// right as they are: change one only after checking rankings on real bursts.
 pub fn score(ratio: f64) -> f64 {
     const LOW: f64 = 0.008;
     const HIGH: f64 = 0.60;

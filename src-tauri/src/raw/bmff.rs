@@ -169,6 +169,25 @@ fn first_sample(src: &dyn ReadAt, trak: BoxAt) -> Option<(u64, u64)> {
 }
 
 #[cfg(test)]
+pub(crate) mod testing {
+    fn bx(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// A CR3 holding nothing but Canon's metadata: `cmt1` as its camera
+    /// directory and `cmt2` as its exposure one, each a small TIFF.
+    pub fn cr3(cmt1: &[u8], cmt2: &[u8]) -> Vec<u8> {
+        let mut meta = super::CANON_META.to_vec();
+        meta.extend(bx(b"CMT1", cmt1));
+        meta.extend(bx(b"CMT2", cmt2));
+        [bx(b"ftyp", b"crx isom"), bx(b"moov", &bx(b"uuid", &meta))].concat()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

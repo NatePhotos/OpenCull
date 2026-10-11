@@ -93,6 +93,8 @@ export interface AiFace {
 
 /** What the analysis found in one photo. */
 export interface AiResult {
+  /** The photo could not be analysed. It takes no part in ranking. */
+  failed: boolean;
   faces: AiFace[];
   /** Out of 100, on its subjects; null for a photo with no faces. */
   score: number | null;

@@ -772,10 +772,18 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                         let front = app.ai_front.lock().unwrap().clone();
                         let Some(index) = queue.take(&front) else { return };
                         let image = &session.images[index];
-                        // A photo that cannot be analysed is remembered as
-                        // having no faces, so it is not tried on every open.
-                        let record = ai::analyze(&image.display).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
-                        known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
+                        // A photo that cannot be analysed is marked so, and left
+                        // out of ranking. Remembered when the file itself is
+                        // the trouble, so it is not tried on every open; not
+                        // when the disk was, so it is tried again next time.
+                        let (record, remember) = match ai::analyze(&image.display) {
+                            Ok(analysis) => (ai::store::Record::from(&analysis), true),
+                            Err(ai::Failure::Unusable(_)) => (ai::store::Record::failed(), true),
+                            Err(ai::Failure::Unreadable(_)) => (ai::store::Record::failed(), false),
+                        };
+                        if remember {
+                            known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
+                        }
                         if tx.send(Analysed { index, record }).is_err() {
                             return;
                         }

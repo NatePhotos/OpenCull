@@ -1,7 +1,10 @@
 //! Finding faces in a photograph and judging them.
 //!
 //! No part of this comes from the system it runs on: the same two model
-//! files give the same answers on a Mac, on Windows and on Linux.
+//! files run on a Mac, on Windows and on Linux. The answers should be very
+//! close everywhere, but they are not promised identical: ONNX Runtime uses
+//! different CPU instructions on each, and a verdict right at a threshold can
+//! fall either side. Only the Mac has been checked.
 
 pub mod finder;
 pub mod focus;
@@ -213,15 +216,66 @@ fn is_away(v: &Verdict, wide: f64) -> bool {
     v.away >= AWAY || (wide >= GLANCE_MIN_WIDTH && (v.eye_offset + HEAD_SHARE * v.head_yaw).abs() >= GLANCE)
 }
 
+/// Why a photo could not be analysed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Failure {
+    /// The file could not be got at: a card pulled, a drive gone to sleep.
+    /// Worth trying again next time.
+    Unreadable(String),
+    /// The file was there, and is not something that can be analysed: no
+    /// picture in it that decodes. Trying again would give the same answer.
+    Unusable(String),
+}
+
 /// Finds and judges the faces in a photo file.
-pub fn analyze(path: &Path) -> Result<Analysis, String> {
-    let picture = preview::decode_upright(path, u32::MAX)?;
-    analyze_pixels(&picture.rgb, picture.width, picture.height)
+pub fn analyze(path: &Path) -> Result<Analysis, Failure> {
+    let reachable = || std::fs::File::open(path).and_then(|f| f.metadata()).is_ok();
+    if !reachable() {
+        return Err(Failure::Unreadable(format!("{} could not be opened", path.display())));
+    }
+    let picture = preview::decode_upright(path, u32::MAX).map_err(|why| {
+        // A read that failed part way looks like a file cut short. If the
+        // file can no longer be opened at all, it was the disk, not the file.
+        if reachable() {
+            Failure::Unusable(why)
+        } else {
+            Failure::Unreadable(why)
+        }
+    })?;
+    analyze_pixels(&picture.rgb, picture.width, picture.height).map_err(Failure::Unusable)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_file_is_worth_trying_again_and_a_junk_one_is_not() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-failures-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(matches!(analyze(&dir.join("gone.ARW")), Err(Failure::Unreadable(_))));
+        let junk = dir.join("junk.ARW");
+        std::fs::write(&junk, b"not a photograph at all").unwrap();
+        assert!(matches!(analyze(&junk), Err(Failure::Unusable(_))));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_png_is_decoded_for_analysis() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-png-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shot.png");
+        {
+            let file = std::fs::File::create(&path).unwrap();
+            let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 64, 48);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().unwrap().write_image_data(&vec![128u8; 64 * 48 * 3]).unwrap();
+        }
+        let picture = preview::decode_upright(&path, u32::MAX).unwrap();
+        assert_eq!((picture.width, picture.height), (64, 48));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     fn verdict(not_a_face: f32, away: f32, eye_offset: f32, head_yaw: f32) -> Verdict {
         Verdict { validity: [1.0 - not_a_face, 0.0, not_a_face], away, eye_offset, head_yaw, ..Verdict::default() }

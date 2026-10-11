@@ -114,8 +114,10 @@ cards on Windows and Linux is written and has never been run.
 Face analysis finds the faces in each photo and judges them — eyes shut,
 looking away, how sharp, subject or background — then marks the photo and
 ranks the frames of each burst. It uses no part of the system it runs on: two
-model files, run through ONNX Runtime, give the same answers on every
-platform. One finds faces; the other judges each one, and says when what
+model files, run through ONNX Runtime, on every platform. The answers should
+be very close everywhere, but ONNX Runtime uses different CPU instructions on
+each, so a verdict right at a threshold can fall either side; only the Mac has
+been checked. One finds faces; the other judges each one, and says when what
 was found is not a face at all — a hand, a plate of food, the back of a head.
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of

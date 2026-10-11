@@ -173,7 +173,7 @@ export function FacePanel() {
         ) : (
           <div className="flex size-full flex-col items-center justify-center gap-2 text-xs text-[#666]">
             <ScanFace className="size-7" strokeWidth={1.25} />
-            {!enabled ? "OpenCull AI is off" : result ? "No faces detected" : "Analyzing…"}
+            {!enabled ? "OpenCull AI is off" : result?.failed ? "This photo could not be analyzed" : result ? "No faces detected" : "Analyzing…"}
           </div>
         )}
       </div>

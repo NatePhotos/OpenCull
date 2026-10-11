@@ -517,7 +517,13 @@ export const useStore = create<Store>((set, get) => {
       runs = { session: session.id, list, of };
     }
     const { list, of } = runs;
-    const ready = [...new Set(touched.map((i) => of.get(i)).filter((at) => at !== undefined))].map((at) => list[at]).filter((run) => run.every((i) => ai[i] !== undefined));
+    const ready = [...new Set(touched.map((i) => of.get(i)).filter((at) => at !== undefined))]
+      .map((at) => list[at])
+      .filter((run) => run.every((i) => ai[i] !== undefined))
+      // A photo that could not be analysed takes no part: it has nothing to
+      // be set beside the others with.
+      .map((run) => run.filter((i) => !ai[i]!.failed))
+      .filter((run) => run.length >= 2);
     if (ready.length === 0) return;
     void api
       .aiCompare(ready.map((run) => run.map((i) => ({ ...ai[i]!, time: photos[i].captureMs, burst: photos[i].group, upright: uprightOf(photos[i]) }))), smartGroups)
