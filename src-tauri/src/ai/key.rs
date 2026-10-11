@@ -30,6 +30,8 @@ const PEAK: f64 = 0.03;
 /// abstraction, over the second it is simply the photo again.
 const SMALLEST: f64 = 0.28;
 const LARGEST: f64 = 0.80;
+/// How much the map of what stands out is smoothed, in cells of the map.
+/// Set by hand, not measured as most constants in `ai/` are.
 const BLUR: f32 = 2.5;
 
 /// The part of a photo it is about.
@@ -57,6 +59,8 @@ pub fn find(rgb: &[u8], width: u32, height: u32) -> Result<Key, String> {
     let map: Vec<f32> = (0..MAP * MAP)
         .map(|i| {
             let (x, y) = ((i % MAP) as f32, (i / MAP) as f32);
+            // A gentle lean towards the middle of the frame, where subjects
+            // usually are: a bell 0.45 of the map wide. Set by hand, like BLUR.
             let from_middle = |v: f32| (v - MAP as f32 / 2.0 + 0.5) / (MAP as f32 * 0.45);
             let middle = (-(from_middle(x).powi(2) + from_middle(y).powi(2)) / 2.0).exp();
             (out[i] * sharp[i] * middle).sqrt()

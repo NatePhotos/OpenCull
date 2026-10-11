@@ -60,8 +60,10 @@ pub struct Analysis {
     pub key: Option<key::Key>,
 }
 
-// Faces narrower than this, in the finder's picture, are not accused of
-// anything: there are too few pixels to tell. The Mac app's own two gates.
+// Faces narrower than this are not accused of anything: there are too few
+// pixels to tell. The Mac app's own two gates, so they are applied to the
+// box as reshaped to the Mac app's proportions (finder.rs), about 9% wider
+// than the finder's own, in pixels of the finder's picture.
 const SHUT_MIN_WIDTH: f64 = 48.0;
 const AWAY_MIN_WIDTH: f64 = 36.0;
 /// How sure the judge must be that the eyes are shut.

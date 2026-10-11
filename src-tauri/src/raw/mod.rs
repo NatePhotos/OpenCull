@@ -635,8 +635,10 @@ fn read_jpeg_metadata(src: &dyn ReadAt, start: u64, end: u64, found: &mut Found)
 }
 
 /// How far into a file the slow search looks. Measured across Sony, Canon,
-/// Nikon and DNG files by the Mac app: an embedded preview always begins in
-/// the first sixth of the file, the rest being sensor data.
+/// Nikon and DNG files by the Mac app: an embedded preview always began in
+/// the first sixth of the file, the rest being sensor data — and in files of
+/// up to about 144 MB, where a sixth is this much or less. A larger file
+/// whose only preview starts further in than this is not found by the search.
 const SCAN_WINDOW: u64 = 24 * 1024 * 1024;
 
 /// Nothing smaller than this is worth finding by brute force; it would be a

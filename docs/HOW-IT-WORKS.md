@@ -125,8 +125,9 @@ what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
 faces, nearly all seen from behind. Looking away is called on the judge's
 looking-away score or on pupils sitting to one side of a face held square:
 on 615 labelled faces that catches 79% and wrongly accuses 5.4%, and on 1,360
-faces known to be looking at the camera it wrongly accuses 12. Bursts are still split
-by the clock alone.
+faces known to be looking at the camera it wrongly accuses 12. Bursts are split
+by the clock; within a burst, frames are grouped into poses by where the same
+people stand (below).
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a
 venue — is marked on how sharp its subject is, and the face panel shows that
@@ -170,7 +171,8 @@ ever replaced, and nothing is left there half written.
 Not here yet:
 
 - **Burst grouping by picture** — the Mac app splits frames close in time that
-  look nothing alike. Here it is the clock alone.
+  look nothing alike. Here bursts are by the clock alone; only poses within a
+  burst are told apart, and only by where the people in them stand.
 - **RAW rendering and auto-exposure** — needs a real RAW decoder. Cameras that
   embed only a small preview (older bodies, mostly) therefore cannot be zoomed
   further than that preview goes.
@@ -189,6 +191,19 @@ The logic has unit tests:
 
 ```bash
 npm test
+```
+
+That runs the interface's tests (Vitest, `src/**/*.test.ts`: sorting,
+filtering, grouping, ranking, undo, navigation) and then the Rust tests,
+which include `raw::robust`: every reader of a photo file's bytes fed
+thousands of damaged files, in a debug build where an unchecked length that
+overflows is a failure. CI also runs `cargo clippy --all-targets -D warnings`.
+
+For a longer, coverage-guided search of the same readers:
+
+```bash
+cargo install cargo-fuzz
+cd src-tauri && cargo +nightly fuzz run parse
 ```
 
 And the app can run itself against a real folder with no window on screen —
@@ -210,15 +225,41 @@ It shows a window one point square in a corner of the screen, beneath
 everything else. That is deliberate: a web view in a window that is fully
 hidden has its scripts suspended by the system a few seconds in.
 
-Three small tools for looking at files directly:
+Small tools for looking at files and measuring the app directly, in
+`src-tauri/examples`. Each says how to run it at its top:
 
 ```bash
 cd src-tauri && cargo run --release --example probe -- /path/to/photo.ARW
 ```
 
-`probe` says what previews a file holds; `bench` and `bench_fit` compare
-decoders on it; `throughput` runs the whole pipeline over a folder. Add
-`--features turbo-system` (or `turbo`) to run them with libjpeg-turbo.
+| Tool | What it does |
+|---|---|
+| `probe` | Says what previews and details a file holds |
+| `previews`, `screen` | Makes a file's previews and writes them out to look at |
+| `bench`, `bench_fit`, `throughput` | Times decoders on a file, and the whole pipeline over a folder |
+| `times` | Reads a folder's capture times the quick way, and times it |
+| `ingest` | Times listing and copying a real card (into a temporary folder it removes) |
+| `analyze`, `bursts`, `key` | Runs the face analysis, burst marking or subject finding over a list of photos, to CSV |
+| `evaluate` | Checks the face analysis against your own labelled photos and prints only totals; see below |
+| `embed` | Writes a rating into a JPEG. **It writes into the file it is given — use a copy.** |
+
+Add `--features turbo-system` (or `turbo`) to run them with libjpeg-turbo.
+Only `embed` writes anything to a photo.
+
+### Checking the face analysis on your own photos
+
+The thresholds in `src-tauri/src/ai` were measured on labelled photos that
+are not in this repository. To check them after a change, on photos you
+keep to yourself:
+
+```bash
+mkdir private-eval    # git ignores it
+# put photos in it, and a labels.csv: file,eyes_shut,looking_away,soft
+cd src-tauri && cargo run --release --example evaluate -- ../private-eval
+```
+
+It prints how many of each problem it caught and how many it raised
+wrongly, and nothing about any one photo unless `--misses` is given.
 
 
 ## Building: the fast JPEG library
@@ -249,23 +290,33 @@ A folder can be named on the command line to open it straight away.
 
 ```
 src-tauri/src/
-  raw/         finding previews and EXIF inside files, by reading directories
-  preview.rs   decode, shrink, turn upright, encode
-  pool.rs      what gets made first: the photo on screen, then newest asked
-  cache.rs     previews kept on disk
-  serve.rs     hands previews to the web view by address
-  scan.rs      listing folders, pairing RAW with JPEG
-  xmp.rs       sidecar ratings, read and written
-  burst.rs     which frames came from one press of the shutter
-  commands.rs  what the interface can ask for
+  raw/          finding previews and EXIF inside files, by reading directories
+  preview.rs    decode, shrink, turn upright, encode
+  pool.rs       what gets made first: the photo on screen, then newest asked
+  cache.rs      previews kept on disk
+  serve.rs      hands previews to the web view by address, for listed files only
+  scan.rs       listing folders, pairing RAW with JPEG
+  times.rs      capture times remembered per folder
+  burst.rs      which frames came from one press of the shutter
+  xmp.rs        sidecar ratings, read and written
+  embed.rs      ratings written into a JPEG itself (off unless turned on)
+  fsx.rs        writing files so a crash never leaves one half written
+  transfer.rs   copy and move to another folder, and Ship
+  ingest.rs     cards: finding them, listing them, copying off them
+  editors.rs    opening photos in an editing program
+  faces.rs      cutting faces out of a picture
+  ai/           finding and judging faces, the folder scan, what it remembers
+  commands.rs   what the interface can ask for
+src-tauri/examples/  tools for measuring, above
+src-tauri/fuzz/      the parsers' fuzz target
 src/
-  lib/         state, shortcuts, the bridge to the backend
-  components/  home screen, loupe, filmstrip, grid, toolbar, panels
+  lib/          state, culling rules, shortcuts, the bridge to the backend
+  components/   home screen, loupe, filmstrip, grid, toolbar, panels, ingest
 ```
 
 
-## Only tried on a Mac
+## Measured on a Mac
 
-Everything above was built and measured on macOS. The code avoids anything
-platform-specific — positioned reads, trash, and the preview addresses each
-have a Windows form — but none of it has been run there.
+Everything above was built and measured on macOS. The app has since been
+tested and confirmed working on Windows and Linux, but the figures given here
+are the Mac's.

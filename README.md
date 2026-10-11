@@ -70,9 +70,11 @@ deciding what to keep. OpenCull is built to make that fast.
 * **RAW, JPEG or both.** Shoot both and each pair is culled as one photo.
   Or choose to see only the RAWs, or only the JPEGs.
 * **Marks you can take anywhere.** Stars, flags and colour labels are written
-  as standard sidecar files that Lightroom, Capture One and the rest read. A
-  JPEG's stars and colour label are also written into the JPEG itself, which
-  is where those programs look for them.
+  as standard sidecar files that Lightroom, Capture One and the rest read.
+  Turn on **Write ratings into JPEGs** in Settings and a JPEG's stars and
+  colour label are also written into the JPEG itself, which is where those
+  programs look for them. It is off by default, so your JPEG files are left
+  exactly as they are.
 * **Looks at the faces for you.** It finds the faces in every photo and shows
   whose eyes are shut, who is looking away and how sharp each one is.
 * **Compares a person with themselves.** It follows each person through a
@@ -167,16 +169,26 @@ through the shoot from the keyboard:
 | `P` `X` `U` | Pick, reject, clear the flag |
 | `1`–`5`, `0` | Star rating, and none |
 | `6` `7` `8` `9` `N` | Red, yellow, green, blue and purple labels |
+| `⌘0` / `Ctrl+0` | No colour label |
+| `⌘⌥0` / `Ctrl+Alt+0` | Clear stars and colour |
 | `Space` | Zoom in to the middle of the photo, and back out |
 | `Z` | Zoom in to where you last looked, and back out |
+| `⌘=` `⌘−` / `Ctrl+=` `Ctrl+−` | Zoom in and out |
 | `G` | Grid view |
 | `.` | Face panel |
 | `F` `H` `I` | Filmstrip, histogram and EXIF, info overlay |
 | `Caps Lock` | Speed cull: move on to the next photo after each mark |
+| `R` | Re-sort: marking a photo leaves it where it is, so sorting by rating does not jump about; this brings the order up to date |
 | `⌘E` / `Ctrl+E` | Ship: open the keepers in your editor, or copy or move them |
+| `⌘A` / `Ctrl+A` | Select all |
+| `⌫` or `Delete` | Move to the Trash, with its JPEG and sidecar |
 | `⌘Z` / `Ctrl+Z` | Undo |
+| `⌘⇧Z` / `Ctrl+Shift+Z` | Redo |
+| `⌘,` / `Ctrl+,` | Settings |
 
-Every shortcut can be changed in Settings.
+Every shortcut can be changed in Settings. In **Ingest from Card**, `⌘A` /
+`Ctrl+A` selects every photo on the card and `Esc` clears the selection;
+those two are fixed.
 
 The face panel on the right shows each face in the photo, cut out large
 enough to judge. The top square on each is its eyes (green for open, through
@@ -204,7 +216,7 @@ the repo and open a pull request:
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-`npm test` runs the unit tests. The app can also run itself against a folder
+`npm test` runs the interface's tests and then the Rust tests. The app can also run itself against a folder
 of your own photos with no window on screen and without touching them; see
 [Checking it works](docs/HOW-IT-WORKS.md#checking-it-works).
 
