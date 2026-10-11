@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, type CacheUsage } from "@/lib/api";
+import { api, type CacheUsage, logged } from "@/lib/api";
 import { fileSize } from "@/lib/format";
 import { CAPS_LOCK, comboLabel, comboOf, DEFAULTS, isMac, sameCombo, SECTIONS, type Action, type Combo } from "@/lib/shortcuts";
 import { GIGABYTE, useStore } from "@/lib/store";
@@ -235,7 +235,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     // has stopped: stepping down past a figure must not trim to it on the way.
     window.clearTimeout(limitTimer.current);
     limitTimer.current = window.setTimeout(async () => {
-      await api.setCacheLimit(next * GIGABYTE).catch(() => {});
+      await api.setCacheLimit(next * GIGABYTE).catch(logged("setting the preview cache limit"));
       setUsage(await api.cacheUsage().catch(() => null));
     }, LIMIT_SETTLE_MS);
   };
@@ -245,14 +245,15 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     void api.aiCacheUsage().then(setFaceMemory, () => setFaceMemory(null));
   }, []);
   const clearFaces = async () => {
-    await api.aiClearCache().catch(() => {});
+    try {
+      await api.aiClearCache();
+    } catch (e) {
+      set("notice", { title: "Face data was not cleared", body: String(e) });
+      return;
+    }
     setFaceMemory(await api.aiCacheUsage().catch(() => null));
     // The folder on screen is analysed afresh, there being nothing to show for it now.
-    useStore.setState({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0 });
-    if (s.aiEnabled) {
-      set("aiEnabled", false);
-      setTimeout(() => set("aiEnabled", true), 50);
-    }
+    useStore.getState().rescanFaces();
   };
 
   const toggle = (key: "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg") => (

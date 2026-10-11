@@ -11,7 +11,7 @@ export type Action =
   | "rate0" | "rate1" | "rate2" | "rate3" | "rate4" | "rate5" | "clearRating"
   | "tagRed" | "tagYellow" | "tagGreen" | "tagBlue" | "tagPurple" | "tagNone"
   | "zoomToggle" | "zoomCentre" | "zoomIn" | "zoomOut"
-  | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull"
+  | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull" | "resort"
   | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo";
 
 /** A key, by its position on the keyboard, and the modifiers held with it. */
@@ -77,6 +77,7 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
       ["toggleHistogram", "Histogram and EXIF"],
       ["toggleInfo", "Info overlay"],
       ["toggleSpeedCull", "Speed cull"],
+      ["resort", "Re-sort"],
     ],
   },
   {
@@ -130,6 +131,7 @@ export const DEFAULTS: Record<Action, Combo> = {
   toggleHistogram: { code: "KeyH" },
   toggleInfo: { code: "KeyI" },
   toggleSpeedCull: { code: CAPS_LOCK },
+  resort: { code: "KeyR" },
   ship: { code: "KeyE", mod: true },
   moveToTrash: { code: "Backspace" },
   selectAll: { code: "KeyA", mod: true },
@@ -210,6 +212,7 @@ export function perform(action: Action): void {
     case "toggleHistogram": return s.toggle("showExif");
     case "toggleInfo": return s.toggle("showInfo");
     case "toggleSpeedCull": return s.set("speedCullAlways", !s.speedCullAlways);
+    case "resort": return s.resort();
     case "ship": return s.openShip();
     case "moveToTrash": return s.requestTrash();
     case "selectAll": return s.selectAll();
@@ -234,8 +237,11 @@ export function installShortcuts(bindings: () => Record<Action, Combo>, recordin
 
     if (e.type !== "keydown" || recording()) return;
     const s = useStore.getState();
-    // A dialog is open, or someone is typing: keys belong to that.
+    // A dialog is open, or someone is typing: keys belong to that. Asked of
+    // the page as well as the store, so a dialog added later is covered
+    // without anyone remembering to list it here.
     if (s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending) return;
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
 
     // Where every program on the system keeps its settings.
     if (e.code === "Comma" && (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey) {

@@ -14,7 +14,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { api, describeFailure, type EditingApp, type Shipped } from "@/lib/api";
+import { api, describeFailure, type EditingApp, type Shipped, logged } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -181,13 +181,16 @@ function Ship({ onBusy }: { onBusy: (busy: boolean) => void }) {
       if (start.catalog && !catalog) change({ catalog: null, choseCatalog: false });
     });
 
-    void api.editingApps().then((found) => {
-      if (stale) return;
-      setApps(found);
-      // Only a first guess. Overwriting a choice here is what would make
-      // Ship forget the photographer's program on every open.
-      if (!start.choseEditor) change({ editor: (found.find((a) => a.installed) ?? found[found.length - 1])?.id ?? FILE_BROWSER });
-    });
+    void api
+      .editingApps()
+      .then((found) => {
+        if (stale) return;
+        setApps(found);
+        // Only a first guess. Overwriting a choice here is what would make
+        // Ship forget the photographer's program on every open.
+        if (!start.choseEditor) change({ editor: (found.find((a) => a.installed) ?? found[found.length - 1])?.id ?? FILE_BROWSER });
+      })
+      .catch(logged("listing editing programs"));
 
     // Looked for in the background: the window is usable at once.
     void api.lightroomCatalogs().then(

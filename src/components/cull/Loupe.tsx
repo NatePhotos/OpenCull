@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Loader2, X } from "lucide-react";
 
-import { api, bucket, FIT_SIZES } from "@/lib/api";
+import { api, bucket, FIT_SIZES, logged } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { hold, holdFull, isHeld } from "@/lib/held";
 import { load, save } from "@/lib/prefs";
@@ -601,7 +601,7 @@ function Canvas({ photo }: { photo: Photo }) {
         if (at + d < view.length) near.push(view[at + d]);
         if (d <= BEHIND && at - d >= 0) near.push(view[at - d]);
       }
-      void api.prefetch(near.map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
+      void api.prefetch(near.map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize).catch(logged("preparing nearby photos"));
     });
     return () => cancelAnimationFrame(handle);
   }, [photo.index, photo.display, photo.version, fitSize, box.w]);

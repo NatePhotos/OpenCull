@@ -149,7 +149,9 @@ export interface Histogram {
  * one, the RAWs alone, or everything that is not a RAW.
  */
 export type FileKinds = "both" | "raw" | "jpeg";
+export const FILE_KINDS: readonly FileKinds[] = ["both", "raw", "jpeg"];
 
 export type ViewMode = "loupe" | "scene" | "grid";
 export type SortKey = "captureTime" | "filename" | "rating";
+export const SORT_KEYS: readonly SortKey[] = ["captureTime", "filename", "rating"];
 export type FlagFilter = "all" | "picks" | "unflagged" | "rejects";

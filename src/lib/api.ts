@@ -306,6 +306,16 @@ if (!inTauri) {
 
 export const api = backend;
 
+/**
+ * A rejection handler that writes what failed to the app's log. For calls
+ * that go on in the background, where nothing on screen depends on them but
+ * a failure should still be findable rather than vanish.
+ */
+export const logged =
+  (what: string) =>
+  (e: unknown): void =>
+    api.report(`${what} failed: ${String(e)}`);
+
 /** The sizes thumbnails are kept at. Matches the backend's list. */
 export const THUMB_SIZES = [320, 640, 1280] as const;
 /** The sizes loupe previews are kept at. Matches the backend's list. */

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ThumbImage } from "@/components/cull/Thumb";
-import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type IngestProgress, type Volume } from "@/lib/api";
+import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type IngestProgress, type Volume, logged } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
@@ -142,7 +142,10 @@ export function IngestView() {
   // A destination remembered from last time may have been moved or deleted.
   useEffect(() => {
     if (!destination) return;
-    void api.pathsExist([destination]).then(([there]) => !there && setDestination(null));
+    void api
+      .pathsExist([destination])
+      .then(([there]) => !there && setDestination(null))
+      .catch(logged("checking the ingest destination"));
     // Once, as ingest opens.
   }, []);
 
@@ -174,7 +177,7 @@ export function IngestView() {
               return next;
             });
           })
-          .catch(() => {});
+          .catch(logged("reading the card's capture times"));
       },
       (e) => listing.current === mine && setPhase({ is: "failed", message: String(e) }),
     );
@@ -392,7 +395,7 @@ export function IngestView() {
 
   const cancelCopy = () => {
     cancelled.current = true;
-    void api.ingestCancel();
+    void api.ingestCancel().catch(logged("cancelling the copy"));
     setPhase((p) => (p.is === "copying" ? { is: "ready" } : p));
     setProgress(null);
   };

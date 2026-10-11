@@ -3,7 +3,7 @@ import { Circle, CircleCheck, FolderPlus, FolderSearch, Images, Keyboard, Settin
 
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { CardIcon } from "@/components/ingest/IngestView";
-import { api, type Volume } from "@/lib/api";
+import { api, type Volume, logged } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Scanned } from "@/lib/types";
@@ -36,9 +36,12 @@ export function HomeView({ dropping }: { dropping: boolean }) {
   // Worth knowing before it is clicked rather than after.
   useEffect(() => {
     let stale = false;
-    void api.foldersExist(recents).then((exists) => {
-      if (!stale) setMissing(new Set(recents.filter((_, i) => !exists[i])));
-    });
+    void api
+      .foldersExist(recents)
+      .then((exists) => {
+        if (!stale) setMissing(new Set(recents.filter((_, i) => !exists[i])));
+      })
+      .catch(logged("checking recent folders"));
     return () => {
       stale = true;
     };
@@ -264,7 +267,7 @@ function FolderCard({
       <ContextMenuContent>
         {missing && <ContextMenuItem onSelect={onLocate}>Locate…</ContextMenuItem>}
         <ContextMenuItem onSelect={onRemove}>Remove from List</ContextMenuItem>
-        <ContextMenuItem disabled={missing} onSelect={() => void api.reveal(path)}>
+        <ContextMenuItem disabled={missing} onSelect={() => void api.reveal(path).catch(logged("revealing a folder"))}>
           Reveal in {fileBrowser}
         </ContextMenuItem>
       </ContextMenuContent>

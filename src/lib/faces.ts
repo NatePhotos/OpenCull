@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { api } from "./api";
+import { api, logged } from "./api";
 import { useStore } from "./store";
 
 /** How many photos either side of the one on screen the scan is asked to do first. */
@@ -30,8 +30,9 @@ export function useFaceScan(): void {
   const enabled = useStore((s) => s.aiEnabled && !s.selfTest);
   const session = useStore((s) => (s.session !== null && s.metaProgress >= 1 ? s.session.id : null));
   const pause = useStore((s) => s.aiPause);
+  const rescan = useStore((s) => s.aiRescan);
 
-  useEffect(() => void api.aiSetYield(pause).catch(() => {}), [pause]);
+  useEffect(() => void api.aiSetYield(pause).catch(logged("pausing analysis")), [pause]);
 
   // What counts as a group has changed: compare what is already analysed
   // again, under the new rule. Nothing is analysed again for this.
@@ -58,7 +59,7 @@ export function useFaceScan(): void {
         if (at + d < s.view.length) near.push(s.view[at + d]);
         if (at - d >= 0) near.push(s.view[at - d]);
       }
-      void api.aiLookAt(near.filter((index) => s.ai[index] === undefined)).catch(() => {});
+      void api.aiLookAt(near.filter((index) => s.ai[index] === undefined)).catch(logged("analysing the photo on screen first"));
     };
     const stop = useStore.subscribe((s) => {
       if (s.current === last) return;
@@ -90,8 +91,8 @@ export function useFaceScan(): void {
       .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
 
     return () => {
-      void api.aiStop().catch(() => {});
+      void api.aiStop().catch(logged("stopping analysis"));
       if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
     };
-  }, [enabled, session]);
+  }, [enabled, session, rescan]);
 }

@@ -22,6 +22,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -290,6 +291,9 @@ function SortMenu() {
           <DropdownMenuRadioItem value="up">{chosen.up}</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="down">{chosen.down}</DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        {/* Marking a photo leaves it where it is; this brings the order up to date. */}
+        <DropdownMenuItem onSelect={() => useStore.getState().resort()}>Re-sort now</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -11,7 +11,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { api } from "@/lib/api";
+import { api, logged } from "@/lib/api";
 import { contextTargets, useStore } from "@/lib/store";
 import { COLORS } from "@/lib/types";
 
@@ -77,7 +77,7 @@ function Items({ index, fileBrowser }: { index: number; fileBrowser: string }) {
       </ContextMenuSub>
       <ContextMenuItem onSelect={() => s.clearRatingAndColor(targets)}>Clear Stars and Colour</ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => void api.reveal(photo.path)}>Reveal in {fileBrowser}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => void api.reveal(photo.path).catch(logged("revealing a photo"))}>Reveal in {fileBrowser}</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void s.transfer(targets, false)}>Copy {subject}…</ContextMenuItem>
       <ContextMenuItem onSelect={() => void s.transfer(targets, true)}>Move {subject}…</ContextMenuItem>

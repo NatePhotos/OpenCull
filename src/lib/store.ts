@@ -2,9 +2,9 @@
 // each photo in it, and what is on screen.
 
 import { create } from "zustand";
-import { api, describeFailure } from "./api";
+import { api, describeFailure, logged } from "./api";
 import { load, save } from "./prefs";
-import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
+import { FILE_KINDS, SORT_KEYS, type AiFace, type AiResult, type Color, type Compared, type FileKinds, type Flag, type FlagFilter, type Marks, type MetaEvent, type Photo, type Rank, type SortKey, type ViewMode } from "./types";
 
 interface Session {
   id: number;
@@ -23,6 +23,19 @@ interface Session {
 type Edit = { index: number; before: Marks; after: Marks }[];
 
 export type ZoomCommand = { kind: "toggle" | "centre" | "in" | "out"; nonce: number };
+
+/** The keys of `T` that hold values rather than actions. */
+type ValueKeys<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknown ? never : K }[keyof T];
+
+/**
+ * The folder's own data. Only the store's actions change these, since each
+ * change has to keep the others in step: `view` is drawn from `order`, which
+ * indexes `photos`, which the AI arrays parallel.
+ */
+type FolderData = "session" | "photos" | "order" | "view" | "current" | "selected" | "undoStack" | "redoStack" | "ai" | "compared" | "ranks" | "poses" | "aiDone" | "aiRescan";
+
+/** What `set` may change: settings and what is showing. */
+export type Settable = Exclude<ValueKeys<State>, FolderData>;
 
 interface State {
   platform: string;
@@ -112,6 +125,8 @@ interface State {
   /** How many photos have been analysed, and whether analysis is still going. */
   aiDone: number;
   aiRunning: boolean;
+  /** Bumped to start the folder's face scan again from nothing. */
+  aiRescan: number;
   /** Find and judge faces at all. */
   aiEnabled: boolean;
   /** Show faces judged to be background in the face panel, dimmed. */
@@ -166,11 +181,20 @@ interface Actions {
   toggleColorFilter(c: Color): void;
   clearFilters(): void;
   setSort(key: SortKey, ascending: boolean): void;
+  /**
+   * Puts the folder back in sorted order. Marking a photo does not move it,
+   * even when sorting by rating — a photo jumping away the moment it is rated
+   * loses the photographer's place — so the order is brought up to date only
+   * when asked.
+   */
+  resort(): void;
 
-  set<K extends keyof State>(key: K, value: State[K]): void;
+  set<K extends Settable>(key: K, value: State[K]): void;
   toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces"): void;
   /** Compares every analysed photo afresh, after a change to what counts as a group. */
   regroup(): void;
+  /** Forgets what analysis found for the folder on screen and starts it again. */
+  rescanFaces(): void;
   /** Takes in a batch of analysed photos, and compares the frames of any pose they complete. */
   addAnalysis(items: ({ index: number } & AiResult)[]): void;
   /** Zooms the loupe to a face. */
@@ -400,7 +424,7 @@ export const useStore = create<Store>((set, get) => {
     // them: the photo's own file if it is one, and the JPEG it is drawn from
     // if it is a RAW with one beside it.
     const jpegs = (p: Photo) => (s.embedInJpeg ? [...new Set([p.path, p.display])].filter((file) => /\.jpe?g$/i.test(file)) : []);
-    void api.setMarks(edit.map((e) => ({ path: photos[e.index].path, into: jpegs(photos[e.index]), ...e.after })));
+    void api.setMarks(edit.map((e) => ({ path: photos[e.index].path, into: jpegs(photos[e.index]), ...e.after }))).catch(logged("saving marks"));
     set({
       photos,
       // A photo that no longer passes the filter leaves the view at once,
@@ -500,6 +524,10 @@ export const useStore = create<Store>((set, get) => {
   // before any photo is analysed.
   let runs: { session: number; list: number[][]; of: Map<number, number> } | null = null;
 
+  // Counts folder openings and closings, so a listing that arrives after
+  // another opening or a close is known to be stale.
+  let openings = 0;
+
   /**
    * Compares the frames of every run one of these photos belongs to, if all
    * of the run is now analysed: the same people set beside themselves, in a
@@ -552,7 +580,7 @@ export const useStore = create<Store>((set, get) => {
         });
         set({ compared, ranks, poses });
       })
-      .catch(() => {});
+      .catch(logged("comparing frames"));
   }
 
   function rememberPosition() {
@@ -577,7 +605,7 @@ export const useStore = create<Store>((set, get) => {
     flagFilter: "all",
     ratingFilter: null,
     colorFilters: new Set(),
-    sort: load<SortKey>("sort", "captureTime"),
+    sort: load<SortKey>("sort", "captureTime", SORT_KEYS),
     sortAscending: load("sortAscending", true),
 
     viewMode: "loupe",
@@ -590,7 +618,7 @@ export const useStore = create<Store>((set, get) => {
     filmstripHeight: load("filmstripHeight", 120),
     stripResizing: false,
     includeSubfolders: load("includeSubfolders", false),
-    fileKinds: load<FileKinds>("fileKinds", "both"),
+    fileKinds: load<FileKinds>("fileKinds", "both", FILE_KINDS),
     // Off unless asked for: rating a photo should not rewrite the original
     // file unless the photographer chose that.
     embedInJpeg: load("embedInJpeg", false),
@@ -612,6 +640,7 @@ export const useStore = create<Store>((set, get) => {
     smartGroups: load("smartGroups", true),
     aiDone: 0,
     aiRunning: false,
+    aiRescan: 0,
     aiEnabled: load("aiEnabled", true),
     showBackgroundFaces: load("showBackgroundFaces", false),
     aiPause: load("aiPause", true),
@@ -635,7 +664,7 @@ export const useStore = create<Store>((set, get) => {
       const info = await api.appInfo();
       set({ platform: info.platform, selfTest: info.selfTest });
       // A self-test's cache is its own and thrown away; it has no limit to keep.
-      if (!info.selfTest) void api.setCacheLimit(get().cacheLimitGb * GIGABYTE).catch(() => {});
+      if (!info.selfTest) void api.setCacheLimit(get().cacheLimitGb * GIGABYTE).catch(logged("setting the preview cache limit"));
       if (info.selfTest && info.openPath) {
         const { runSelfTest } = await import("./selftest");
         void runSelfTest(info.openPath);
@@ -646,6 +675,10 @@ export const useStore = create<Store>((set, get) => {
     async openFolder(path) {
       const before = get();
       if (before.session) get().closeFolder();
+      // Which opening this is. The same folder opened twice before the first
+      // reply arrives must not keep both: the first backend session would be
+      // left open, still reading the folder, with nothing to close it.
+      const mine = ++openings;
 
       const { includeSubfolders, fileKinds } = get();
       set({
@@ -673,9 +706,10 @@ export const useStore = create<Store>((set, get) => {
         set({ session: null, loading: false, openError: String(e) });
         return;
       }
-      // Closed, or another folder opened, while this one was being listed.
-      if (get().session?.folder !== path) {
-        void api.closeFolder(reply.session);
+      // Closed, or another folder (or this one again) opened, while this
+      // one was being listed.
+      if (mine !== openings || get().session?.folder !== path) {
+        void api.closeFolder(reply.session).catch(logged("closing a folder"));
         return;
       }
 
@@ -776,8 +810,9 @@ export const useStore = create<Store>((set, get) => {
     closeFolder() {
       const { session } = get();
       if (!session) return;
+      openings += 1;
       rememberPosition();
-      if (session.id >= 0) void api.closeFolder(session.id);
+      if (session.id >= 0) void api.closeFolder(session.id).catch(logged("closing a folder"));
       set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
     },
 
@@ -924,9 +959,16 @@ export const useStore = create<Store>((set, get) => {
       set({ sort, sortAscending, order, view: filtered(order, s.photos, s) });
     },
 
+    resort() {
+      const { sort, sortAscending } = get();
+      get().setSort(sort, sortAscending);
+    },
+
     set: (key, value) => set({ [key]: value } as Pick<State, typeof key>),
     toggle: (key) => set((s) => ({ [key]: !s[key] }) as Pick<State, typeof key>),
     zoomCommand: (kind) => set((s) => ({ zoom: { kind, nonce: s.zoom.nonce + 1 } })),
+
+    rescanFaces: () => set((s) => ({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRescan: s.aiRescan + 1 })),
 
     regroup() {
       const { ai } = get();
