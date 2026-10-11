@@ -178,6 +178,10 @@ through the shoot from the keyboard:
 
 Every shortcut can be changed in Settings.
 
+<div align="center">
+  <img src="docs/images/shortcuts.png" alt="The Keyboard Shortcuts window, listing every shortcut and the key it is on" width="520">
+</div>
+
 The face panel on the right shows each face in the photo, cut out large
 enough to judge. The top square on each is its eyes (green for open, through
 to red for shut); the bottom one is its sharpness out of ten. Point at them

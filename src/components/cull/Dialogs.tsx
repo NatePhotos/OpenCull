@@ -97,7 +97,17 @@ export function ShortcutsDialog({ bindings, onChange, onRecording }: { bindings:
 
   return (
     <Dialog open={open} onOpenChange={(o) => useStore.getState().set("shortcutsOpen", o)}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
+      <DialogContent
+        className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]"
+        // Opens with nothing picked out. A window is handed the keyboard
+        // when it opens, and gives it to the first thing in it that can
+        // take it — here the key for "Next photo", which then wore a ring
+        // as though it were about to be changed.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Keyboard Shortcuts</DialogTitle>
           <DialogDescription>Click a shortcut, then press the keys you want for it. Escape cancels.</DialogDescription>
