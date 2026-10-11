@@ -184,6 +184,9 @@ to red for shut); the bottom one is its sharpness out of ten. Point at them
 for the words. The coloured bar under each thumbnail is the photo's rank
 among the frames it was shot with, with **1** the one to look at first.
 
+Drag the edge of either side panel, or the top of the filmstrip, to make it
+larger or smaller. The sizes are remembered.
+
 _For how any of this works, and how well, see
 [How it works](docs/HOW-IT-WORKS.md)._
 
