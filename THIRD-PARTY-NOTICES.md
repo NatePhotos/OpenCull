@@ -33,23 +33,20 @@ with the rest of the project under the same licence.
 
 ## The model files, exactly
 
-So a copy can be checked against the one released, the SHA-256 of each:
+SHA-256 of each model file:
 
 | File | SHA-256 |
 |---|---|
 | `src-tauri/models/finder.onnx` | `c9d7f075034be96ce7ae4791a1c8b23b06180250885af870b8ee461e14c506c5` |
 | `src-tauri/models/judge.onnx` | `4a4b5edfe02c6502995d2b68d7ca3b240a90d22ed9d0e2b9eb28d9e49c4c0118` |
 
-A test (`ai::store::tests`) fails if either file changes without this table
-being updated.
+A test (`ai::store::tests`) fails if a model changes without this table.
 
 ## ONNX Runtime at build time
 
-The `ort` crate, at version 2.0.0-rc.13 (a release candidate, pinned
-exactly), downloads a prebuilt ONNX Runtime library from the `ort` project
-while the app builds. So a build needs the network, and that library comes
-from outside crates.io. To build from a copy of ONNX Runtime of your own
-instead, set `ORT_LIB_LOCATION` to the folder that holds it; see the `ort`
+The `ort` crate (2.0.0-rc.13, pinned exactly) downloads a prebuilt ONNX
+Runtime library while the app builds, so a build needs network access. To
+build against a local copy instead, set `ORT_LIB_LOCATION`; see the `ort`
 documentation.
 
 ## The face finder's training data
