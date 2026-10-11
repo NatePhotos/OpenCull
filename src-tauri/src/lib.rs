@@ -30,8 +30,7 @@ use cache::Cache;
 use commands::{App, Launch};
 use serve::Previews;
 
-/// How many cores the machine has, or four if it will not say. What every
-/// pool and worker count here is sized from.
+/// How many cores the machine has, or four if it will not say.
 pub(crate) fn cores() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }

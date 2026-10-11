@@ -1,10 +1,9 @@
 //! Finding faces in a photograph and judging them.
 //!
 //! No part of this comes from the system it runs on: the same two model
-//! files run on a Mac, on Windows and on Linux. The answers should be very
-//! close everywhere, but they are not promised identical: ONNX Runtime uses
-//! different CPU instructions on each, and a verdict right at a threshold can
-//! fall either side. Only the Mac has been checked.
+//! files run on a Mac, on Windows and on Linux. Answers should be very close
+//! everywhere but are not promised identical: ONNX Runtime uses different CPU
+//! instructions on each. Only the Mac has been checked.
 
 pub mod finder;
 pub mod focus;
@@ -61,9 +60,8 @@ pub struct Analysis {
 }
 
 // Faces narrower than this are not accused of anything: there are too few
-// pixels to tell. The Mac app's own two gates, so they are applied to the
-// box as reshaped to the Mac app's proportions (finder.rs), about 9% wider
-// than the finder's own, in pixels of the finder's picture.
+// pixels to tell. The Mac app's own two gates, applied to the box as reshaped
+// to its proportions (finder.rs), in pixels of the finder's picture.
 const SHUT_MIN_WIDTH: f64 = 48.0;
 const AWAY_MIN_WIDTH: f64 = 36.0;
 /// How sure the judge must be that the eyes are shut.
@@ -225,8 +223,7 @@ pub enum Failure {
     /// The file could not be got at: a card pulled, a drive gone to sleep.
     /// Worth trying again next time.
     Unreadable(String),
-    /// The file was there, and is not something that can be analysed: no
-    /// picture in it that decodes. Trying again would give the same answer.
+    /// The file holds no picture that decodes. Trying again would not help.
     Unusable(String),
 }
 

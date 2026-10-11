@@ -1,15 +1,9 @@
 //! Damaged files never take the app down.
 //!
-//! Every reader here parses bytes from files nobody vouches for: a card
-//! pulled mid-write, a download cut short, a format a camera maker changed.
-//! These tests feed each one thousands of broken files — good ones with bytes
-//! changed, cut short or padded with junk, and plain noise — and ask only
-//! that it answers, rather than panicking or running away with memory.
-//!
-//! They run in debug builds, where arithmetic that overflows panics, so a
-//! length read from a file and added without a check is caught here rather
-//! than wrapping quietly in a release. For a longer, coverage-guided search,
-//! see `src-tauri/fuzz`.
+//! Every reader here parses bytes nobody vouches for. These tests feed each
+//! one thousands of broken files and plain noise, and ask only that it
+//! answers rather than panicking. They run in debug builds, where unchecked
+//! arithmetic that overflows panics. For a longer search, see `src-tauri/fuzz`.
 
 use super::io::ReadAt;
 use super::jpeg::testing::{exif_segment, jpeg};
@@ -98,8 +92,8 @@ fn damage(rng: &mut Rng, mut bytes: Vec<u8>) -> Vec<u8> {
                 let end = (at + rng.below(64)).min(bytes.len());
                 bytes[at..end].fill(0);
             }
-            // A box's size, in a CR3, made huge — in four bytes, or as the
-            // eight-byte size that a size of one says follows.
+            // A CR3 box size made huge, as four bytes or as the eight-byte
+            // size that a size of one says follows.
             6 | 7 => {
                 let boxes: Vec<usize> = bytes.windows(4).enumerate().filter(|(_, w)| [*b"ftyp", *b"moov", *b"uuid", *b"CMT1", *b"CMT2", *b"trak"].contains(&[w[0], w[1], w[2], w[3]])).map(|(i, _)| i).filter(|i| *i >= 4).collect();
                 if let Some(&kind) = boxes.get(rng.below(boxes.len())) {
@@ -115,8 +109,8 @@ fn damage(rng: &mut Rng, mut bytes: Vec<u8>) -> Vec<u8> {
                     }
                 }
             }
-            // A piece of the file copied over another, so pointers lead
-            // back into the file: the loops a reader must not follow forever.
+            // A piece of the file copied over another, so pointers lead back
+            // into it: loops a reader must not follow forever.
             _ => {
                 let from = rng.below(bytes.len());
                 let len = rng.below(32).min(bytes.len() - from).min(bytes.len() - at);
@@ -162,8 +156,7 @@ fn noise_is_read_without_panicking() {
     for _ in 0..500 {
         let len = rng.below(4096);
         let mut noise: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
-        // Half of them dressed as one format or another, so the readers go
-        // past the first check and into the parts that do the work.
+        // Half get a real format's header, to get past the first check.
         let heads: [&[u8]; 5] = [b"II*\0", b"MM\0*", &[0xFF, 0xD8, 0xFF], b"\0\0\0\x18ftypcrx ", b"FUJIFILMCCD-RAW "];
         if rng.below(2) == 0 {
             let head = heads[rng.below(heads.len())];

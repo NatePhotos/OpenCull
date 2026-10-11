@@ -52,13 +52,9 @@ const SAVE_EVERY: usize = 150;
 /// How long a held-back worker sleeps before asking again.
 const HOLD_BACK: Duration = Duration::from_millis(60);
 
-/// How many photos are analysed at once.
-///
-/// A few: enough to get through a folder in a minute or two, few enough that
-/// the rest of the machine does not feel it. Each worker holds a whole photo
-/// decoded at full size — about 180 MB for 60 megapixels, with the models'
-/// working memory on top — so four at most, which keeps the peak under a
-/// gigabyte on any machine.
+/// How many photos are analysed at once: half the cores, at most four. Each
+/// worker holds a full-size decode (about 180 MB at 60 MP) plus the models'
+/// working memory, so four keeps the peak under a gigabyte.
 fn workers(todo: usize) -> usize {
     (crate::cores() / 2).clamp(1, 4).min(todo.max(1))
 }
@@ -119,10 +115,8 @@ pub fn run(
                 // What is being looked at now, then the rest.
                 let Some(index) = queue.take(&host.front()) else { return };
                 let image = &images[index];
-                // A photo that cannot be analysed is marked so, and left out
-                // of ranking. Remembered when the file itself is the trouble,
-                // so it is not tried on every open; not when the disk was, so
-                // it is tried again next time.
+                // A failure is remembered when the file is at fault, and
+                // retried next time when the disk was.
                 let (record, remember) = match analyse(&image.display) {
                     Ok(analysis) => (Record::from(&analysis), true),
                     Err(Failure::Unusable(_)) => (Record::failed(), true),
@@ -248,8 +242,7 @@ mod tests {
         run(&images, vec![0], known, &host, |_| panic!("nothing should need analysing"));
 
         assert_eq!(host.sent.lock().unwrap()[0].record.score, Some(7.0));
-        // Nothing new was found, so nothing was saved; the pruned record goes
-        // out with the next save.
+        // Nothing new was found, so nothing was saved.
         assert!(host.saved.lock().unwrap().is_none());
     }
 

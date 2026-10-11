@@ -57,8 +57,6 @@ impl Times {
             })
             .collect();
         let Ok(bytes) = serde_json::to_vec(&record) else { return };
-        // A name of its own for each write, so two saves of one folder at
-        // once cannot write into the same temporary file.
         crate::fsx::atomic_write(&self.file_for(folder), &bytes, false).ok();
     }
 }

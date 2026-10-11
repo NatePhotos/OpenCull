@@ -317,9 +317,9 @@ fn stem_of(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Every name a photo takes at the destination: its own, its JPEG's, and
-/// both names its sidecar could have. The sidecar names count even when it
-/// brings no sidecar: one already there would be read as this photo's.
+/// Every name a photo takes at the destination: its own, its JPEG's, and both
+/// sidecar names (even with no sidecar, since one already there would be read
+/// as this photo's).
 fn names_of(item: &Item) -> Vec<PathBuf> {
     let mut names = vec![item.path.clone()];
     if let Some(jpeg) = item.companion() {
@@ -378,9 +378,8 @@ impl Names {
         path.to_string_lossy().to_lowercase()
     }
 
-    /// Finds one name for a photo and everything that goes with it, and
-    /// claims all of it at once. A RAW and its JPEG always share a stem: a RAW
-    /// renamed on its own would be paired with a stranger's JPEG.
+    /// Finds and claims one name for a photo and everything that goes with it,
+    /// so a RAW and its JPEG always share a stem.
     fn reserve(&self, item: &Item, destination: &Path, policy: Policy) -> Option<Reserved> {
         let stem = stem_of(&item.path);
         let files = names_of(item);
@@ -401,8 +400,8 @@ impl Names {
         }
         match policy {
             Policy::Skip => return Some(Reserved::Skip),
-            // Overwriting is for what was there before. Another photo of the
-            // same name from this card is never written over.
+            // Overwriting is for what was there before, never another photo of
+            // the same name from this card.
             Policy::Overwrite if !in_run(&claimed, &plain) => {
                 claim(&mut claimed, &plain);
                 return Some(Reserved::Overwrite);
@@ -459,8 +458,7 @@ fn verified_copy(source: &Path, target: &Path, replace: bool, on_bytes: &mut dyn
         if let Ok(modified) = expected.modified() {
             to.set_modified(modified).ok();
         }
-        // On the disk, not just handed to the system, before it is called
-        // copied: the photographer may format the card next.
+        // Synced before it is called copied: the card may be formatted next.
         to.sync_all()?;
         drop(to);
 
@@ -488,7 +486,7 @@ fn verified_copy(source: &Path, target: &Path, replace: bool, on_bytes: &mut dyn
 }
 
 enum Placed {
-    /// Copied. With anything about its ratings that went wrong.
+    /// Copied, with any problems carrying its ratings across.
     Copied(Vec<String>),
     Skipped,
     Failed(String),
@@ -520,8 +518,8 @@ fn place(item: &Item, destination: &Path, policy: Policy, names: &Names, on_byte
 
     // A sidecar beside the source travels too. Not counted in the progress:
     // a few hundred bytes against a RAW's tens of millions. One already at
-    // the destination is never replaced, even when overwriting: it may hold
-    // develop settings. Its ratings are brought up to date below instead.
+    // the destination is never replaced, as it may hold develop settings;
+    // only its ratings are updated, below.
     let mut warnings = Vec::new();
     let mut carried = false;
     for sidecar in xmp::sidecars_of(&item.path) {
@@ -535,12 +533,9 @@ fn place(item: &Item, destination: &Path, policy: Policy, names: &Names, on_byte
         }
     }
 
-    // Stars given in the camera, or ratings into a sidecar already there,
-    // are written beside the copy — but only when there are some. A sidecar
-    // that says nothing is not harmless: a reader stops at a sidecar, so an
-    // empty one overrides the rating inside the file. Read from the copy just
-    // made, which is the same bytes and does not send the card looking for
-    // them again.
+    // Stars given in the camera are written beside the copy, but only when
+    // there are some: a reader stops at a sidecar, so an empty one would hide
+    // the rating inside the file. Read from the copy, not the card.
     if !carried {
         let marks = xmp::read(&item.path, raw::probe(&target).ok().as_ref());
         if !marks.is_empty() {
@@ -948,8 +943,7 @@ mod tests {
         let w = World::new("camerastars");
         std::fs::write(w.dest.join("A.ARW"), b"already here").unwrap();
         std::fs::write(w.dest.join("A.xmp"), b"its edits").unwrap();
-        // A sidecar on the card stands in for stars the camera wrote: both
-        // are read the same way, by xmp::read.
+        // A sidecar on the card stands in for stars the camera wrote.
         let raw = w.file("A.ARW", b"new");
         w.file("A.xmp", SIDECAR.as_bytes());
 

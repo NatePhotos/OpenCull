@@ -23,14 +23,9 @@ pub struct Frame {
     pub components: u8,
 }
 
-/// The most pixels a picture may have and still be decoded. A header can
-/// claim up to 65535 × 65535 — thirteen gigabytes once decoded — and a
-/// claim like that from a damaged file must fail that one file, not take the
-/// app down by running it out of memory.
-///
-/// 250 million is well above any camera made: the largest, at 151 million,
-/// fits with room. Only a stitched panorama would pass it, and that fails
-/// to preview rather than crashing.
+/// The most pixels a picture may have and still be decoded. A damaged header
+/// can claim 65535 × 65535, thirteen gigabytes decoded; that must fail the
+/// file, not exhaust memory. The largest camera, at 151 MP, fits with room.
 pub const MAX_PIXELS: u64 = 250_000_000;
 
 impl Frame {
@@ -61,9 +56,8 @@ struct Segment {
 /// step. A header with more than this many is not a header.
 const MAX_SEGMENTS: usize = 256;
 
-/// Fill bytes allowed between segments. The standard sets no limit, but a
-/// real file has a handful; a run of thousands is damage, and each one costs
-/// a read.
+/// Fill bytes allowed between segments. The standard sets no limit; a real
+/// file has a handful, and each costs a read.
 const MAX_FILL: usize = 1024;
 
 /// Every header segment of the JPEG starting at `start`, up to and including

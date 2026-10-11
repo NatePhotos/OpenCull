@@ -250,8 +250,8 @@ fn decode_jpeg(bytes: &[u8], target: u32) -> Result<Pixels, String> {
 /// The pure-Rust decoder: builds anywhere, and about a third the speed.
 fn decode_portable(bytes: &[u8], target: u32) -> Result<Pixels, String> {
     let mut decoder = jpeg_decoder::Decoder::new(bytes);
-    // A second guard, in the decoder itself: four bytes a pixel covers its
-    // working buffers for the largest picture allowed.
+    // And in the decoder itself: four bytes a pixel covers its working
+    // buffers for the largest picture allowed.
     decoder.set_max_decoding_buffer_size(crate::raw::jpeg::MAX_PIXELS as usize * 4);
     decoder.read_info().map_err(|e| e.to_string())?;
     let info = decoder.info().ok_or("JPEG has no header")?;

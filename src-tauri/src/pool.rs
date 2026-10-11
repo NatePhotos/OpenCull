@@ -60,11 +60,8 @@ struct Job<T> {
 const PRIORITIES: [Priority; 4] = [Priority::Now, Priority::Soon, Priority::Later, Priority::Idle];
 
 /// The jobs not yet started, kept in the order they are to be taken: highest
-/// priority first, then most recently asked for.
-///
-/// Finding the next job, moving one forward and counting each kind are all
-/// quick however many are waiting. A large folder warmed ahead queues tens of
-/// thousands, and every pick used to look at each of them.
+/// priority first, then most recently asked for. Picking, bumping and
+/// counting stay cheap with the tens of thousands a large folder queues.
 struct Queue<T> {
     order: BTreeMap<(Priority, Reverse<u64>), Job<T>>,
     /// Where each queued key is in `order`.
@@ -295,8 +292,8 @@ impl<T: Send + Sync + 'static> Pool<T> {
             let was_idle = job.priority == Priority::Idle;
 
             // A decoder handed a corrupt file must not take the worker down
-            // with it; the file fails and the thread carries on. This relies on
-            // panics unwinding, which the release profile keeps them doing.
+            // with it; the file fails and the thread carries on. This needs
+            // panics to unwind (see the release profile in Cargo.toml).
             let result = catch_unwind(AssertUnwindSafe(job.work))
                 .unwrap_or_else(|_| Err("decoder panicked".into()))
                 .map(Arc::new);

@@ -45,11 +45,9 @@ fn planes(rgb: &[u8], into: &mut Vec<f32>) {
     }
 }
 
-/// How many faces go through the model at once. A crowd can put hundreds
-/// of faces in one photo, and every one costs about 800 KB of input before
-/// the model's own working memory — taken all at once, across several
-/// workers, that is gigabytes. Results are the same either way: each face is
-/// judged on its own.
+/// How many faces go through the model at once. Each costs about 800 KB of
+/// input, and a crowd shot can hold hundreds; each face is judged on its own,
+/// so batching does not change results.
 const BATCH: usize = 32;
 
 /// Judges every face in an upright picture, in the order given.
@@ -85,8 +83,8 @@ fn judge_batch(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result
     const WIDTHS: [usize; 8] = [3, 4, 5, 1, 1, 1, 1, 1];
     let inputs = vec![("face", vec![n, 3, side, side], face_in), ("eyes", vec![n, 3, strip_h, strip_w], eyes_in)];
     onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw"], |out| {
-        // A model swapped for one that answers in another shape fails the
-        // photo, rather than reading past the end of what it gave.
+        // A model that answers in another shape fails the photo rather than
+        // being read past its end.
         if out.len() != WIDTHS.len() || out.iter().zip(WIDTHS).any(|((_, data), len)| data.len() < n * len) {
             return Err("the face model answered in an unexpected shape".to_string());
         }

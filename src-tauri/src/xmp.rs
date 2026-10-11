@@ -112,25 +112,18 @@ pub fn sidecar_path(image: &Path) -> PathBuf {
     }
 }
 
-/// Whether another photo in `image`'s folder has the same name, so that a
-/// `NAME.xmp` would be read by both: `A.ARW` beside `A.DNG`, or `A.JPG`
-/// beside `A.png`. A RAW and its JPEG are one photo and share a sidecar on
-/// purpose (scan.rs); that is not this.
-///
-/// Such a photo keeps its marks in `NAME.ext.xmp`, its own. Otherwise
-/// rating one would rate the other, and trashing one would take the other's
-/// develop settings with it.
+/// Whether another photo in `image`'s folder has the same name (`A.ARW`
+/// beside `A.DNG`), so a `NAME.xmp` would be read by both. Such a photo keeps
+/// its marks in its own `NAME.ext.xmp`. A RAW and its JPEG are one photo and
+/// share a sidecar on purpose (scan.rs).
 pub fn shares_name(image: &Path) -> bool {
     let (Some(folder), Some(stem)) = (image.parent(), image.file_stem()) else { return false };
     shared_names(folder).contains(&stem.to_string_lossy().to_lowercase())
 }
 
 /// The names in `folder` that more than one photo goes by, lowercased.
-///
-/// Worked out from one listing of the folder, remembered for as long as the
-/// folder's own date says nothing has been added or taken away. Opening a
-/// folder reads every photo's marks, and listing it again for each would be
-/// as many listings as photos.
+/// Remembered until the folder's date changes, since opening a folder reads
+/// every photo's marks and should list it once, not once per photo.
 fn shared_names(folder: &Path) -> std::collections::HashSet<String> {
     type Known = HashMap<PathBuf, (Option<std::time::SystemTime>, std::collections::HashSet<String>)>;
     static KNOWN: OnceLock<Mutex<Known>> = OnceLock::new();
@@ -163,8 +156,7 @@ fn shared_names(folder: &Path) -> std::collections::HashSet<String> {
             }
         }
     }
-    // How many photos a name stands for, as the scan pairs them: a RAW takes
-    // the JPEGs of its name as its own, so they do not count apart from it.
+    // Counted as the scan pairs them: a RAW's JPEGs are part of it.
     let names: std::collections::HashSet<String> = kinds
         .into_iter()
         .filter(|(_, (raws, jpegs, others))| raws + others + if *raws == 0 { *jpegs } else { 0 } >= 2)
@@ -235,8 +227,7 @@ pub fn parse(xml: &str) -> Marks {
 /// A sidecar wins outright, even an empty one. It is the newer statement, and
 /// merging the two would bring back a rating the photographer had cleared.
 pub fn read(image: &Path, probe: Option<&Probe>) -> Marks {
-    // A photo that shares its name reads only its own sidecar: the plain
-    // one is the other photo's too.
+    // A photo that shares its name reads only its own sidecar.
     let [standard, with_ext] = sidecar_candidates(image);
     let candidates = if shares_name(image) { vec![with_ext] } else { vec![standard, with_ext] };
     for candidate in candidates {
@@ -276,8 +267,8 @@ pub(crate) fn fresh(marks: Marks) -> String {
     )
 }
 
-/// A regex built once from `pattern` and kept. `update` runs on every
-/// rating change, and building nine patterns each time was most of its cost.
+/// A regex built once from `pattern` and kept, since `update` runs on every
+/// rating change.
 fn cached(pattern: String) -> Regex {
     static CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
@@ -291,9 +282,8 @@ fn cached(pattern: String) -> Regex {
 /// Rewriting the file from scratch to change a star rating would throw all of
 /// that away, so the existing text is edited in place.
 ///
-/// Only the values that actually differ from what the sidecar already says
-/// are touched. A label another program gave ("Approved", "To Do") is not a
-/// colour this app knows, and changing a star rating must not erase it.
+/// Only values that differ from what the sidecar says are touched, so a
+/// label another program gave ("Approved") survives a change of rating.
 pub(crate) fn update(xml: &str, marks: Marks) -> String {
     let before = parse(xml);
     let mut out = xml.to_string();
@@ -311,8 +301,7 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
     };
 
     let flag_changed = before.flag != marks.flag;
-    // Bridge says "rejected" with a rating of minus one. Taking the reject
-    // away means taking that away too, or the next read rejects it again.
+    // Bridge rejects with a rating of -1; un-rejecting must clear that too.
     let bridge_reject = first_match(xml, &[r#"xmp:Rating="(-?\d+)""#, r"<xmp:Rating>(-?\d+)</xmp:Rating>"]).as_deref() == Some("-1");
     let rating_changed = before.rating != marks.rating || (flag_changed && bridge_reject);
     let label_changed = before.color != marks.color;
@@ -354,8 +343,7 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
         }
     }
 
-    // Photoshop's Urgency of one also reads as a pick. Left behind when the
-    // pick is taken away, it would bring the pick straight back.
+    // Photoshop's Urgency="1" also reads as a pick, so un-picking clears it.
     if flag_changed && marks.flag != Flag::Pick {
         out = cached(r#"\s*photoshop:Urgency="1""#.to_string()).replace_all(&out, "").into_owned();
         out = cached(r"\n?[ \t]*<photoshop:Urgency>1</photoshop:Urgency>".to_string()).replace_all(&out, "").into_owned();
@@ -369,10 +357,8 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
 /// not harmless: a reader prefers a sidecar and stops at it, so one that says
 /// nothing overrides a rating the camera embedded in the file.
 ///
-/// A sidecar that is there but cannot be read — no permission, a share that
-/// has gone, text in an encoding not expected — is an error, never "no
-/// sidecar". Taking it for none would write a fresh one over it and throw
-/// away every develop setting in it.
+/// A sidecar that exists but cannot be read is an error, never "no sidecar":
+/// writing a fresh one over it would throw away its develop settings.
 pub fn write(image: &Path, marks: Marks) -> std::io::Result<()> {
     let path = sidecar_path(image);
     let existing = match std::fs::read_to_string(&path) {
@@ -385,9 +371,8 @@ pub fn write(image: &Path, marks: Marks) -> std::io::Result<()> {
     }
     let text = if existing.is_empty() { fresh(marks) } else { update(&existing, marks) };
 
-    // Written beside the target, pushed to the disk and renamed over it, so a
-    // crash or a pulled drive mid-write leaves the old sidecar rather than
-    // half of a new one, or an empty one.
+    // Staged, synced and renamed over the old one, so a crash mid-write
+    // leaves the old sidecar rather than half of a new one.
     crate::fsx::atomic_write(&path, text.as_bytes(), true)
 }
 
@@ -433,9 +418,8 @@ impl Writer {
         self.enqueue_with(image, marks, Vec::new());
     }
 
-    /// Has `report` called whenever marks cannot be written: to a sidecar,
-    /// which means they are not saved at all, or into a JPEG, which means
-    /// other programs will not see them. Neither should pass in silence.
+    /// Has `report` called whenever marks cannot be written, to a sidecar or
+    /// into a JPEG.
     pub fn on_failure(&self, report: impl Fn(&Path, &str, Wrote) + Send + Sync + 'static) {
         self.shared.0.lock().unwrap().failed = Some(Arc::new(report));
     }
@@ -450,9 +434,8 @@ impl Writer {
         wake.notify_all();
     }
 
-    /// Starts the thread that writes, if it has not been. The app does this
-    /// as it opens, so a system that cannot start one more thread says so
-    /// then, and not at the first star given.
+    /// Starts the writer thread if it is not running. Called at launch, so a
+    /// failure to start it shows then rather than at the first rating.
     pub fn start(&self) {
         let mut state = self.shared.0.lock().unwrap();
         Self::start_locked(&self.shared, &mut state);
@@ -590,7 +573,7 @@ mod tests {
     fn a_sidecar_that_cannot_be_read_is_never_written_over() {
         let dir = scratch("unreadable");
         let photo = dir.join("A7V00010.ARW");
-        // Not UTF-8: as a sidecar saved in another encoding would be.
+        // Not UTF-8, like a sidecar saved in another encoding.
         let foreign = [0xFFu8, 0xFE, b'<', 0, b'x', 0];
         std::fs::write(dir.join("A7V00010.xmp"), foreign).unwrap();
 

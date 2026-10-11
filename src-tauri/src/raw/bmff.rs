@@ -55,7 +55,6 @@ fn boxes(src: &dyn ReadAt, start: u64, end: u64) -> Vec<BoxAt> {
         if size == 1 {
             // A length too large for four bytes follows in eight.
             let Some(wide) = src.read_at(pos + 8, 8) else { break };
-            // From the file, so anything at all: checked before it is added.
             size = u64::from_be_bytes(wide.try_into().expect("eight bytes"));
             header = 16;
         } else if size == 0 {

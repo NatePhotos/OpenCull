@@ -24,20 +24,12 @@
 //!
 //! It is off unless the photographer turns it on (Settings, under Culling).
 //!
-//! The file's modified date is left to change, as for any other edit. Backup
-//! and sync tools look at the date to see what changed, and so does
-//! Lightroom; a file that was changed but kept its old date would keep its
-//! old rating in every one of them. Previews are keyed on the date too, so a
-//! changed date means the photo's previews are made again once. That is the
-//! price of the change being seen.
+//! The file's modified date changes, as for any other edit, so backup tools
+//! and Lightroom notice the new rating. (Its previews are made again once.)
 //!
-//! The same-length overwrite is the one write in the app that is not staged
-//! and renamed. It changes only text inside the packet, the picture's bytes
-//! are never in reach of it, and a crash part way leaves a packet that is
-//! half old and half new; other programs may then ignore the packet, but the
-//! sidecar still holds the marks. Writing the whole file out again for every
-//! star would be the safer and much slower trade, for something that is off
-//! by default.
+//! The same-length overwrite is the one write here that is not staged and
+//! renamed. It touches only the packet's text, and a crash part way leaves
+//! that packet garbled while the sidecar still holds the marks.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -226,13 +218,9 @@ fn afresh(path: &Path, from: u64, to: u64, segment: &[u8]) -> io::Result<()> {
     written
 }
 
-/// Carries what the system keeps about `from` beyond its bytes onto `to`:
-/// on a Mac its Finder tags, where it was downloaded from, its permissions
-/// and owner. A file written out afresh starts with none of that, and a
-/// photographer's colour tags on a JPEG in Finder are their work too.
-///
-/// The modified date is not carried: the file has been changed, and is
-/// dated now.
+/// Carries what the system keeps about `from` beyond its bytes onto `to`: on
+/// a Mac its Finder tags, extended attributes, permissions and owner. The
+/// modified date is not carried; the file has changed and is dated now.
 #[cfg(target_os = "macos")]
 fn keep_attributes(from: &Path, to: &Path) {
     use std::ffi::CString;
@@ -242,7 +230,7 @@ fn keep_attributes(from: &Path, to: &Path) {
     // and no copyfile state is passed.
     let copied = unsafe { libc::copyfile(src.as_ptr(), dst.as_ptr(), std::ptr::null_mut(), libc::COPYFILE_METADATA) };
     if copied == 0 {
-        // COPYFILE_STAT brings the old modified date with it. Dated now.
+        // COPYFILE_STAT brings the old modified date with it.
         if let Ok(file) = OpenOptions::new().write(true).open(to) {
             file.set_modified(std::time::SystemTime::now()).ok();
         }

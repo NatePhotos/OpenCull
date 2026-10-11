@@ -55,8 +55,7 @@ turbojpeg = { version = "1.5.1", default-features = false, optional = true }
 tauri-plugin-window-state = "2"
 ort = "=2.0.0-rc.13"
 
-# For keeping a JPEG's Finder tags, permissions and other attributes when it
-# is rewritten with new marks (embed.rs). Already in the build through Tauri.
+# Keeps a JPEG's Finder tags and attributes when it is rewritten (embed.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
@@ -77,9 +76,8 @@ opt-level = 1
 opt-level = 3
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
-# Panics unwind rather than abort. The preview pool catches a decoder that
-# panics on a damaged file (pool.rs), and that only works if the panic
-# unwinds: under "abort", one bad photo would close the whole app.
+# Panics unwind, so the preview pool can catch a decoder panicking on a
+# damaged file (pool.rs) instead of the whole app closing.
 [profile.release]
 codegen-units = 1
 lto = true

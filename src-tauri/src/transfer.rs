@@ -42,7 +42,7 @@ pub struct Job {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Failure {
-    /// The photo it happened to, as it was given: what the app knows it by.
+    /// The photo, as the app knows it.
     pub path: PathBuf,
     /// The file's name, for saying which.
     pub name: String,
@@ -98,8 +98,8 @@ fn stem_of(path: &Path) -> Option<String> {
 }
 
 /// Every name a photo takes at its destination: itself, its companions, and
-/// both of the names its sidecar could have. The sidecar names count even
-/// when it has no sidecar: one already there would otherwise be read as its.
+/// both sidecar names — even with no sidecar, since one already there would
+/// be read as its own.
 fn names_of(job: &Job) -> Vec<PathBuf> {
     let mut names: Vec<PathBuf> = std::iter::once(job.owner.clone()).chain(job.companions.iter().cloned()).collect();
     names.extend(xmp::sidecar_candidates(&job.owner));
@@ -116,10 +116,8 @@ fn send(job: &Job, destination: &Path, moving: bool, conflict: Conflict, outcome
         return;
     };
 
-    // The photo and everything that travels with it take one name between
-    // them. Renaming each on its own could leave a RAW called NAME_1 beside a
-    // JPEG still called NAME, and that JPEG paired with the stranger already
-    // there.
+    // The photo and everything that travels with it share one suffix, so a
+    // RAW renamed NAME_1 is never left beside a stranger's NAME.JPG.
     let Some(suffix) = free_suffix(&stem, &names_of(job), destination, conflict) else {
         outcome.skipped.push(job.owner.clone());
         outcome.placed.push(job.owner.clone());
@@ -132,8 +130,7 @@ fn send(job: &Job, destination: &Path, moving: bool, conflict: Conflict, outcome
     let sidecars = xmp::sidecars_of(&job.owner);
 
     let target = renamed(&job.owner);
-    // Whether the rest may move too. If the photo itself had to stay behind,
-    // what travels with it stays as well, so nothing is split.
+    // If the photo had to stay behind, what travels with it stays too.
     let rest_moving = match place(&job.owner, &target, moving) {
         Err(e) => {
             outcome.placed.push(job.owner.clone());
@@ -206,7 +203,7 @@ pub(crate) fn rename(file: &Path, stem: &str, suffix: &str) -> String {
 }
 
 
-/// How putting one file in place went, when it got there.
+/// How placing a file went, when it got there.
 enum Placed {
     Done,
     /// It is at the destination, whole, but the original could not be
@@ -391,7 +388,6 @@ mod tests {
 
         assert!(out.sidecar_failed.is_empty() && out.failed.is_empty());
         assert_eq!(f.there("A.xmp").as_deref(), Some("someone's edits"));
-        // The photo goes alongside, under a name its ratings can have too.
         assert_eq!(f.names_there(), ["A.xmp", "A_1.ARW", "A_1.xmp"]);
         assert_eq!(f.there("A_1.xmp").as_deref(), Some("new stars"));
     }
@@ -431,8 +427,6 @@ mod tests {
         assert_eq!(out.failed.len(), 1);
         assert!(out.failed[0].reason.contains("could not be removed"), "{:?}", out.failed);
         assert_eq!(out.failed[0].path, raw);
-        // The copy is whole at the destination, with all that goes with it,
-        // and everything is still where it started.
         assert_eq!(f.names_there(), ["A.ARW", "A.JPG", "A.xmp"]);
         assert!(raw.exists() && jpg.exists() && f.from.join("A.xmp").exists());
     }

@@ -323,8 +323,8 @@ fn forget_old_sessions(app: &App) {
 }
 
 /// Whether `folder` is one a self-test made for itself, and so may be
-/// removed whole. Checked before removing anything, so that no mistake about
-/// which folder is which can ever remove the cache it sits in, or worse.
+/// removed whole. Checked before any removal, as a guard against removing
+/// the real cache by mistake.
 pub(crate) fn is_self_test_folder(folder: &Path) -> bool {
     folder.starts_with(std::env::temp_dir()) && folder.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("opencull-selftest-"))
 }
@@ -527,8 +527,7 @@ pub struct MarkChange {
 /// behind it.
 #[tauri::command]
 pub fn set_marks(app: AppState, changes: Vec<MarkChange>) {
-    // Marks are written beside, and into, photos in open folders only: a
-    // JPEG is only ever rewritten because it is one the app listed.
+    // Only photos in open folders: a JPEG is only rewritten if the app listed it.
     let allowed = &app.previews.allowed;
     for change in changes {
         let photo = PathBuf::from(change.path);
@@ -594,9 +593,8 @@ pub async fn move_to_trash(app: AppState<'_>, items: Vec<PhotoFiles>) -> Result<
     .map_err(|e| e.to_string())
 }
 
-/// Refuses unless every one of `items` is a photo in a folder that is open.
-/// Commands that change files act only on photos the app itself listed,
-/// never on any path the view happens to name.
+/// Refuses unless every one of `items` is a photo in an open folder, so
+/// commands that change files act only on photos the app itself listed.
 fn in_open_folders(app: &App, items: &[PhotoFiles]) -> Result<(), String> {
     let allowed = &app.previews.allowed;
     match items.iter().find(|i| !allowed.in_open_folder(Path::new(&i.path)) || !allowed.in_open_folder(Path::new(&i.display))) {
@@ -605,7 +603,7 @@ fn in_open_folders(app: &App, items: &[PhotoFiles]) -> Result<(), String> {
     }
 }
 
-/// Tells the list of what may be shown where photos the app moved went.
+/// Updates the allowlist with where moved photos went.
 fn note_moves(app: &App, jobs: &[transfer::Job], outcome: &transfer::Outcome) {
     let moved: std::collections::HashSet<&PathBuf> = outcome.moved.iter().collect();
     for (job, placed) in jobs.iter().zip(&outcome.placed) {
@@ -1206,8 +1204,7 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// The shapes the interface reads (src/lib/api.ts). A field renamed here
-    /// and not there is a photo whose failure is never shown.
+    /// The shapes the interface reads (src/lib/api.ts).
     #[test]
     fn replies_have_the_shape_the_interface_reads() {
         let failure = transfer::Failure { path: "/shoot/A.ARW".into(), name: "A.ARW".into(), reason: "full".into() };

@@ -13,11 +13,9 @@
 //! for good: a file that changes gets a new address, and the old picture is
 //! simply never asked for again.
 //!
-//! Only files the app itself has listed are served: photos in a folder that
-//! is open, the few shown for each recent folder on the home screen, and
-//! those on a card being looked through to ingest. An address naming any
-//! other file on the computer is refused, so nothing that ever found its way
-//! into the view could read pictures from elsewhere.
+//! Only files the app itself has listed are served: photos in an open folder,
+//! the home screen's folder covers, and the card being ingested from. An
+//! address naming any other file is refused.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -45,8 +43,8 @@ pub struct Allowed {
     covers: Mutex<HashSet<PathBuf>>,
 }
 
-/// More cover pictures than any home screen shows. Past this, the oldest
-/// grants are simply dropped.
+/// More cover pictures than any home screen shows. Past this the list is
+/// cleared and refilled as covers are asked for again.
 const MAX_COVERS: usize = 2000;
 
 fn files_of(images: &[Scanned]) -> impl Iterator<Item = PathBuf> + '_ {
@@ -175,9 +173,8 @@ impl Previews {
 
         let (tx, rx) = mpsc::channel::<Task>();
         let rx = Arc::new(Mutex::new(rx));
-        // Four, not two: a request for a file on a slow card or a network
-        // drive holds its reader for as long as the disk takes, and every
-        // cache hit queued behind it would wait as long.
+        // Several, because a request for a file on a slow card or network
+        // drive holds its reader, and cache hits queued behind it would wait.
         for i in 0..4 {
             let rx = rx.clone();
             std::thread::Builder::new()

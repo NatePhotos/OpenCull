@@ -177,8 +177,8 @@ const CATALOG_HEAD_START: std::time::Duration = std::time::Duration::from_millis
 /// Opens `files` in the editor called `id`, after `catalog` if one is given.
 pub fn open(id: &str, files: &[PathBuf], catalog: Option<&Path>) -> Result<(), String> {
     let editor = EDITORS.iter().find(|e| e.id == id).ok_or_else(|| format!("no editing program called {id}"))?;
-    // Paths are handed to the program as they are. A full path can never be
-    // mistaken for one of its options, as a name beginning with "-" could.
+    // Only full paths, which can never be mistaken for an option as a name
+    // beginning with "-" could.
     if let Some(odd) = files.iter().map(PathBuf::as_path).chain(catalog).find(|f| !f.is_absolute()) {
         return Err(format!("{} is not a full path to a file", odd.display()));
     }
@@ -194,8 +194,7 @@ pub fn open(id: &str, files: &[PathBuf], catalog: Option<&Path>) -> Result<(), S
 fn start(launches: &[Launch]) -> Result<(), String> {
     for l in launches {
         let mut child = std::process::Command::new(&l.program).args(&l.args).spawn().map_err(|e| format!("could not start {}: {e}", l.program.display()))?;
-        // Waited for in the background, so a program that has finished does
-        // not linger as a process the system keeps a place for.
+        // Reaped in the background, so a finished program leaves no zombie.
         std::thread::Builder::new().name("opencull-editor-wait".into()).spawn(move || child.wait()).ok();
     }
     Ok(())

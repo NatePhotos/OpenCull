@@ -11,13 +11,9 @@
 //!     DSC00413.ARW,0,0,
 //!
 //! `1` for yes, `0` for no, nothing for "not labelled". Only totals are
-//! printed: how many of each the analysis caught, and how many it raised
-//! that were not there. `--misses` also lists which files it got wrong, for
-//! looking at them yourself; nothing is written anywhere.
-//!
+//! printed; `--misses` also lists the files it got wrong. Nothing is written.
 //! Keep the folder outside the repository, or under `private-eval/`, which
-//! git ignores. This is how the thresholds in `ai/` can be checked after a
-//! change, on anyone's own photos, with none of them shared.
+//! git ignores.
 
 use std::path::Path;
 

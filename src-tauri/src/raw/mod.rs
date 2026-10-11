@@ -436,9 +436,8 @@ type ScanKey = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
 /// How many files' slow searches are remembered. Each is a few numbers.
 const REMEMBERED_SCANS: usize = 4096;
 
-/// The slow search's answer for a file, made once and remembered. A file
-/// with no declared preview is probed for each size of preview made from it
-/// and again for analysis, and the search reads tens of megabytes each time.
+/// The slow search's answer for a file, made once and remembered: a file with
+/// no declared preview is probed for each preview size and for analysis.
 fn remembered_scan(key: ScanKey, search: impl FnOnce() -> Vec<Embedded>) -> Vec<Embedded> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -581,13 +580,9 @@ fn time_from_image_directory(tiff: &Tiff) -> Option<f64> {
     clock_ms(&date, subsec.as_deref())
 }
 
-/// A CR3's capture time, by the same precedence a full probe ends up with.
-///
-/// Canon keeps the exposure directory (CMT2) in a box of its own, and a probe
-/// walks the camera directory (CMT1, with any EXIF it points to) first and
-/// CMT2 after. A capture time from anywhere wins, CMT2's over the camera
-/// directory's; failing that, the first fallback date met — the camera
-/// directory's file date, then its EXIF's digitised date, then CMT2's.
+/// A CR3's capture time, by the same precedence a full probe ends up with:
+/// a capture time (CMT2's over CMT1's EXIF), then CMT1's file date, then a
+/// digitised date (CMT1's EXIF, then CMT2).
 fn time_from_cr3(src: &dyn ReadAt, cr3: &bmff::Cr3) -> Option<f64> {
     let first = |at: Option<u64>| -> Option<(Tiff<'_>, Vec<tiff::Entry>)> {
         let tiff = Tiff::open(src, at?)?;
@@ -636,9 +631,8 @@ fn read_jpeg_metadata(src: &dyn ReadAt, start: u64, end: u64, found: &mut Found)
 
 /// How far into a file the slow search looks. Measured across Sony, Canon,
 /// Nikon and DNG files by the Mac app: an embedded preview always began in
-/// the first sixth of the file, the rest being sensor data — and in files of
-/// up to about 144 MB, where a sixth is this much or less. A larger file
-/// whose only preview starts further in than this is not found by the search.
+/// the first sixth of the file, in files of up to about 144 MB. A larger file
+/// whose only preview starts past this is not found by the search.
 const SCAN_WINDOW: u64 = 24 * 1024 * 1024;
 
 /// Nothing smaller than this is worth finding by brute force; it would be a
@@ -652,8 +646,8 @@ const SCAN_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// How much is read at a time while looking for where a preview ends.
 const SCAN_CHUNK: usize = 1024 * 1024;
 
-/// How many start markers are followed up in one file. Each costs reads, and
-/// sensor data can throw up any number that pass the first look.
+/// How many start markers are followed up in one file. Sensor data can throw
+/// up any number that pass the first look.
 const SCAN_MAX_CANDIDATES: usize = 64;
 
 /// Searches the front of a file for anything that opens as a JPEG.
@@ -698,10 +692,8 @@ fn scan_for_jpegs(src: &dyn ReadAt) -> Vec<Embedded> {
 /// How long the JPEG starting at `start` is, end marker included.
 ///
 /// An end marker cannot occur inside compressed image data, so the first one
-/// after the headers is the end. Looked for past the scan window as well: a
-/// preview may begin inside it and run past it. Read a piece at a time and
-/// never past `SCAN_MAX_BYTES`, so a huge file costs one piece of memory, not
-/// the rest of the file.
+/// after the headers is the end. Read a piece at a time, never past
+/// `SCAN_MAX_BYTES`, so a huge file costs one piece of memory.
 fn jpeg_len(src: &dyn ReadAt, start: u64) -> Option<u64> {
     let limit = src.size().checked_sub(start)?.min(SCAN_MAX_BYTES);
     let head = src.read_at(start, (limit as usize).min(SCAN_CHUNK))?;

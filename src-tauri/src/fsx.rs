@@ -1,15 +1,10 @@
 //! Putting files in place so that a crash, a pulled drive or a power cut
 //! never leaves one half written, and never costs the file that was there.
 //!
-//! Everything that writes a file the photographer cares about comes through
-//! here: copies, moves, sidecars, a JPEG given new marks. Each is written
-//! under a hidden name beside where it is going, pushed all the way to the
-//! disk, and only then given its real name.
-//!
-//! "Pushed all the way to the disk" matters. A write the system has accepted
-//! may still be sitting in memory for some seconds, and a drive unplugged in
-//! that time keeps none of it. A copy reported done must be on the disk, or a
-//! move that then deletes the original can lose both.
+//! Each file is written under a hidden name beside where it is going, synced
+//! to the disk, and only then given its real name. The sync matters: a write
+//! the system has accepted can sit in memory for seconds, and a move that
+//! deletes the original in that time can lose both.
 
 use std::fs::File;
 use std::io;
@@ -35,11 +30,9 @@ pub fn staging_path(target: &Path) -> io::Result<PathBuf> {
     Ok(folder.join(format!("{STAGING_PREFIX}{}-{}-{}", std::process::id(), STAGED.fetch_add(1, Ordering::Relaxed), file_name(target))))
 }
 
-/// Makes a rename or a new file in `folder` survive a power cut. Without it,
-/// the file's bytes may be on the disk while its name is not.
-///
-/// Systems that cannot do this for a folder (Windows, some network shares)
-/// already keep folder changes safe in their own way, so that is not an error.
+/// Makes a rename or a new file in `folder` survive a power cut. Systems that
+/// cannot sync a folder (Windows, some network shares) keep folder changes
+/// safe their own way, so that is not an error.
 pub fn sync_dir(folder: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -56,14 +49,12 @@ pub fn sync_dir(folder: &Path) -> io::Result<()> {
 }
 
 /// Gives `staged` the name `target`. Unless `replace`, refuses if something
-/// is already there, and means it: a file that appears at `target` in the
-/// meantime is not silently replaced, as a plain rename would.
+/// is already there, including a file that appears there in the meantime.
 pub fn put_in_place(staged: &Path, target: &Path, replace: bool) -> io::Result<()> {
     if replace {
         return std::fs::rename(staged, target);
     }
-    // A hard link refuses an existing name in one step, with nothing able to
-    // slip in between the check and the write.
+    // A hard link refuses an existing name atomically.
     match std::fs::hard_link(staged, target) {
         Ok(()) => {
             std::fs::remove_file(staged).ok();
@@ -85,11 +76,8 @@ fn already_there() -> io::Error {
     io::Error::new(io::ErrorKind::AlreadyExists, "a file of that name is already there")
 }
 
-/// Writes `bytes` to `path` whole or not at all.
-///
-/// `durable` pushes it to the disk before it takes the name. Wanted for
-/// anything the photographer made; not for caches, which can be rebuilt and
-/// are written by the thousand.
+/// Writes `bytes` to `path` whole or not at all. `durable` syncs it to the
+/// disk first: wanted for the photographer's work, not for rebuildable caches.
 pub fn atomic_write(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> {
     let staged = staging_path(path)?;
     let written = (|| {
@@ -109,9 +97,8 @@ pub fn atomic_write(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> 
     written
 }
 
-/// Copies `source` to `target` and checks it arrived whole and reached the
-/// disk, keeping the date it was last changed (what most software sorts
-/// photos by). Unless `replace`, refuses to land on an existing file.
+/// Copies `source` to `target`, checks its size and syncs it, keeping the
+/// modified date. Unless `replace`, refuses to land on an existing file.
 pub fn staged_copy(source: &Path, target: &Path, replace: bool) -> io::Result<()> {
     let staged = staging_path(target)?;
     let copied = (|| {
@@ -135,15 +122,12 @@ pub fn staged_copy(source: &Path, target: &Path, replace: bool) -> io::Result<()
     copied
 }
 
-/// How old a leftover staged file must be before it is cleared away. Long
-/// enough that no copy still running could own it.
+/// How old a leftover staged file must be before it is cleared away.
 const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 
-/// Removes staged files that a crash left behind in `folder`.
-///
-/// Only ones from another run of the app, and only once they are an hour
-/// old by the time they were made. A staged copy keeps the date its photo was
-/// last changed, so that date says nothing about when it was left.
+/// Removes staged files a crash left behind in `folder`: only another run's,
+/// and only an hour after they were created. (A staged copy carries its
+/// photo's modified date, so that date says nothing about its age.)
 pub fn sweep(folder: &Path) {
     let Ok(entries) = std::fs::read_dir(folder) else { return };
     let ours = format!("{STAGING_PREFIX}{}-", std::process::id());
@@ -155,8 +139,8 @@ pub fn sweep(folder: &Path) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
-        // Systems that cannot say when a file was made keep their leftovers:
-        // better a stray hidden file than removing one in use.
+        // Without a creation time, leave it: better a stray hidden file than
+        // removing one in use.
         let Ok(made) = meta.created() else { continue };
         if meta.is_file() && now.duration_since(made).is_ok_and(|age| age >= STALE_AFTER) {
             std::fs::remove_file(entry.path()).ok();

@@ -20,8 +20,8 @@ use super::{focus, Analysis};
 /// `version()` adds a fingerprint of them.
 pub const VERSION: &str = "finder-yunet-0.6|judge-3|junk-0.8|shut-0.9|away-0.90-glance-0.15|rules-2|key-1";
 
-/// `VERSION`, and a fingerprint of the two models. A model swapped without
-/// `VERSION` being bumped would otherwise serve the old model's verdicts.
+/// `VERSION` plus a fingerprint of the two models, so swapping a model
+/// invalidates old verdicts on its own.
 pub fn version() -> &'static str {
     static FULL: OnceLock<String> = OnceLock::new();
     FULL.get_or_init(|| {
@@ -124,9 +124,8 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens the store in `dir`. What an earlier version wrote there can
-    /// never be used again, so it is cleared away now rather than left to
-    /// fill the disk.
+    /// Opens the store in `dir`, clearing what an earlier version wrote, which
+    /// can never be used again.
     pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).ok();
         let store = Self { dir };
@@ -180,8 +179,7 @@ pub fn remembered(known: &HashMap<String, Entry>, path: &Path, version: &str) ->
 mod tests {
     use super::*;
 
-    /// The models' fingerprints, as THIRD-PARTY-NOTICES.md publishes them.
-    /// Change a model and this fails until the notice is brought up to date.
+    /// The models' fingerprints must match THIRD-PARTY-NOTICES.md.
     #[test]
     fn the_models_are_the_ones_the_notices_list() {
         let notices = include_str!("../../../THIRD-PARTY-NOTICES.md");
@@ -193,7 +191,7 @@ mod tests {
         }
     }
 
-    /// SHA-256, written out here rather than added as a dependency for one test.
+    /// SHA-256, written out rather than added as a dependency for one test.
     fn sha256_hex(data: &[u8]) -> String {
         const K: [u32; 64] = [
             0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
