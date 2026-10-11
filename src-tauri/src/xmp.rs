@@ -372,15 +372,28 @@ impl Writer {
         let (lock, wake) = &*self.shared;
         let mut state = lock.lock().unwrap();
         state.pending.insert(image, (marks, into));
-        if !state.started {
-            state.started = true;
-            let shared = self.shared.clone();
-            std::thread::Builder::new()
-                .name("opencull-xmp".into())
-                .spawn(move || Self::drain(shared))
-                .expect("spawn sidecar writer");
-        }
+        Self::start_locked(&self.shared, &mut state);
         wake.notify_all();
+    }
+
+    /// Starts the thread that writes, if it has not been. The app does this
+    /// as it opens, so a system that cannot start one more thread says so
+    /// then, and not at the first star given.
+    pub fn start(&self) {
+        let mut state = self.shared.0.lock().unwrap();
+        Self::start_locked(&self.shared, &mut state);
+    }
+
+    fn start_locked(shared: &Arc<(Mutex<WriterState>, Condvar)>, state: &mut WriterState) {
+        if state.started {
+            return;
+        }
+        state.started = true;
+        let shared = shared.clone();
+        std::thread::Builder::new()
+            .name("opencull-xmp".into())
+            .spawn(move || Self::drain(shared))
+            .expect("spawn sidecar writer");
     }
 
     fn drain(shared: Arc<(Mutex<WriterState>, Condvar)>) {

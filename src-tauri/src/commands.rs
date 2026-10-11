@@ -34,6 +34,8 @@ pub struct Session {
     /// Set when the folder is closed, so work still running for it stops
     /// rather than finishing a scan nobody is looking at.
     closed: AtomicBool,
+    /// Set once its details are being read, so asking twice reads them once.
+    reading: AtomicBool,
 }
 
 pub struct App {
@@ -73,9 +75,11 @@ pub struct App {
 impl App {
     pub fn new(previews: Previews, times: Times, faces: ai::store::Store) -> Self {
         let cores = crate::cores();
+        let writer = xmp::Writer::default();
+        writer.start();
         Self {
             previews,
-            writer: xmp::Writer::default(),
+            writer,
             times,
             sessions: Mutex::new(HashMap::new()),
             next_session: AtomicU64::new(1),
@@ -207,7 +211,7 @@ pub fn finish_self_test(handle: tauri::AppHandle, app: AppState, launch: State<L
         app.previews.cache.close();
         app.previews.pool.clear_queued();
         std::thread::sleep(Duration::from_millis(250));
-        if let Some(root) = app.previews.cache.dir().parent() {
+        if let Some(root) = app.previews.cache.dir().parent().filter(|r| is_self_test_folder(r)) {
             std::fs::remove_dir_all(root).ok();
         }
         handle.exit(if ok { 0 } else { 1 });
@@ -295,9 +299,34 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
     app.previews.allowed.open(&result.images);
     app.sessions.lock().unwrap().insert(
         session,
-        Arc::new(Session { folder, images: result.images.clone(), timed, closed: AtomicBool::new(false) }),
+        Arc::new(Session { folder, images: result.images.clone(), timed, closed: AtomicBool::new(false), reading: AtomicBool::new(false) }),
     );
+    forget_old_sessions(&app);
     Ok(FolderReply { session, images: result.images, subfolder_count: result.subfolder_count, left_out: result.left_out, times, timed, groups })
+}
+
+/// More folders open at once than the interface ever has. It closes each
+/// before opening the next; these are only for one it failed to close.
+const MAX_SESSIONS: usize = 4;
+
+/// Closes the oldest folders past `MAX_SESSIONS`, so a folder the interface
+/// lost track of does not hold its photo list and allowlist for good.
+fn forget_old_sessions(app: &App) {
+    let mut sessions = app.sessions.lock().unwrap();
+    while sessions.len() > MAX_SESSIONS {
+        let Some(&oldest) = sessions.keys().min() else { break };
+        if let Some(s) = sessions.remove(&oldest) {
+            s.closed.store(true, Ordering::SeqCst);
+            app.previews.allowed.close(&s.images);
+        }
+    }
+}
+
+/// Whether `folder` is one a self-test made for itself, and so may be
+/// removed whole. Checked before removing anything, so that no mistake about
+/// which folder is which can ever remove the cache it sits in, or worse.
+pub(crate) fn is_self_test_folder(folder: &Path) -> bool {
+    folder.starts_with(std::env::temp_dir()) && folder.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("opencull-selftest-"))
 }
 
 #[tauri::command]
@@ -363,6 +392,9 @@ pub fn load_metadata(app: AppState, session: u64, on_event: Channel<MetaEvent>) 
     let Some(session) = app.sessions.lock().unwrap().get(&session).cloned() else {
         return Err("that folder is no longer open".into());
     };
+    if session.reading.swap(true, Ordering::SeqCst) {
+        return Err("that folder's details are already being read".into());
+    }
     let app = app.inner().clone();
 
     std::thread::Builder::new()
@@ -1100,6 +1132,31 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
         let app = App::new(Previews::new(Cache::new(root.join("previews"))), Times::new(root.join("times")), ai::store::Store::new(root.join("faces")));
         (app, root)
+    }
+
+    #[test]
+    fn only_a_self_tests_own_folder_may_be_removed_whole() {
+        let tmp = std::env::temp_dir();
+        assert!(is_self_test_folder(&tmp.join("opencull-selftest-123")));
+        assert!(!is_self_test_folder(&tmp), "never the temporary folder itself");
+        assert!(!is_self_test_folder(&tmp.join("something-else")));
+        assert!(!is_self_test_folder(Path::new("/Users/someone/Library/Caches/opencull-selftest-1")));
+    }
+
+    #[test]
+    fn a_folder_the_interface_lost_track_of_is_closed_in_time() {
+        let (app, root) = app("sessions");
+        for id in 0..(MAX_SESSIONS as u64 + 3) {
+            let images = vec![scanned(&format!("/f{id}/A.ARW"), &format!("/f{id}/A.ARW"))];
+            app.previews.allowed.open(&images);
+            app.sessions.lock().unwrap().insert(id, Arc::new(Session { folder: PathBuf::new(), images, timed: true, closed: AtomicBool::new(false), reading: AtomicBool::new(false) }));
+            forget_old_sessions(&app);
+        }
+        let open: Vec<u64> = { let mut ids: Vec<u64> = app.sessions.lock().unwrap().keys().copied().collect(); ids.sort(); ids };
+        assert_eq!(open, [3, 4, 5, 6]);
+        assert!(!app.previews.allowed.in_open_folder(Path::new("/f0/A.ARW")), "a closed folder's photos may no longer be shown");
+        assert!(app.previews.allowed.in_open_folder(Path::new("/f6/A.ARW")));
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

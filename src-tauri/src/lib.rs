@@ -92,7 +92,9 @@ pub fn run() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(90));
                     println!("[selftest] FAILED: gave up after 90 seconds");
-                    std::fs::remove_dir_all(&abandoned).ok();
+                    if commands::is_self_test_folder(&abandoned) {
+                        std::fs::remove_dir_all(&abandoned).ok();
+                    }
                     std::process::exit(2);
                 });
             } else if let Some(window) = app.get_webview_window("main") {
