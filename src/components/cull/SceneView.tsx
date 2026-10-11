@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Check } from "lucide-react";
 
-import { groupOf, useStore } from "@/lib/store";
+import { groupsOf, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Filmstrip } from "./Filmstrip";
 import { Loupe } from "./Loupe";
@@ -27,21 +27,21 @@ const SCENE_STRIP = 116;
  */
 export function SceneView() {
   const view = useStore((s) => s.view);
-  const photos = useStore((s) => s.photos);
   const current = useStore((s) => s.current);
   const height = useStore((s) => s.filmstripHeight);
-  const poses = useStore((s) => s.poses);
+  // Not `photos`: that changes with every mark, and groups do not.
+  const groups = useStore(groupsOf);
 
   const scenes = useMemo(() => {
     const out: Scene[] = [];
     for (let i = 0; i < view.length; ) {
-      const group = groupOf({ photos, poses }, view[i]);
+      const group = groups[view[i]] ?? null;
       const frames = [view[i++]];
-      while (group !== null && i < view.length && groupOf({ photos, poses }, view[i]) === group) frames.push(view[i++]);
+      while (group !== null && i < view.length && groups[view[i]] === group) frames.push(view[i++]);
       out.push({ number: out.length + 1, frames });
     }
     return out;
-  }, [view, photos, poses]);
+  }, [view, groups]);
 
   const active = useMemo(() => scenes.find((s) => s.frames.includes(current)), [scenes, current]);
 

@@ -208,6 +208,24 @@ export function groupOf(s: Pick<State, "photos" | "poses">, index: number): numb
   return pose !== undefined ? pose : (s.photos[index]?.group ?? null);
 }
 
+/**
+ * Every photo's group, by its number in the folder.
+ *
+ * The same array comes back for as long as no photo's group has changed, so
+ * views that draw groups can depend on it and not on `photos` — which is a
+ * new array every time a photo is marked, while groups only change when the
+ * folder's times are read or its poses are found.
+ */
+let groupsMemo: { photos: Photo[]; poses: State["poses"]; groups: (number | null)[] } | null = null;
+export function groupsOf(s: Pick<State, "photos" | "poses">): (number | null)[] {
+  if (groupsMemo && groupsMemo.photos === s.photos && groupsMemo.poses === s.poses) return groupsMemo.groups;
+  const next = s.photos.map((_, i) => groupOf(s, i));
+  const before = groupsMemo?.groups;
+  const same = before !== undefined && before.length === next.length && before.every((g, i) => g === next[i]);
+  groupsMemo = { photos: s.photos, poses: s.poses, groups: same ? before : next };
+  return groupsMemo.groups;
+}
+
 /** Whether a photo is taller than it is wide, the way up it is shown; null until its shape has been read. */
 export function uprightOf(photo: Photo): boolean | null {
   return photo.fullWidth > 0 && photo.fullHeight > 0 ? photo.fullHeight > photo.fullWidth : null;

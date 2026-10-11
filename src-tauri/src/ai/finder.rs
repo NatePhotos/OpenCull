@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use super::onnx;
 use crate::faces::FaceBox;
 
-static MODEL: &[u8] = include_bytes!("../../models/finder.onnx");
+pub(crate) static MODEL: &[u8] = include_bytes!("../../models/finder.onnx");
 thread_local!(static SESSION: RefCell<Option<ort::session::Session>> = const { RefCell::new(None) });
 
 /// The longer side of the picture the finder is shown. Larger finds smaller

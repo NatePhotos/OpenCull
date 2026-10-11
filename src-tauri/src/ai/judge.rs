@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use super::onnx;
 use crate::faces::{self, FaceBox, FACE_SIDE, STRIP};
 
-static MODEL: &[u8] = include_bytes!("../../models/judge.onnx");
+pub(crate) static MODEL: &[u8] = include_bytes!("../../models/judge.onnx");
 thread_local!(static SESSION: RefCell<Option<ort::session::Session>> = const { RefCell::new(None) });
 
 /// What the judge says about one face.

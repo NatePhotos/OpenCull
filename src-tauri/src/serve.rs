@@ -174,7 +174,10 @@ impl Previews {
 
         let (tx, rx) = mpsc::channel::<Task>();
         let rx = Arc::new(Mutex::new(rx));
-        for i in 0..2 {
+        // Four, not two: a request for a file on a slow card or a network
+        // drive holds its reader for as long as the disk takes, and every
+        // cache hit queued behind it would wait as long.
+        for i in 0..4 {
             let rx = rx.clone();
             std::thread::Builder::new()
                 .name(format!("opencull-reader-{i}"))

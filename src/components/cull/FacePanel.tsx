@@ -124,6 +124,9 @@ export function FacePanel() {
     img.decode().then(done, done);
     return () => {
       stale = true;
+      // Moved on before it arrived: stop fetching it. A held arrow key would
+      // otherwise queue a full-size decode for every photo passed.
+      img.src = "";
     };
   }, [sharpUrl, empty]);
 

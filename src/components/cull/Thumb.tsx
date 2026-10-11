@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -17,6 +17,15 @@ import type { Photo } from "@/lib/types";
 export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
+  const retry = useRef<number | undefined>(undefined);
+  // A cell reused for another photo starts that photo with a clean slate.
+  const [tried, setTried] = useState(photo.display);
+  if (tried !== photo.display) {
+    setTried(photo.display);
+    setAttempt(0);
+    setFailed(false);
+  }
+  useEffect(() => () => window.clearTimeout(retry.current), []);
 
   // Asked for at another size, the picture already showing stays up until
   // the new one has arrived and been decoded. Swapping the address straight
@@ -36,6 +45,7 @@ export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "dis
     next.decode().then(swap, swap);
     return () => {
       stale = true;
+      next.src = "";
     };
   }, [wanted, shown.url, photo.display]);
 
@@ -51,7 +61,10 @@ export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "dis
       className={className}
       onError={() => {
         if (attempt >= 2) setFailed(true);
-        else setTimeout(() => setAttempt((a) => a + 1), 300 * (attempt + 1));
+        else {
+          window.clearTimeout(retry.current);
+          retry.current = window.setTimeout(() => setAttempt((a) => a + 1), 300 * (attempt + 1));
+        }
       }}
     />
   );

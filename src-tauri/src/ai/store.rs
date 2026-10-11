@@ -7,15 +7,31 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::xxh3_128;
+use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 use super::{focus, Analysis};
 
-/// Changes whenever the models or the rules applied to them do, so that
-/// verdicts from an earlier version are never shown as this one's.
+/// Changes whenever the rules applied to the models do, so that verdicts
+/// from an earlier version are never shown as this one's. Bump it when any
+/// threshold or weight in `ai/` changes. The models themselves need no bump:
+/// `version()` adds a fingerprint of them.
 pub const VERSION: &str = "finder-yunet-0.6|judge-3|junk-0.8|shut-0.9|away-0.90-glance-0.15|rules-2|key-1";
+
+/// `VERSION`, and a fingerprint of the two models. A model swapped without
+/// `VERSION` being bumped would otherwise serve the old model's verdicts.
+pub fn version() -> &'static str {
+    static FULL: OnceLock<String> = OnceLock::new();
+    FULL.get_or_init(|| {
+        let models = [super::finder::MODEL, super::judge::MODEL].concat();
+        format!("{VERSION}|models-{:016x}", xxh3_64(&models))
+    })
+}
+
+/// The file in the store that says which version wrote what is in it.
+const MARK: &str = "version";
 
 /// One face, as it is remembered and as the interface is told of it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -95,13 +111,22 @@ pub struct Store {
 }
 
 impl Store {
+    /// Opens the store in `dir`. What an earlier version wrote there can
+    /// never be used again, so it is cleared away now rather than left to
+    /// fill the disk.
     pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).ok();
-        Self { dir }
+        let store = Self { dir };
+        let mark = store.dir.join(MARK);
+        if std::fs::read_to_string(&mark).ok().as_deref() != Some(version()) {
+            store.clear();
+            crate::fsx::atomic_write(&mark, version().as_bytes(), false).ok();
+        }
+        store
     }
 
     fn file_for(&self, folder: &Path) -> PathBuf {
-        let key = format!("{VERSION}\0{}", folder.to_string_lossy());
+        let key = format!("{}\0{}", version(), folder.to_string_lossy());
         self.dir.join(format!("{:032x}.json", xxh3_128(key.as_bytes())))
     }
 
@@ -113,24 +138,20 @@ impl Store {
 
     pub fn save(&self, folder: &Path, known: &HashMap<String, Entry>) {
         let Ok(bytes) = serde_json::to_vec(known) else { return };
-        let path = self.file_for(folder);
-        let temp = path.with_extension(format!("tmp{}", std::process::id()));
-        if std::fs::write(&temp, bytes).is_ok() && std::fs::rename(&temp, &path).is_err() {
-            std::fs::remove_file(&temp).ok();
-        }
+        crate::fsx::atomic_write(&self.file_for(folder), &bytes, false).ok();
     }
 
     /// Bytes on disk, and how many folders that is.
     pub fn usage(&self) -> (u64, usize) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return (0, 0) };
-        let sizes: Vec<u64> = entries.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).collect();
+        let sizes: Vec<u64> = entries.flatten().filter(|e| e.file_name() != MARK).filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).collect();
         (sizes.iter().sum(), sizes.len())
     }
 
     /// Forgets everything. Folders are analysed again when next opened.
     pub fn clear(&self) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
-        for entry in entries.flatten() {
+        for entry in entries.flatten().filter(|e| e.file_name() != MARK) {
             std::fs::remove_file(entry.path()).ok();
         }
     }

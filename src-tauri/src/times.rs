@@ -57,11 +57,9 @@ impl Times {
             })
             .collect();
         let Ok(bytes) = serde_json::to_vec(&record) else { return };
-        let path = self.file_for(folder);
-        let temp = path.with_extension(format!("tmp{}", std::process::id()));
-        if std::fs::write(&temp, bytes).is_ok() && std::fs::rename(&temp, &path).is_err() {
-            std::fs::remove_file(&temp).ok();
-        }
+        // A name of its own for each write, so two saves of one folder at
+        // once cannot write into the same temporary file.
+        crate::fsx::atomic_write(&self.file_for(folder), &bytes, false).ok();
     }
 }
 

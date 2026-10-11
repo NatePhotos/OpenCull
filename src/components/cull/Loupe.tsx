@@ -407,11 +407,21 @@ function Canvas({ photo }: { photo: Photo }) {
       const onUp = (ev: PointerEvent) => {
         target.removeEventListener("pointermove", onMove);
         target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onCancel);
         setMarquee(null);
         zoomToBox({ from, to: centre(ev) });
       };
+      // Taken away by the system part way — a gesture, a window switch — the
+      // box is simply dropped, not zoomed into.
+      const onCancel = () => {
+        target.removeEventListener("pointermove", onMove);
+        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onCancel);
+        setMarquee(null);
+      };
       target.addEventListener("pointermove", onMove);
       target.addEventListener("pointerup", onUp);
+      target.addEventListener("pointercancel", onCancel);
       return;
     }
 
@@ -431,9 +441,18 @@ function Canvas({ photo }: { photo: Photo }) {
       // dragging is the hand choosing, and the frame should stay under it.
       if (start.scale > 1.001 && onPhoto) panTo(loose({ scale: start.scale, x: start.x + dx, y: start.y + dy }), true);
     };
-    const onUp = () => {
+    const stop = () => {
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onCancel);
+    };
+    // Taken away part way: a drag ends where it is, and is never a click.
+    const onCancel = () => {
+      stop();
+      if (moved) sharpenAfter(0);
+    };
+    const onUp = () => {
+      stop();
       if (moved) return sharpenAfter(0);
       if (start.scale > 1.001) {
         rememberLevel(start.scale);
@@ -444,6 +463,7 @@ function Canvas({ photo }: { photo: Photo }) {
     };
     target.addEventListener("pointermove", onMove);
     target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onCancel);
   };
 
   // Scrolling with Option held zooms about the middle of the frame. Pinching

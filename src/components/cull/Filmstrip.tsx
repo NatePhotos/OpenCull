@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from "react";
 
 import { bucket, THUMB_SIZES } from "@/lib/api";
-import { groupOf, hasActiveFilter, useStore } from "@/lib/store";
+import { groupsOf, hasActiveFilter, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { PhotoMenu } from "./PhotoMenu";
 import { useStrip } from "./strip";
@@ -61,8 +61,8 @@ interface Row {
 export function Filmstrip({ only, height: fixedHeight, resizable = true }: { only?: number[]; height?: number; resizable?: boolean }) {
   const allView = useStore((s) => s.view);
   const view = only ?? allView;
-  const photos = useStore((s) => s.photos);
-  const poses = useStore((s) => s.poses);
+  // Not `photos`: that changes with every mark, and groups do not.
+  const groups = useStore(groupsOf);
   const current = useStore((s) => s.current);
   const storedHeight = useStore((s) => s.filmstripHeight);
   const height = fixedHeight ?? storedHeight;
@@ -74,17 +74,16 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
   // run of neighbours on screen: filter out its middle and it is two runs.
   const rows = useMemo(() => {
     const out: Row[] = [];
-    const s = { photos, poses };
     for (let i = 0; i < view.length; i++) {
-      const g = groupOf(s, view[i]);
-      const prev = i > 0 ? groupOf(s, view[i - 1]) : null;
-      const next = i + 1 < view.length ? groupOf(s, view[i + 1]) : null;
+      const g = groups[view[i]] ?? null;
+      const prev = i > 0 ? (groups[view[i - 1]] ?? null) : null;
+      const next = i + 1 < view.length ? (groups[view[i + 1]] ?? null) : null;
       const joinsPrev = g !== null && prev === g;
       const joinsNext = g !== null && next === g;
       out.push({ index: view[i], burst: joinsPrev || joinsNext, first: !joinsPrev, last: !joinsNext, gap: !joinsPrev && i > 0 });
     }
     return out;
-  }, [view, photos, poses]);
+  }, [view, groups]);
 
   // Where each cell starts, and at the end, where the last one stops.
   const starts = useMemo(() => {

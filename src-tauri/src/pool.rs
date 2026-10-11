@@ -5,7 +5,7 @@
 //! passes wants one. What keeps that feeling quick is not making them faster
 //! but making them in the right order.
 //!
-//! Three rules:
+//! Four rules:
 //!
 //! 1. **The photo being looked at goes first.** One worker takes nothing else,
 //!    so the loupe never waits behind a queue of thumbnails.
@@ -20,7 +20,8 @@
 //!    asked for yet. It stops the moment anything is asked for, stays stopped
 //!    for a beat afterwards, and never takes more than half the workers.
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -56,8 +57,75 @@ struct Job<T> {
     work: Work<T>,
 }
 
+const PRIORITIES: [Priority; 4] = [Priority::Now, Priority::Soon, Priority::Later, Priority::Idle];
+
+/// The jobs not yet started, kept in the order they are to be taken: highest
+/// priority first, then most recently asked for.
+///
+/// Finding the next job, moving one forward and counting each kind are all
+/// quick however many are waiting. A large folder warmed ahead queues tens of
+/// thousands, and every pick used to look at each of them.
+struct Queue<T> {
+    order: BTreeMap<(Priority, Reverse<u64>), Job<T>>,
+    /// Where each queued key is in `order`.
+    at: HashMap<String, (Priority, u64)>,
+    counts: [usize; 4],
+}
+
+impl<T> Queue<T> {
+    fn new() -> Self {
+        Self { order: BTreeMap::new(), at: HashMap::new(), counts: [0; 4] }
+    }
+
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    fn count(&self, priority: Priority) -> usize {
+        self.counts[priority as usize]
+    }
+
+    fn push(&mut self, job: Job<T>) {
+        self.at.insert(job.key.clone(), (job.priority, job.seq));
+        self.counts[job.priority as usize] += 1;
+        self.order.insert((job.priority, Reverse(job.seq)), job);
+    }
+
+    fn remove(&mut self, priority: Priority, seq: u64) -> Option<Job<T>> {
+        let job = self.order.remove(&(priority, Reverse(seq)))?;
+        self.at.remove(&job.key);
+        self.counts[priority as usize] -= 1;
+        Some(job)
+    }
+
+    /// Moves a queued job forward: to `seq`, and up to `priority` if that is
+    /// higher. Nothing if it is not queued.
+    fn bump(&mut self, key: &str, priority: Priority, seq: u64) {
+        let Some(&(was, old)) = self.at.get(key) else { return };
+        if let Some(mut job) = self.remove(was, old) {
+            job.priority = job.priority.min(priority);
+            job.seq = seq;
+            self.push(job);
+        }
+    }
+
+    /// The next job of a priority `allowed` lets through.
+    fn take(&mut self, allowed: impl Fn(Priority) -> bool) -> Option<Job<T>> {
+        let (priority, seq) = PRIORITIES.into_iter().filter(|p| allowed(*p) && self.count(*p) > 0).find_map(|p| {
+            self.order.range((p, Reverse(u64::MAX))..=(p, Reverse(0))).next().map(|((p, Reverse(seq)), _)| (*p, *seq))
+        })?;
+        self.remove(priority, seq)
+    }
+
+    /// Takes every job `which` picks out, returning their keys.
+    fn drain(&mut self, which: impl Fn(Priority) -> bool) -> Vec<String> {
+        let picked: Vec<(Priority, u64)> = self.order.keys().filter(|(p, _)| which(*p)).map(|(p, Reverse(seq))| (*p, *seq)).collect();
+        picked.into_iter().filter_map(|(p, seq)| self.remove(p, seq)).map(|j| j.key).collect()
+    }
+}
+
 struct State<T> {
-    queue: Vec<Job<T>>,
+    queue: Queue<T>,
     /// Everyone waiting on each key, whether it is queued or being made.
     waiting: HashMap<String, Vec<Done<T>>>,
     seq: u64,
@@ -89,7 +157,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
         let workers = workers.max(2);
         let shared = Arc::new((
             Mutex::new(State {
-                queue: Vec::new(),
+                queue: Queue::new(),
                 waiting: HashMap::new(),
                 seq: 0,
                 quiet_until: Instant::now(),
@@ -132,10 +200,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
 
         if let Some(waiters) = state.waiting.get_mut(&key) {
             waiters.push(Box::new(done));
-            if let Some(job) = state.queue.iter_mut().find(|j| j.key == key) {
-                job.priority = job.priority.min(priority);
-                job.seq = seq;
-            }
+            state.queue.bump(&key, priority, seq);
         } else {
             state.waiting.insert(key.clone(), vec![Box::new(done)]);
             state.queue.push(Job { key, priority, seq, work: Box::new(work) });
@@ -151,7 +216,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
         let (lock, _) = &*self.shared;
         let abandoned: Vec<Done<T>> = {
             let mut state = lock.lock().unwrap();
-            let keys: Vec<String> = state.queue.drain(..).map(|j| j.key).collect();
+            let keys = state.queue.drain(|_| true);
             keys.iter().filter_map(|k| state.waiting.remove(k)).flatten().collect()
         };
         for done in abandoned {
@@ -166,14 +231,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
         let (lock, _) = &*self.shared;
         let abandoned: Vec<Done<T>> = {
             let mut state = lock.lock().unwrap();
-            let mut keys = Vec::new();
-            state.queue.retain(|j| {
-                let idle = j.priority == Priority::Idle;
-                if idle {
-                    keys.push(j.key.clone());
-                }
-                !idle
-            });
+            let keys = state.queue.drain(|p| p == Priority::Idle);
             keys.iter().filter_map(|k| state.waiting.remove(k)).flatten().collect()
         };
         for done in abandoned {
@@ -186,7 +244,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
     /// that should never get in their way checks this and stands aside.
     pub fn busy(&self) -> bool {
         let state = self.shared.0.lock().unwrap();
-        Instant::now() < state.quiet_until || state.queue.iter().any(|j| j.priority != Priority::Idle)
+        Instant::now() < state.quiet_until || state.queue.len() > state.queue.count(Priority::Idle)
     }
 
     pub fn queued(&self) -> usize {
@@ -196,7 +254,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
     /// Idle work still to do: waiting, plus under way.
     pub fn idle_remaining(&self) -> usize {
         let state = self.shared.0.lock().unwrap();
-        state.queue.iter().filter(|j| j.priority == Priority::Idle).count() + state.idle_running
+        state.queue.count(Priority::Idle) + state.idle_running
     }
 
     fn work(shared: Arc<(Mutex<State<T>>, Condvar)>, only_now: bool) {
@@ -208,20 +266,13 @@ impl<T: Send + Sync + 'static> Pool<T> {
                     let now = Instant::now();
                     let idle_has_room = !only_now && state.idle_running < state.idle_limit;
                     let idle_allowed = idle_has_room && now >= state.quiet_until;
-                    let pick = state
-                        .queue
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, j)| match j.priority {
-                            Priority::Now => true,
-                            Priority::Idle => idle_allowed,
-                            _ => !only_now,
-                        })
-                        // Highest priority, then most recently asked for.
-                        .min_by_key(|(_, j)| (j.priority, std::cmp::Reverse(j.seq)))
-                        .map(|(i, _)| i);
-                    if let Some(i) = pick {
-                        let job = state.queue.swap_remove(i);
+                    // Highest priority, then most recently asked for.
+                    let pick = state.queue.take(|p| match p {
+                        Priority::Now => true,
+                        Priority::Idle => idle_allowed,
+                        _ => !only_now,
+                    });
+                    if let Some(job) = pick {
                         if job.priority == Priority::Idle {
                             state.idle_running += 1;
                         }
@@ -230,7 +281,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
                     // Nothing to take. If idle work is only waiting out the
                     // quiet after a request, wake when that ends; nothing
                     // else is going to announce it.
-                    let idle_waiting = idle_has_room && state.queue.iter().any(|j| j.priority == Priority::Idle);
+                    let idle_waiting = idle_has_room && state.queue.count(Priority::Idle) > 0;
                     state = if idle_waiting {
                         let pause = state.quiet_until.saturating_duration_since(now).max(Duration::from_millis(1));
                         wake.wait_timeout(state, pause).unwrap().0
@@ -242,7 +293,8 @@ impl<T: Send + Sync + 'static> Pool<T> {
             let was_idle = job.priority == Priority::Idle;
 
             // A decoder handed a corrupt file must not take the worker down
-            // with it; the file fails and the thread carries on.
+            // with it; the file fails and the thread carries on. This relies on
+            // panics unwinding, which the release profile keeps them doing.
             let result = catch_unwind(AssertUnwindSafe(job.work))
                 .unwrap_or_else(|_| Err("decoder panicked".into()))
                 .map(Arc::new);

@@ -113,10 +113,7 @@ impl Cache {
         }
         // Written under another name and renamed into place, so a reader can
         // never open a preview that is only half there.
-        let temp = path.with_extension(format!("tmp{}", std::process::id()));
-        if std::fs::write(&temp, bytes).is_ok() && std::fs::rename(&temp, path).is_err() {
-            std::fs::remove_file(&temp).ok();
-        }
+        crate::fsx::atomic_write(path, bytes, false).ok();
 
         let written = self.written_since_check.fetch_add(bytes.len() as u64, Ordering::Relaxed) + bytes.len() as u64;
         if written >= CHECK_EVERY_BYTES && self.written_since_check.swap(0, Ordering::Relaxed) >= CHECK_EVERY_BYTES {

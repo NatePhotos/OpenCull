@@ -718,7 +718,17 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
 
     tauri::async_runtime::spawn_blocking(move || {
         let wanted = || !session.closed.load(Ordering::SeqCst) && app.ai_scan.load(Ordering::SeqCst) == mine;
-        let known = Mutex::new(app.faces.load(&session.folder));
+        let mut remembered = app.faces.load(&session.folder);
+        // Photos no longer in the folder are forgotten, or the record grows
+        // with every photo ever deleted or renamed.
+        let present: std::collections::HashSet<String> = session.images.iter().map(|i| i.display.to_string_lossy().into_owned()).collect();
+        remembered.retain(|path, _| present.contains(path));
+        let known = Mutex::new(remembered);
+        // Saved from a copy, so no worker waits on the disk.
+        let save = || {
+            let snapshot = known.lock().unwrap().clone();
+            app.faces.save(&session.folder, &snapshot);
+        };
 
         // What is already known goes out at once.
         let mut todo = Vec::new();
@@ -737,9 +747,12 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
         }
 
         // A few at a time: enough to get through a folder in a minute or two,
-        // few enough that the rest of the machine does not feel it.
+        // few enough that the rest of the machine does not feel it. Each
+        // worker holds a whole photo decoded at full size — about 180 MB for
+        // 60 megapixels, with the models' working memory on top — so four at
+        // most, which keeps the peak under a gigabyte on any machine.
         let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-        let workers = (cores / 2).clamp(1, 6).min(todo.len().max(1));
+        let workers = (cores / 2).clamp(1, 4).min(todo.len().max(1));
         let queue = ai::queue::Queue::new(todo);
         let (tx, rx) = std::sync::mpsc::channel::<Analysed>();
         std::thread::scope(|scope| {
@@ -788,7 +801,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                     last = Instant::now();
                 }
                 if unsaved >= AI_SAVE_EVERY {
-                    app.faces.save(&session.folder, &known.lock().unwrap());
+                    save();
                     unsaved = 0;
                 }
             }
@@ -796,7 +809,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                 events.send(AiEvent::Batch { items: batch }).ok();
             }
             if unsaved > 0 {
-                app.faces.save(&session.folder, &known.lock().unwrap());
+                save();
             }
         });
         events.send(AiEvent::Done { finished: queue.exhausted() && wanted() }).ok();
@@ -1051,9 +1064,12 @@ pub async fn open_in_editor(editor: String, files: Vec<String>, catalog: Option<
 }
 
 /// Whether each path is still there, file or folder.
+///
+/// Off the main thread: asking about a network drive that has gone can take
+/// tens of seconds to fail, and the window would stop responding meanwhile.
 #[tauri::command]
-pub fn paths_exist(paths: Vec<String>) -> Vec<bool> {
-    paths.iter().map(|p| Path::new(p).exists()).collect()
+pub async fn paths_exist(paths: Vec<String>) -> Result<Vec<bool>, String> {
+    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| Path::new(p).exists()).collect()).await.map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -1100,9 +1116,10 @@ pub async fn folder_cover(app: AppState<'_>, path: String) -> Result<Vec<Scanned
 }
 
 /// Which of these folders are still where they were.
+/// Off the main thread, for the same reason as `paths_exist`.
 #[tauri::command]
-pub fn folders_exist(paths: Vec<String>) -> Vec<bool> {
-    paths.iter().map(|p| Path::new(p).is_dir()).collect()
+pub async fn folders_exist(paths: Vec<String>) -> Result<Vec<bool>, String> {
+    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| Path::new(p).is_dir()).collect()).await.map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]

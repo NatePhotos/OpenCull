@@ -422,10 +422,43 @@ fn finish(mut found: Found, src: &dyn ReadAt) -> Probe {
 /// is still read for what it is.
 pub fn probe(path: &Path) -> std::io::Result<Probe> {
     let src = FileSource::open(path)?;
-    Ok(probe_source(&src))
+    let meta = std::fs::metadata(path)?;
+    let key = (path.to_path_buf(), meta.len(), meta.modified().ok());
+    Ok(probe_with(&src, |src| remembered_scan(key, || scan_for_jpegs(src))))
+}
+
+/// A file, as of one size and one date: what the slow search is remembered by.
+type ScanKey = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
+
+/// How many files' slow searches are remembered. Each is a few numbers.
+const REMEMBERED_SCANS: usize = 4096;
+
+/// The slow search's answer for a file, made once and remembered. A file
+/// with no declared preview is probed for each size of preview made from it
+/// and again for analysis, and the search reads tens of megabytes each time.
+fn remembered_scan(key: ScanKey, search: impl FnOnce() -> Vec<Embedded>) -> Vec<Embedded> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KNOWN: OnceLock<Mutex<HashMap<ScanKey, Vec<Embedded>>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some(found) = known.lock().unwrap().get(&key) {
+        return found.clone();
+    }
+    let found = search();
+    let mut known = known.lock().unwrap();
+    if known.len() >= REMEMBERED_SCANS {
+        known.clear();
+    }
+    known.insert(key, found.clone());
+    found
 }
 
 pub fn probe_source(src: &dyn ReadAt) -> Probe {
+    probe_with(src, scan_for_jpegs)
+}
+
+/// `probe_source`, with `scan` doing the slow search if it is needed.
+fn probe_with(src: &dyn ReadAt, scan: impl FnOnce(&dyn ReadAt) -> Vec<Embedded>) -> Probe {
     let head = src.read_at(0, 16.min(src.size() as usize)).unwrap_or_default();
     let mut found = Found::default();
 
@@ -478,7 +511,7 @@ pub fn probe_source(src: &dyn ReadAt) -> Probe {
     // than show nothing.
     let searchable = !head.starts_with(&[0xFF, 0xD8, 0xFF]) && !head.starts_with(b"\x89PNG");
     if probe.embedded.is_empty() && searchable {
-        probe.embedded = scan_for_jpegs(src);
+        probe.embedded = scan(src);
     }
     probe
 }

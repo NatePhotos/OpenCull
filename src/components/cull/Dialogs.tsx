@@ -19,6 +19,7 @@ import { api, type CacheUsage } from "@/lib/api";
 import { fileSize } from "@/lib/format";
 import { CAPS_LOCK, comboLabel, comboOf, DEFAULTS, isMac, sameCombo, SECTIONS, type Action, type Combo } from "@/lib/shortcuts";
 import { GIGABYTE, useStore } from "@/lib/store";
+import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
 
 /** Asks before photos go to the trash. */
@@ -191,7 +192,26 @@ const SETTINGS_TABS: [SettingsTab, string, LucideIcon][] = [
 ];
 
 function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
-  const s = useStore();
+  // Only what Settings shows. The whole store changes many times a second
+  // while a folder is analysed, and none of that is any concern of this.
+  const s = useStore(
+    useShallow((st) => ({
+      aiEnabled: st.aiEnabled,
+      cacheLimitGb: st.cacheLimitGb,
+      fileKinds: st.fileKinds,
+      includeSubfolders: st.includeSubfolders,
+      speedCullAlways: st.speedCullAlways,
+      showRatingBar: st.showRatingBar,
+      keepZoom: st.keepZoom,
+      instantZoom: st.instantZoom,
+      rgbHistogram: st.rgbHistogram,
+      warmAhead: st.warmAhead,
+      showBackgroundFaces: st.showBackgroundFaces,
+      aiPause: st.aiPause,
+      smartGroups: st.smartGroups,
+      embedInJpeg: st.embedInJpeg,
+    })),
+  );
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   const [clearing, setClearing] = useState(false);
   const limitTimer = useRef<number | undefined>(undefined);
