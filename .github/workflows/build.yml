@@ -48,6 +48,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -74,8 +76,15 @@ jobs:
 
       - run: npm ci
 
+      # The interface's tests, then the Rust half's.
       - name: Tests
         run: npm test
+
+      # Lints every target, the examples included: they are not built by
+      # the tests, and would otherwise drift from the code they exercise.
+      - name: Lint
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Build
         uses: tauri-apps/tauri-action@v0

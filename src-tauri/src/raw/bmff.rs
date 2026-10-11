@@ -101,15 +101,14 @@ pub fn scan(src: &dyn ReadAt) -> Option<Cr3> {
     for b in &top {
         match &b.kind {
             b"moov" if b.len <= MAX_MOOV => scan_movie(src, *b, &mut out),
-            b"uuid" if b.len > 16 => {
-                if src.read_at(b.body, 16).as_deref() == Some(&CANON_PREVIEW[..]) {
+            b"uuid" if b.len > 16
+                && src.read_at(b.body, 16).as_deref() == Some(&CANON_PREVIEW[..]) => {
                     // Eight bytes of version and count, then a PRVW box.
                     let inner = BoxAt { kind: *b"uuid", body: b.body + 24, len: b.len.saturating_sub(24) };
                     if let Some(prvw) = child(src, inner, b"PRVW") {
                         out.jpegs.extend(jpeg_inside(src, prvw));
                     }
                 }
-            }
             _ => {}
         }
     }

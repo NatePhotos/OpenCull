@@ -46,7 +46,6 @@ jpeg-decoder = "0.3.2"
 fast_image_resize = "6.1.0"
 jpeg-encoder = "0.7.1"
 regex = "1.13.1"
-memmap2 = "0.9.11"
 memchr = "2.8.3"
 trash = "5.2.9"
 percent-encoding = "2.3.2"
@@ -55,7 +54,6 @@ png = "0.18.1"
 turbojpeg = { version = "1.5.1", default-features = false, optional = true }
 tauri-plugin-window-state = "2"
 ort = "=2.0.0-rc.13"
-ndarray = "0.17.2"
 
 # For keeping a JPEG's Finder tags, permissions and other attributes when it
 # is rewritten with new marks (embed.rs). Already in the build through Tauri.

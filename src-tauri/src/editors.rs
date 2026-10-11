@@ -214,7 +214,7 @@ pub fn catalogs(roots: &[PathBuf]) -> Vec<PathBuf> {
     for root in roots {
         walk(root, 0, &mut found);
     }
-    found.sort_by(|a, b| b.1.cmp(&a.1));
+    found.sort_by_key(|(_, used)| std::cmp::Reverse(*used));
     found.dedup_by(|a, b| a.0 == b.0);
     found.into_iter().map(|(path, _)| path).collect()
 }

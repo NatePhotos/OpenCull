@@ -273,11 +273,11 @@ fn decode_portable(bytes: &[u8], target: u32) -> Result<Pixels, String> {
         jpeg_decoder::PixelFormat::RGB24 => raw,
         jpeg_decoder::PixelFormat::L8 => raw.iter().flat_map(|&v| [v, v, v]).collect(),
         // Sixteen-bit grey, most significant byte first.
-        jpeg_decoder::PixelFormat::L16 => raw.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0]]).collect(),
+        jpeg_decoder::PixelFormat::L16 => raw.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0]]).collect(),
         // Inverted CMYK, as Adobe writes it. Not something a camera produces,
         // but a folder of scans may hold one.
         jpeg_decoder::PixelFormat::CMYK32 => raw
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .flat_map(|c| {
                 let k = c[3] as u32;
                 [(c[0] as u32 * k / 255) as u8, (c[1] as u32 * k / 255) as u8, (c[2] as u32 * k / 255) as u8]
@@ -473,9 +473,9 @@ fn decode_png(path: &Path) -> Result<Pixels, String> {
 
     let data: Vec<u8> = match frame.color_type {
         png::ColorType::Rgb => buf,
-        png::ColorType::Rgba => buf.chunks_exact(4).flat_map(|c| [c[0], c[1], c[2]]).collect(),
+        png::ColorType::Rgba => buf.as_chunks::<4>().0.iter().flat_map(|c| [c[0], c[1], c[2]]).collect(),
         png::ColorType::Grayscale => buf.iter().flat_map(|&v| [v, v, v]).collect(),
-        png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0]]).collect(),
+        png::ColorType::GrayscaleAlpha => buf.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0]]).collect(),
         png::ColorType::Indexed => return Err("indexed PNG was not expanded".into()),
     };
     Ok(Pixels { data, width: frame.width, height: frame.height, icc: None })
@@ -500,7 +500,7 @@ mod tests {
     }
 
     fn layout(p: &Pixels) -> Vec<Vec<u8>> {
-        p.data.chunks_exact(3).map(|c| c[0]).collect::<Vec<_>>().chunks(p.width as usize).map(<[u8]>::to_vec).collect()
+        p.data.as_chunks::<3>().0.iter().map(|c| c[0]).collect::<Vec<_>>().chunks(p.width as usize).map(<[u8]>::to_vec).collect()
     }
 
     #[test]

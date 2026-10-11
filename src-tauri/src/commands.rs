@@ -1100,7 +1100,7 @@ pub async fn histogram(app: AppState<'_>, path: String, version: String) -> Resu
         let pixels = decoder.decode().map_err(|e| e.to_string())?;
 
         let mut h = Histogram { r: vec![0; 256], g: vec![0; 256], b: vec![0; 256], luma: vec![0; 256] };
-        for px in pixels.chunks_exact(3) {
+        for px in pixels.as_chunks::<3>().0 {
             h.r[px[0] as usize] += 1;
             h.g[px[1] as usize] += 1;
             h.b[px[2] as usize] += 1;

@@ -229,11 +229,14 @@ impl<'a> Tiff<'a> {
 
 #[cfg(test)]
 pub(crate) mod testing {
+    /// One directory entry: tag, type, value bytes, count.
+    pub type Field = (u16, u16, Vec<u8>, u32);
+
     /// Builds a little-endian TIFF from directories of `(tag, type, values)`,
     /// laid out one after another and chained in order. Values longer than
     /// four bytes are placed after all the directories and pointed at, the way
     /// a real file does it.
-    pub fn build(ifds: &[Vec<(u16, u16, Vec<u8>, u32)>]) -> Vec<u8> {
+    pub fn build(ifds: &[Vec<Field>]) -> Vec<u8> {
         let mut out = vec![0x49, 0x49, 42, 0, 8, 0, 0, 0];
         let dir_bytes: usize = ifds.iter().map(|d| 2 + d.len() * 12 + 4).sum();
         let mut heap_at = 8 + dir_bytes;

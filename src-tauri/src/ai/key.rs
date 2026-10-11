@@ -50,7 +50,7 @@ pub fn find(rgb: &[u8], width: u32, height: u32) -> Result<Key, String> {
     // A square copy, whatever the shape of the photo: everything from here
     // on is in fractions of the frame, so the squash does not matter.
     let small = faces::cut(rgb, width, height, (0, 0, width, height), SEEN as u32, SEEN as u32)?;
-    let grey: Vec<f32> = small.chunks_exact(3).map(|p| 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32).collect();
+    let grey: Vec<f32> = small.as_chunks::<3>().0.iter().map(|p| 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32).collect();
 
     let out = standing_out(&shrunk(&grey));
     let sharp = in_focus(&grey);
