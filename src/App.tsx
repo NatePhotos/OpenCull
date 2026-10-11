@@ -80,14 +80,31 @@ export default function App() {
     });
   }, []);
 
-  // Quitting is refused while photos are coming off a card. Say why, or it
-  // looks as though the app has stopped listening.
+  // A rating that could not be saved at all: its sidecar could not be
+  // written. Said once for each folder, for the same reason as above, but
+  // never left unsaid — the photographer believes it is saved.
+  useEffect(() => {
+    let told: number | null = null;
+    return api.onMarksNotSaved((path, why) => {
+      const s = useStore.getState();
+      const folder = s.session?.id ?? -1;
+      if (told === folder) return;
+      told = folder;
+      s.set("notice", {
+        title: "A rating could not be saved",
+        body: `${path.split(/[\\/]/).pop()}: ${why}.\n\nThe mark shows here, but it is not saved beside the photo, so it will be gone when the folder is opened again and no other program will see it. Check that the folder can be written to — a card's lock switch, a full disk, a network drive that has gone. This is only said once for each folder.`,
+      });
+    });
+  }, []);
+
+  // Quitting is refused while photos are being copied off a card, moved or
+  // shipped. Say why, or it looks as though the app has stopped listening.
   useEffect(
     () =>
       api.onQuitRefused(() =>
         useStore.getState().set("notice", {
           title: "Photos are still being copied",
-          body: "Quitting now would leave part of the shoot uncopied. Wait for the copy to finish, or press Cancel Copy first — the photo in hand is finished either way.",
+          body: "Quitting now would leave some photos copied and others not. Wait for the copy, move or ship to finish — or, for a card, press Cancel Copy first: the photo in hand is finished either way.",
         }),
       ),
     [],

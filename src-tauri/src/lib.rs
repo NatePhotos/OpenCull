@@ -11,6 +11,7 @@ pub mod commands;
 pub mod editors;
 pub mod embed;
 pub mod faces;
+pub mod fsx;
 pub mod ingest;
 pub mod pool;
 pub mod preview;
@@ -110,8 +111,12 @@ pub fn run() {
             // A rating that could not be written into a JPEG is still in its
             // sidecar, but other programs will not see it, and that is said.
             let handle = app.handle().clone();
-            state.writer.on_failure(move |path, why| {
-                handle.emit("jpeg-not-written", (path.to_string_lossy().into_owned(), why.to_string())).ok();
+            state.writer.on_failure(move |path, why, which| {
+                let event = match which {
+                    xmp::Wrote::Sidecar => "marks-not-saved",
+                    xmp::Wrote::Jpeg => "jpeg-not-written",
+                };
+                handle.emit(event, (path.to_string_lossy().into_owned(), why.to_string())).ok();
             });
             app.manage(state);
             Ok(())
@@ -175,11 +180,12 @@ pub fn run() {
         .run(|app, event| {
             // Quitting is the normal way to stop for the night, and a rating
             // given a moment before must not be lost to it.
-            let copying = || app.try_state::<Arc<App>>().is_some_and(|s| s.ingesting.load(std::sync::atomic::Ordering::SeqCst));
+            let copying = || app.try_state::<Arc<App>>().is_some_and(|s| s.ingesting.load(std::sync::atomic::Ordering::SeqCst) || s.busy.active());
             match event {
-                // Photos are coming off a card. Quitting now would leave the
-                // photographer with part of a shoot and no word of which
-                // part, so it is refused and they are told why.
+                // Photos are coming off a card, or being moved or shipped.
+                // Quitting now would leave the photographer with part of a
+                // shoot and no word of which part, so it is refused and they
+                // are told why.
                 RunEvent::ExitRequested { api, .. } if copying() => {
                     api.prevent_exit();
                     app.emit("quit-refused", ()).ok();

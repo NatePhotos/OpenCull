@@ -49,6 +49,9 @@ pub struct App {
     /// Set while photos are being copied off a card. Quitting is refused
     /// for as long as it is.
     pub ingesting: AtomicBool,
+    /// Counts photos being moved, copied or shipped. Quitting is refused
+    /// while any are, as it is during an ingest.
+    pub busy: Busy,
     /// Tells the copy now running to stop after the photo in hand.
     ingest_cancel: Mutex<Arc<AtomicBool>>,
     /// Which reading of a card's capture times and ratings is the wanted
@@ -82,6 +85,7 @@ impl App {
                 .build()
                 .expect("build metadata pool"),
             ingesting: AtomicBool::new(false),
+            busy: Busy::default(),
             ingest_cancel: Default::default(),
             ingest_reading: AtomicU64::new(0),
             faces,
@@ -93,6 +97,30 @@ impl App {
 }
 
 type AppState<'a> = State<'a, Arc<App>>;
+
+/// How many file operations are running that quitting would cut in half.
+#[derive(Clone, Default)]
+pub struct Busy(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Busy {
+    /// Marks one as running until what is returned is dropped.
+    pub fn hold(&self) -> BusyGuard {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        BusyGuard(self.0.clone())
+    }
+
+    pub fn active(&self) -> bool {
+        self.0.load(Ordering::SeqCst) > 0
+    }
+}
+
+pub struct BusyGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// How the app was started, read once from its command line.
 ///
@@ -479,18 +507,28 @@ pub async fn flush_marks(app: AppState<'_>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || writer.flush()).await.map_err(|e| e.to_string())
 }
 
+/// One photo as the app knows it: its file, and the JPEG shown for it — the
+/// same file, or a RAW's JPEG.
 #[derive(Deserialize)]
-pub struct TrashItem {
+pub struct PhotoFiles {
     path: String,
     display: String,
+}
+
+/// A photo that could not be trashed, and why.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashFailure {
+    path: String,
+    reason: String,
 }
 
 /// Moves photos to the system's trash — each with its JPEG and its sidecar,
 /// so nothing is left behind to look like an orphan later.
 ///
-/// Returns the photos that could not be moved.
+/// Returns the photos that could not be moved, each with why.
 #[tauri::command]
-pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>) -> Result<Vec<String>, String> {
+pub async fn move_to_trash(app: AppState<'_>, items: Vec<PhotoFiles>) -> Result<Vec<TrashFailure>, String> {
     let writer = app.writer.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // A sidecar still queued would be written straight back after its
@@ -503,15 +541,9 @@ pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>) -> Result<V
             if item.display != item.path {
                 files.push(PathBuf::from(&item.display));
             }
-            let mut double = owner.as_os_str().to_owned();
-            double.push(".xmp");
-            for sidecar in [owner.with_extension("xmp"), PathBuf::from(double)] {
-                if sidecar.exists() {
-                    files.push(sidecar);
-                }
-            }
-            if trash::delete_all(&files).is_err() {
-                failed.push(item.path);
+            files.extend(xmp::sidecars_of(&owner));
+            if let Err(e) = trash::delete_all(&files) {
+                failed.push(TrashFailure { path: item.path, reason: e.to_string() });
             }
         }
         failed
@@ -521,8 +553,8 @@ pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>) -> Result<V
 }
 
 /// The files that make up one photo: itself, and the JPEG beside a RAW.
-fn transfer_job(item: &TrashItem, with_companion: bool) -> transfer::Job {
-    let companions = if with_companion && item.display != item.path { vec![PathBuf::from(&item.display)] } else { Vec::new() };
+fn transfer_job(item: &PhotoFiles) -> transfer::Job {
+    let companions = if item.display != item.path { vec![PathBuf::from(&item.display)] } else { Vec::new() };
     transfer::Job { owner: PathBuf::from(&item.path), companions }
 }
 
@@ -538,8 +570,8 @@ pub struct Shipped {
     /// The photos that are no longer where they started.
     moved: Vec<String>,
     skipped: usize,
-    failed: Vec<String>,
-    sidecar_failed: Vec<String>,
+    failed: Vec<transfer::Failure>,
+    sidecar_failed: Vec<transfer::Failure>,
 }
 
 impl From<transfer::Outcome> for Shipped {
@@ -552,48 +584,52 @@ impl From<transfer::Outcome> for Shipped {
 /// ratings. Nothing already there is ever replaced: a photo whose name is
 /// taken goes alongside under a new one.
 #[tauri::command]
-pub async fn transfer_photos(app: AppState<'_>, items: Vec<TrashItem>, destination: String, moving: bool) -> Result<Shipped, String> {
+pub async fn transfer_photos(app: AppState<'_>, items: Vec<PhotoFiles>, destination: String, moving: bool) -> Result<Shipped, String> {
     let writer = app.writer.clone();
+    let _busy = app.busy.hold();
     tauri::async_runtime::spawn_blocking(move || {
         // A rating still waiting to be written would otherwise stay behind.
         writer.flush();
-        let jobs: Vec<transfer::Job> = items.iter().map(|i| transfer_job(i, true)).collect();
+        let jobs: Vec<transfer::Job> = items.iter().map(transfer_job).collect();
         transfer::run(&jobs, Path::new(&destination), moving, transfer::Conflict::KeepBoth, |_| {}).into()
     })
     .await
     .map_err(|e| e.to_string())
 }
 
-/// How many of these photos would land on a file already in `destination`.
+/// How many of these photos would land on a name already taken in
+/// `destination`: theirs, their JPEG's, or a sidecar's.
 #[tauri::command]
-pub async fn ship_conflicts(paths: Vec<String>, destination: String) -> Result<usize, String> {
+pub async fn ship_conflicts(items: Vec<PhotoFiles>, destination: String) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let owners: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        transfer::conflicts(&owners, Path::new(&destination))
+        let jobs: Vec<transfer::Job> = items.iter().map(transfer_job).collect();
+        transfer::conflicts(&jobs, Path::new(&destination))
     })
     .await
     .map_err(|e| e.to_string())
 }
 
 /// Ship's file step: writes out every pending rating, then — if a
-/// destination is given — copies or moves the photos there with them.
-/// `progress` hears how many photos are done.
+/// destination is given — copies or moves the photos there, each with its
+/// JPEG and its ratings. `progress` hears how many photos are done.
 #[tauri::command]
 pub async fn ship(
     app: AppState<'_>,
-    paths: Vec<String>,
+    items: Vec<PhotoFiles>,
     destination: Option<String>,
     moving: bool,
     skip_duplicates: bool,
     progress: Channel<usize>,
 ) -> Result<Shipped, String> {
     let writer = app.writer.clone();
+    let _busy = app.busy.hold();
     tauri::async_runtime::spawn_blocking(move || {
         writer.flush();
         let Some(destination) = destination else {
-            return Shipped { placed: paths, moved: Vec::new(), skipped: 0, failed: Vec::new(), sidecar_failed: Vec::new() };
+            let placed = items.into_iter().map(|i| i.path).collect();
+            return Shipped { placed, moved: Vec::new(), skipped: 0, failed: Vec::new(), sidecar_failed: Vec::new() };
         };
-        let jobs: Vec<transfer::Job> = paths.into_iter().map(|p| transfer::Job { owner: PathBuf::from(p), companions: Vec::new() }).collect();
+        let jobs: Vec<transfer::Job> = items.iter().map(transfer_job).collect();
         let conflict = if skip_duplicates { transfer::Conflict::Skip } else { transfer::Conflict::KeepBoth };
         transfer::run(&jobs, Path::new(&destination), moving, conflict, |done| {
             progress.send(done).ok();
@@ -867,9 +903,18 @@ pub async fn ingest_conflicts(items: Vec<ingest::Item>, destination: String) -> 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ingested {
-    /// "success", "cancelled" or "failed".
-    status: &'static str,
+    status: IngestStatus,
     message: Option<String>,
+    /// Photos that arrived, but whose ratings did not come with them.
+    warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IngestStatus {
+    Success,
+    Cancelled,
+    Failed,
 }
 
 /// Clears the mark that a copy is running, however the copy ends.
@@ -902,7 +947,7 @@ pub async fn ingest_copy(
         let _running = running;
         let destination = PathBuf::from(destination);
         if let Err(e) = std::fs::create_dir_all(&destination) {
-            return Ingested { status: "failed", message: Some(format!("Could not use {}: {e}", destination.display())) };
+            return Ingested { status: IngestStatus::Failed, message: Some(format!("Could not use {}: {e}", destination.display())), warnings: Vec::new() };
         }
         let workers = ingest::parallel_copies(&destination);
         let report = |p: ingest::Progress| {
@@ -912,10 +957,12 @@ pub async fn ingest_copy(
                 progress.send(p).ok();
             }
         };
-        match ingest::copy(&items, &destination, policy, workers, &cancel, &report) {
-            ingest::Outcome::Success => Ingested { status: "success", message: None },
-            ingest::Outcome::Cancelled => Ingested { status: "cancelled", message: None },
-            ingest::Outcome::Failed(why) => Ingested { status: "failed", message: Some(why) },
+        let copied = ingest::copy(&items, &destination, policy, workers, &cancel, &report);
+        let warnings = copied.warnings;
+        match copied.outcome {
+            ingest::Outcome::Success => Ingested { status: IngestStatus::Success, message: None, warnings },
+            ingest::Outcome::Cancelled => Ingested { status: IngestStatus::Cancelled, message: None, warnings },
+            ingest::Outcome::Failed(why) => Ingested { status: IngestStatus::Failed, message: Some(why), warnings },
         }
     })
     .await

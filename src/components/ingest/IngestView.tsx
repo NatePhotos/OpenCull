@@ -319,6 +319,8 @@ export function IngestView() {
 
   const canIngest = selected.size > 0 && destination !== null && !busy;
   const sample = useRef({ at: 0, bytes: 0, rate: null as number | null });
+  /** Set when the photographer cancels. A copy that then finishes anyway must not carry on as if they had not. */
+  const cancelled = useRef(false);
 
   const requestIngest = async () => {
     if (!canIngest || !destination) return;
@@ -332,6 +334,7 @@ export function IngestView() {
 
   const copy = async (chosen: Item[], policy: IngestPolicy) => {
     if (!destination) return;
+    cancelled.current = false;
     setPhase({ is: "copying" });
     setProgress({ done: 0, total: chosen.length, bytesCopied: 0, bytesSettled: 0, bytesTotal: 0 });
     setFraction(0);
@@ -364,8 +367,11 @@ export function IngestView() {
     try {
       result = await api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, onProgress);
     } catch (e) {
-      result = { status: "failed" as const, message: String(e) };
+      result = { status: "failed" as const, message: String(e), warnings: [] };
     }
+    // Cancelled, and perhaps already closed: whatever came of it, the
+    // photographer asked for it to stop, so nothing more is opened.
+    if (cancelled.current) return;
     setProgress(null);
     if (result.status === "failed") return setPhase({ is: "failed", message: result.message ?? "Something went wrong while copying." });
     setPhase({ is: "ready" });
@@ -373,10 +379,19 @@ export function IngestView() {
       // Straight on to culling what was just copied.
       close();
       void useStore.getState().openFolder(destination);
+      if (result.warnings.length > 0) {
+        const shown = result.warnings.slice(0, 5).join("\n");
+        const more = result.warnings.length > 5 ? `\n…and ${result.warnings.length - 5} more.` : "";
+        useStore.getState().set("notice", {
+          title: "Some ratings did not come across",
+          body: `Every photo was copied, but for these the stars, flags or labels were not:\n${shown}${more}`,
+        });
+      }
     }
   };
 
   const cancelCopy = () => {
+    cancelled.current = true;
     void api.ingestCancel();
     setPhase((p) => (p.is === "copying" ? { is: "ready" } : p));
     setProgress(null);

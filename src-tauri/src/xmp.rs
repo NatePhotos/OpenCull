@@ -78,16 +78,29 @@ impl Marks {
     }
 }
 
+/// Both places a photo's sidecar can be: `NAME.xmp`, and `NAME.ext.xmp` as
+/// some programs write it.
+pub fn sidecar_candidates(image: &Path) -> [PathBuf; 2] {
+    let mut with_ext = image.as_os_str().to_owned();
+    with_ext.push(".xmp");
+    [image.with_extension("xmp"), PathBuf::from(with_ext)]
+}
+
+/// The sidecars that exist beside a photo, under either naming. Anything
+/// that moves, copies or trashes a photo takes all of these with it.
+pub fn sidecars_of(image: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = sidecar_candidates(image).into_iter().filter(|p| p.is_file()).collect();
+    found.dedup();
+    found
+}
+
 /// Where a photo's sidecar is, or would be.
 ///
 /// `photo.xmp` normally. `photo.ARW.xmp` only when that one already exists and
 /// the plain one does not — some programs write it that way, and the marks in
 /// it should be read and updated where they are rather than duplicated.
 pub fn sidecar_path(image: &Path) -> PathBuf {
-    let standard = image.with_extension("xmp");
-    let mut with_ext = image.as_os_str().to_owned();
-    with_ext.push(".xmp");
-    let with_ext = PathBuf::from(with_ext);
+    let [standard, with_ext] = sidecar_candidates(image);
     if with_ext.exists() && !standard.exists() {
         with_ext
     } else {
@@ -152,10 +165,7 @@ pub fn parse(xml: &str) -> Marks {
 /// A sidecar wins outright, even an empty one. It is the newer statement, and
 /// merging the two would bring back a rating the photographer had cleared.
 pub fn read(image: &Path, probe: Option<&Probe>) -> Marks {
-    let standard = image.with_extension("xmp");
-    let mut with_ext = image.as_os_str().to_owned();
-    with_ext.push(".xmp");
-    for candidate in [standard, PathBuf::from(with_ext)] {
+    for candidate in sidecar_candidates(image) {
         if let Ok(xml) = std::fs::read_to_string(&candidate) {
             return parse(&xml);
         }
@@ -192,12 +202,26 @@ pub(crate) fn fresh(marks: Marks) -> String {
     )
 }
 
-/// Changes three values in an existing sidecar and nothing else.
+/// A regex built once from `pattern` and kept. `update` runs on every
+/// rating change, and building nine patterns each time was most of its cost.
+fn cached(pattern: String) -> Regex {
+    static CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let mut cache = cache.lock().unwrap();
+    cache.entry(pattern).or_insert_with_key(|p| Regex::new(p).expect("built pattern")).clone()
+}
+
+/// Changes the marks in an existing sidecar and nothing else.
 ///
 /// A sidecar written by Lightroom holds every develop setting for the photo.
 /// Rewriting the file from scratch to change a star rating would throw all of
 /// that away, so the existing text is edited in place.
+///
+/// Only the values that actually differ from what the sidecar already says
+/// are touched. A label another program gave ("Approved", "To Do") is not a
+/// colour this app knows, and changing a star rating must not erase it.
 pub(crate) fn update(xml: &str, marks: Marks) -> String {
+    let before = parse(xml);
     let mut out = xml.to_string();
     // A value may only be written under a prefix the document has declared.
     // One Lightroom wrote declares both of these; one from a camera, or from
@@ -212,14 +236,12 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
         }
     };
 
-    // The element form of each is removed first, so a value never ends up
-    // stated twice in two forms that then disagree.
-    for (ns, name) in [("xmp", "Rating"), ("xmp", "Label"), ("crs", "PickStatus")] {
-        let tag = format!("{ns}:{name}");
-        for pattern in [format!(r"\n?[ \t]*<{tag}>[^<]*</{tag}>"), format!(r"\n?[ \t]*<{tag}\s*/>")] {
-            out = Regex::new(&pattern).expect("built pattern").replace_all(&out, "").into_owned();
-        }
-    }
+    let flag_changed = before.flag != marks.flag;
+    // Bridge says "rejected" with a rating of minus one. Taking the reject
+    // away means taking that away too, or the next read rejects it again.
+    let bridge_reject = first_match(xml, &[r#"xmp:Rating="(-?\d+)""#, r"<xmp:Rating>(-?\d+)</xmp:Rating>"]).as_deref() == Some("-1");
+    let rating_changed = before.rating != marks.rating || (flag_changed && bridge_reject);
+    let label_changed = before.color != marks.color;
 
     let pick = match marks.flag {
         Flag::Pick => Some("1".to_string()),
@@ -227,14 +249,23 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
         Flag::None => None,
     };
     let values = [
-        ("xmp", "Rating", (marks.rating > 0).then(|| marks.rating.to_string())),
-        ("xmp", "Label", marks.color.label().map(str::to_string)),
-        ("crs", "PickStatus", pick),
+        (rating_changed, "xmp", "Rating", (marks.rating > 0).then(|| marks.rating.to_string())),
+        (label_changed, "xmp", "Label", marks.color.label().map(str::to_string)),
+        (flag_changed, "crs", "PickStatus", pick),
     ];
-    for (ns, name, value) in values {
-        let attribute = Regex::new(&format!(r#"{ns}:{name}="[^"]*""#)).expect("built pattern");
+    for (changed, ns, name, value) in values {
+        if !changed {
+            continue;
+        }
+        // The element form is removed first, so a value never ends up stated
+        // twice in two forms that then disagree.
+        let tag = format!("{ns}:{name}");
+        for pattern in [format!(r"\n?[ \t]*<{tag}>[^<]*</{tag}>"), format!(r"\n?[ \t]*<{tag}\s*/>")] {
+            out = cached(pattern).replace_all(&out, "").into_owned();
+        }
         match value {
             Some(v) => {
+                let attribute = cached(format!(r#"{ns}:{name}="[^"]*""#));
                 let replacement = format!(r#"{ns}:{name}="{v}""#);
                 declared(&mut out, ns, if ns == "xmp" { "http://ns.adobe.com/xap/1.0/" } else { "http://ns.adobe.com/camera-raw-settings/1.0/" });
                 if attribute.is_match(&out) {
@@ -244,10 +275,16 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
                 }
             }
             None => {
-                let with_space = Regex::new(&format!(r#"\s*{ns}:{name}="[^"]*""#)).expect("built pattern");
-                out = with_space.replace_all(&out, "").into_owned();
+                out = cached(format!(r#"\s*{ns}:{name}="[^"]*""#)).replace_all(&out, "").into_owned();
             }
         }
+    }
+
+    // Photoshop's Urgency of one also reads as a pick. Left behind when the
+    // pick is taken away, it would bring the pick straight back.
+    if flag_changed && marks.flag != Flag::Pick {
+        out = cached(r#"\s*photoshop:Urgency="1""#.to_string()).replace_all(&out, "").into_owned();
+        out = cached(r"\n?[ \t]*<photoshop:Urgency>1</photoshop:Urgency>".to_string()).replace_all(&out, "").into_owned();
     }
     out
 }
@@ -257,23 +294,27 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
 /// A photo with nothing marked and no sidecar gets none. An empty sidecar is
 /// not harmless: a reader prefers a sidecar and stops at it, so one that says
 /// nothing overrides a rating the camera embedded in the file.
+///
+/// A sidecar that is there but cannot be read — no permission, a share that
+/// has gone, text in an encoding not expected — is an error, never "no
+/// sidecar". Taking it for none would write a fresh one over it and throw
+/// away every develop setting in it.
 pub fn write(image: &Path, marks: Marks) -> std::io::Result<()> {
     let path = sidecar_path(image);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
     if existing.is_empty() && marks.is_empty() {
         return Ok(());
     }
     let text = if existing.is_empty() { fresh(marks) } else { update(&existing, marks) };
 
-    // Written beside the target and renamed over it, so a crash or a pulled
-    // drive mid-write leaves the old sidecar rather than half of a new one.
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".opencull-tmp");
-    let temp = PathBuf::from(temp);
-    std::fs::write(&temp, text)?;
-    std::fs::rename(&temp, &path).inspect_err(|_| {
-        std::fs::remove_file(&temp).ok();
-    })
+    // Written beside the target, pushed to the disk and renamed over it, so a
+    // crash or a pulled drive mid-write leaves the old sidecar rather than
+    // half of a new one, or an empty one.
+    crate::fsx::atomic_write(&path, text.as_bytes(), true)
 }
 
 /// Writes sidecars in the background, so marking a photo never waits on a disk.
@@ -287,8 +328,18 @@ pub struct Writer {
     shared: Arc<(Mutex<WriterState>, Condvar)>,
 }
 
-/// Told when marks could not be written into a JPEG: the file, and why.
-type Failed = Arc<dyn Fn(&Path, &str) + Send + Sync>;
+/// Which write it was that failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wrote {
+    /// The sidecar: the marks are not saved anywhere.
+    Sidecar,
+    /// Inside a JPEG: the marks are saved beside it, but other programs
+    /// reading the JPEG will not see them.
+    Jpeg,
+}
+
+/// Told when marks could not be written: the file, why, and which write.
+type Failed = Arc<dyn Fn(&Path, &str, Wrote) + Send + Sync>;
 
 #[derive(Default)]
 struct WriterState {
@@ -305,10 +356,10 @@ impl Writer {
         self.enqueue_with(image, marks, Vec::new());
     }
 
-    /// Has `report` called whenever marks cannot be written into a JPEG.
-    /// The sidecar is written all the same, so nothing is lost; what is lost
-    /// is other programs seeing it, and that should not pass in silence.
-    pub fn on_failure(&self, report: impl Fn(&Path, &str) + Send + Sync + 'static) {
+    /// Has `report` called whenever marks cannot be written: to a sidecar,
+    /// which means they are not saved at all, or into a JPEG, which means
+    /// other programs will not see them. Neither should pass in silence.
+    pub fn on_failure(&self, report: impl Fn(&Path, &str, Wrote) + Send + Sync + 'static) {
         self.shared.0.lock().unwrap().failed = Some(Arc::new(report));
     }
 
@@ -344,12 +395,15 @@ impl Writer {
             };
             if let Err(e) = write(&job.0, job.1) {
                 eprintln!("sidecar write failed for {}: {e}", job.0.display());
+                if let Some(report) = &job.3 {
+                    report(&job.0, &e.to_string(), Wrote::Sidecar);
+                }
             }
             for jpeg in &job.2 {
                 if let Err(e) = crate::embed::write(jpeg, job.1) {
                     eprintln!("could not write marks into {}: {e}", jpeg.display());
                     if let Some(report) = &job.3 {
-                        report(jpeg, &e.to_string());
+                        report(jpeg, &e.to_string(), Wrote::Jpeg);
                     }
                 }
             }
@@ -443,6 +497,63 @@ mod tests {
     }
 
     #[test]
+    fn a_sidecar_that_cannot_be_read_is_never_written_over() {
+        let dir = scratch("unreadable");
+        let photo = dir.join("A7V00010.ARW");
+        // Not UTF-8: as a sidecar saved in another encoding would be.
+        let foreign = [0xFFu8, 0xFE, b'<', 0, b'x', 0];
+        std::fs::write(dir.join("A7V00010.xmp"), foreign).unwrap();
+
+        assert!(write(&photo, Marks { rating: 5, ..Default::default() }).is_err());
+        assert_eq!(std::fs::read(dir.join("A7V00010.xmp")).unwrap(), foreign, "left exactly as it was");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_label_from_another_program_survives_a_change_of_rating() {
+        let bridge = LIGHTROOM.replace(r#"xmp:Label="Blue""#, r#"xmp:Label="Approved""#);
+        let changed = update(&bridge, Marks { rating: 5, ..Default::default() });
+        assert!(changed.contains(r#"xmp:Label="Approved""#), "{changed}");
+        assert!(changed.contains(r#"xmp:Rating="5""#));
+    }
+
+    #[test]
+    fn only_what_changed_is_touched() {
+        let same = update(LIGHTROOM, Marks { rating: 3, flag: Flag::None, color: Color::Blue });
+        assert_eq!(same, LIGHTROOM, "nothing differs, so nothing is rewritten");
+    }
+
+    #[test]
+    fn taking_away_a_pick_made_by_urgency_sticks() {
+        let urgent = LIGHTROOM.replace("   xmp:Rating=\"3\"", "   xmp:Rating=\"3\"\n   photoshop:Urgency=\"1\"");
+        assert_eq!(parse(&urgent).flag, Flag::Pick);
+        let cleared = update(&urgent, Marks { rating: 3, flag: Flag::None, color: Color::Blue });
+        assert_eq!(parse(&cleared).flag, Flag::None, "{cleared}");
+    }
+
+    #[test]
+    fn taking_away_a_bridge_reject_sticks() {
+        let rejected = LIGHTROOM.replace(r#"xmp:Rating="3""#, r#"xmp:Rating="-1""#);
+        assert_eq!(parse(&rejected).flag, Flag::Reject);
+        let cleared = update(&rejected, Marks { rating: 0, flag: Flag::None, color: Color::Blue });
+        assert_eq!(parse(&cleared).flag, Flag::None, "{cleared}");
+    }
+
+    #[test]
+    fn a_sidecar_that_cannot_be_written_is_reported() {
+        let dir = scratch("unwritable");
+        let photo = dir.join("missing-folder").join("A7V00011.ARW");
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let writer = Writer::default();
+        let heard = told.clone();
+        writer.on_failure(move |path, _, which| heard.lock().unwrap().push((path.to_path_buf(), which)));
+        writer.enqueue(photo.clone(), Marks { rating: 3, ..Default::default() });
+        writer.flush();
+        assert_eq!(*told.lock().unwrap(), [(photo, Wrote::Sidecar)]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn nothing_marked_and_no_sidecar_writes_no_sidecar() {
         let dir = scratch("empty");
         let photo = dir.join("A7V00003.ARW");
@@ -524,7 +635,7 @@ mod tests {
         let told = Arc::new(Mutex::new(Vec::new()));
         let writer = Writer::default();
         let heard = told.clone();
-        writer.on_failure(move |path, why| heard.lock().unwrap().push((path.to_path_buf(), why.to_string())));
+        writer.on_failure(move |path, why, _| heard.lock().unwrap().push((path.to_path_buf(), why.to_string())));
         writer.enqueue_with(raw.clone(), Marks { rating: 2, ..Default::default() }, vec![not_a_jpeg.clone()]);
         writer.flush();
 

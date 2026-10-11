@@ -14,7 +14,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { api, type EditingApp, type Shipped } from "@/lib/api";
+import { api, describeFailure, type EditingApp, type Shipped } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -93,6 +93,9 @@ function resolve(settings: Settings, photos: Photo[], order: number[], selected:
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** A photo's files as the backend takes them: a RAW travels with its JPEG. */
+const filesOf = (p: Photo) => ({ path: p.path, display: p.display });
+
 /** A list cut to its first few, saying how many more there were. */
 function listed(items: string[]): string {
   const head = items.slice(0, 5).join("\n");
@@ -105,8 +108,8 @@ function listed(items: string[]): string {
  */
 function failureSummary(result: Shipped, total: number, opening: string | null): string {
   const parts: string[] = [];
-  if (result.failed.length > 0) parts.push(`${result.failed.length} of ${total} images did not ship:\n${listed(result.failed)}`);
-  if (result.sidecarFailed.length > 0) parts.push(`${result.sidecarFailed.length} shipped, but their ratings and flags did not follow:\n${listed(result.sidecarFailed)}`);
+  if (result.failed.length > 0) parts.push(`${result.failed.length} of ${total} images did not ship as asked:\n${listed(result.failed.map(describeFailure))}`);
+  if (result.sidecarFailed.length > 0) parts.push(`${result.sidecarFailed.length} shipped, but their ratings and flags did not follow:\n${listed(result.sidecarFailed.map(describeFailure))}`);
   if (opening) parts.push(`The editing program could not be opened:\n${opening}`);
   return parts.join("\n\n");
 }
@@ -114,18 +117,28 @@ function failureSummary(result: Shipped, total: number, opening: string | null):
 /** Sends photos on: opens them in an editing program, copies or moves them, or both. */
 export function ShipDialog() {
   const open = useStore((s) => s.shipOpen);
+  // While files are going across, Ship cannot be closed — not by Escape, a
+  // click outside or its close button. Closing it would lose the report of
+  // any that failed, and a ship that lost files must never look like it worked.
+  const [busy, setBusy] = useState(false);
   return (
-    <Dialog open={open} onOpenChange={(o) => useStore.getState().set("shipOpen", o)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o && busy) return;
+        useStore.getState().set("shipOpen", o);
+      }}
+    >
       <DialogContent showCloseButton={false} className="h-[520px] gap-0 overflow-hidden border-0 bg-[#1a1a21] p-0 sm:max-w-[840px]" onOpenAutoFocus={(e) => e.preventDefault()}>
         {/* Only exists while Ship is open, so it reads the folder's ratings
             when asked to and not on every change while culling. */}
-        <Ship />
+        <Ship onBusy={setBusy} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function Ship() {
+function Ship({ onBusy }: { onBusy: (busy: boolean) => void }) {
   const photos = useStore((s) => s.photos);
   const order = useStore((s) => s.order);
   const selected = useStore((s) => s.selected);
@@ -136,6 +149,10 @@ function Ship() {
   const [apps, setApps] = useState<EditingApp[]>([]);
   const [catalogs, setCatalogs] = useState<string[] | null>(null);
   const [shipping, setShipping] = useState(false);
+  useEffect(() => {
+    onBusy(shipping);
+    return () => onBusy(false);
+  }, [shipping, onBusy]);
   const [progress, setProgress] = useState(0);
   /** Set when anything failed. Holds Ship open: a ship that lost files must never close looking like it worked. */
   const [error, setError] = useState<string | null>(null);
@@ -230,7 +247,7 @@ function Ship() {
   const ship = async () => {
     if (blocked || shipping) return;
     if (transferring) {
-      const taken = await api.shipConflicts(images.map((p) => p.path), settings.destination!).catch(() => 0);
+      const taken = await api.shipConflicts(images.map(filesOf), settings.destination!).catch(() => 0);
       if (taken > 0) return setDuplicates({ images, count: taken });
     }
     void run(images, false);
@@ -244,7 +261,7 @@ function Ship() {
 
     let result: Shipped;
     try {
-      result = await api.ship(shipped.map((p) => p.path), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
+      result = await api.ship(shipped.map(filesOf), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
         setProgress(0.1 + 0.7 * (done / total)),
       );
     } catch (e) {
@@ -295,9 +312,11 @@ function Ship() {
           <DialogTitle className="text-lg font-bold">Ship</DialogTitle>
           <DialogDescription className="mt-0.5 text-xs text-[#737373]">Export, copy, or open images in your editing app</DialogDescription>
         </div>
-        <button type="button" aria-label="Close" onClick={close} className="rounded-full bg-[#4d4d4d] p-1 text-[#1a1a21] hover:bg-[#666]">
-          <X className="size-3" strokeWidth={3.5} />
-        </button>
+        {!shipping && (
+          <button type="button" aria-label="Close" onClick={close} className="rounded-full bg-[#4d4d4d] p-1 text-[#1a1a21] hover:bg-[#666]">
+            <X className="size-3" strokeWidth={3.5} />
+          </button>
+        )}
       </header>
       <Rule />
 

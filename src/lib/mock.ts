@@ -93,8 +93,9 @@ export const mock: Backend = {
   flushMarks: () => later(undefined),
   moveToTrash: () => later([]),
   transferPhotos: (items, _destination, moving) => later({ placed: items.map((i) => i.path), moved: moving ? items.map((i) => i.path) : [], skipped: 0, failed: [], sidecarFailed: [] }),
-  shipConflicts: (paths) => later(paths.length > 3 ? 2 : 0),
-  ship: async (paths, destination, moving, _skip, onProgress) => {
+  shipConflicts: (items) => later(items.length > 3 ? 2 : 0),
+  ship: async (items, destination, moving, _skip, onProgress) => {
+    const paths = items.map((i) => i.path);
     for (let done = 1; done <= paths.length; done++) {
       await later(null, 40);
       onProgress(done);
@@ -187,11 +188,12 @@ export const mock: Backend = {
       await later(null, 90);
       onProgress({ done, total: items.length, bytesCopied: done * each, bytesSettled: done * each, bytesTotal: items.length * each });
     }
-    return { status: "success", message: null };
+    return { status: "success", message: null, warnings: [] };
   },
   ingestCancel: () => later(undefined),
   onQuitRefused: () => () => {},
   onJpegNotWritten: () => () => {},
+  onMarksNotSaved: () => () => {},
   histogram: (path) => {
     const seed = path.length;
     const bell = (centre: number) => Array.from({ length: 256 }, (_, x) => Math.round(900 * Math.exp(-((x - centre) ** 2) / 2600)));

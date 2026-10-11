@@ -2,7 +2,7 @@
 // each photo in it, and what is on screen.
 
 import { create } from "zustand";
-import { api } from "./api";
+import { api, describeFailure } from "./api";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
@@ -934,8 +934,26 @@ export const useStore = create<Store>((set, get) => {
       if (!pending || !s.session) return;
       set({ trashPending: null });
 
-      const failed = new Set(await api.moveToTrash(pending.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }))));
+      const session = s.session.id;
+      const items = pending.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }));
+      let failures;
+      try {
+        failures = await api.moveToTrash(items);
+      } catch (e) {
+        set({ notice: { title: "Nothing was moved to the Trash", body: String(e) } });
+        return;
+      }
+      // The folder may have been closed, or another opened, while this ran.
+      // Its photos are no longer the ones `pending` points at.
+      if (get().session?.id !== session) return;
+      const failed = new Set(failures.map((f) => f.path));
       drop(new Set(pending.filter((i) => !failed.has(s.photos[i].path))));
+      if (failures.length > 0) {
+        const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+        const shown = failures.slice(0, 5).map((f) => `${name(f.path)}: ${f.reason}`).join("\n");
+        const more = failures.length > 5 ? `\n…and ${failures.length - 5} more.` : "";
+        set({ notice: { title: `${failures.length} photo${failures.length === 1 ? " was" : "s were"} not moved to the Trash`, body: `${shown}${more}\n\nThey are still in the folder.` } });
+      }
     },
 
     async transfer(targets, moving) {
@@ -957,7 +975,7 @@ export const useStore = create<Store>((set, get) => {
       // The folder may have been closed, or another opened, while this ran.
       if (get().session?.id === session) get().forget(result.moved);
 
-      const problems = [...result.failed, ...result.sidecarFailed.map((f) => `${f} (its ratings did not follow)`)];
+      const problems = [...result.failed.map(describeFailure), ...result.sidecarFailed.map((f) => `${describeFailure(f)} (its ratings did not follow)`)];
       if (problems.length > 0) {
         const shown = problems.slice(0, 5).join("\n");
         const more = problems.length > 5 ? `\n…and ${problems.length - 5} more.` : "";

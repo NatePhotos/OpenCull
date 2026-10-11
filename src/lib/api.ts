@@ -40,6 +40,22 @@ export interface CacheUsage {
   limit: number;
 }
 
+/** One photo as the backend handles it: its file, and the JPEG shown for it (the same file, or a RAW's JPEG). */
+export interface PhotoFiles {
+  path: string;
+  display: string;
+}
+
+/** A photo something went wrong with, and why. `path` is the photo as the app knows it. */
+export interface Failure {
+  path: string;
+  name: string;
+  reason: string;
+}
+
+/** A failure as one line of a message. */
+export const describeFailure = (f: Failure) => `${f.name}: ${f.reason}`;
+
 /** What became of photos sent to another folder. */
 export interface Shipped {
   /** Where each photo is now, in the order given. */
@@ -47,10 +63,10 @@ export interface Shipped {
   /** The photos that are no longer where they started. */
   moved: string[];
   skipped: number;
-  /** Photos that never arrived, each with why. */
-  failed: string[];
-  /** Photos that arrived without their ratings, each with why. */
-  sidecarFailed: string[];
+  /** Photos that never arrived, or arrived but could not be removed from where they were. */
+  failed: Failure[];
+  /** Photos that arrived without their ratings. */
+  sidecarFailed: Failure[];
 }
 
 /** A program Ship can open photos in. */
@@ -103,6 +119,8 @@ export interface IngestProgress {
 export interface Ingested {
   status: "success" | "cancelled" | "failed";
   message: string | null;
+  /** Photos that arrived, but whose ratings did not come with them. */
+  warnings: string[];
 }
 
 export type Tier = "thumb" | "fit" | "screen" | "full";
@@ -119,13 +137,14 @@ export interface Backend {
   /** Records marks beside each photo, and inside each of the JPEGs named in `into`. */
   setMarks(changes: ({ path: string; into: string[] } & Marks)[]): Promise<void>;
   flushMarks(): Promise<void>;
-  moveToTrash(items: { path: string; display: string }[]): Promise<string[]>;
+  /** Returns the photos that could not be trashed, each with why. */
+  moveToTrash(items: PhotoFiles[]): Promise<{ path: string; reason: string }[]>;
   /** Copies or moves photos, with their JPEGs and ratings, to another folder. Never replaces anything there. */
-  transferPhotos(items: { path: string; display: string }[], destination: string, moving: boolean): Promise<Shipped>;
+  transferPhotos(items: PhotoFiles[], destination: string, moving: boolean): Promise<Shipped>;
   /** How many of these photos would land on a file already in `destination`. */
-  shipConflicts(paths: string[], destination: string): Promise<number>;
+  shipConflicts(items: PhotoFiles[], destination: string): Promise<number>;
   /** Writes out pending ratings, then copies or moves the photos if there is a destination. */
-  ship(paths: string[], destination: string | null, moving: boolean, skipDuplicates: boolean, onProgress: (done: number) => void): Promise<Shipped>;
+  ship(items: PhotoFiles[], destination: string | null, moving: boolean, skipDuplicates: boolean, onProgress: (done: number) => void): Promise<Shipped>;
   editingApps(): Promise<EditingApp[]>;
   lightroomCatalogs(): Promise<string[]>;
   openInEditor(editor: string, files: string[], catalog: string | null): Promise<void>;
@@ -152,12 +171,14 @@ export interface Backend {
   /** Reads capture times and in-camera stars, in batches. Asking again stops the last asking. */
   ingestDetails(paths: string[], onFound: (found: IngestDetail[]) => void): Promise<void>;
   ingestConflicts(items: { path: string; display: string }[], destination: string): Promise<number>;
-  ingestCopy(items: { path: string; display: string }[], destination: string, policy: IngestPolicy, onProgress: (p: IngestProgress) => void): Promise<Ingested>;
+  ingestCopy(items: PhotoFiles[], destination: string, policy: IngestPolicy, onProgress: (p: IngestProgress) => void): Promise<Ingested>;
   ingestCancel(): Promise<void>;
   /** Calls `handler` when quitting was refused because a copy is running. Returns a way to stop listening. */
   onQuitRefused(handler: () => void): () => void;
   /** Calls `handler` when marks could not be written into a JPEG: the file, and why. */
   onJpegNotWritten(handler: (path: string, why: string) => void): () => void;
+  /** A rating could not be saved to its sidecar: it is not saved anywhere. */
+  onMarksNotSaved(handler: (path: string, why: string) => void): () => void;
   histogram(path: string, version: string): Promise<Histogram>;
   folderCover(path: string): Promise<Scanned[]>;
   foldersExist(paths: string[]): Promise<boolean[]>;
@@ -178,6 +199,26 @@ export const inTauri = "__TAURI_INTERNALS__" in window;
 // custom protocol is reached as a host under http instead.
 const previewBase = /Windows|Android/.test(navigator.userAgent) ? "http://opencull.localhost" : "opencull://localhost";
 
+/**
+ * Listens for an event from the app shell until the returned function is
+ * called. Safe to stop before listening has started: `listen` resolves
+ * later, and is undone as soon as it does.
+ */
+function listenFor<T>(event: string, handler: (payload: T) => void): () => void {
+  let stop: (() => void) | undefined;
+  let stopped = false;
+  void import("@tauri-apps/api/event").then(({ listen }) =>
+    listen<T>(event, (e) => handler(e.payload)).then((unlisten) => {
+      if (stopped) unlisten();
+      else stop = unlisten;
+    }),
+  );
+  return () => {
+    stopped = true;
+    stop?.();
+  };
+}
+
 const tauri: Backend = {
   appInfo: () => invoke("app_info"),
   openFolder: (path, includeSubfolders, kinds) => invoke("open_folder", { path, includeSubfolders, kinds }),
@@ -194,11 +235,11 @@ const tauri: Backend = {
   flushMarks: () => invoke("flush_marks"),
   moveToTrash: (items) => invoke("move_to_trash", { items }),
   transferPhotos: (items, destination, moving) => invoke("transfer_photos", { items, destination, moving }),
-  shipConflicts: (paths, destination) => invoke("ship_conflicts", { paths, destination }),
-  ship: (paths, destination, moving, skipDuplicates, onProgress) => {
+  shipConflicts: (items, destination) => invoke("ship_conflicts", { items, destination }),
+  ship: (items, destination, moving, skipDuplicates, onProgress) => {
     const progress = new Channel<number>();
     progress.onmessage = onProgress;
-    return invoke("ship", { paths, destination, moving, skipDuplicates, progress });
+    return invoke("ship", { items, destination, moving, skipDuplicates, progress });
   },
   editingApps: () => invoke("editing_apps"),
   lightroomCatalogs: () => invoke("lightroom_catalogs"),
@@ -230,34 +271,9 @@ const tauri: Backend = {
     return invoke("ingest_copy", { items, destination, policy, progress });
   },
   ingestCancel: () => invoke("ingest_cancel"),
-  onJpegNotWritten: (handler) => {
-    let stop: (() => void) | undefined;
-    let stopped = false;
-    void import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<[string, string]>("jpeg-not-written", (event) => handler(event.payload[0], event.payload[1])).then((unlisten) => {
-        if (stopped) unlisten();
-        else stop = unlisten;
-      }),
-    );
-    return () => {
-      stopped = true;
-      stop?.();
-    };
-  },
-  onQuitRefused: (handler) => {
-    let stop: (() => void) | null = null;
-    let stopped = false;
-    void import("@tauri-apps/api/event").then(({ listen }) =>
-      listen("quit-refused", handler).then((unlisten) => {
-        if (stopped) unlisten();
-        else stop = unlisten;
-      }),
-    );
-    return () => {
-      stopped = true;
-      stop?.();
-    };
-  },
+  onJpegNotWritten: (handler) => listenFor<[string, string]>("jpeg-not-written", ([path, why]) => handler(path, why)),
+  onMarksNotSaved: (handler) => listenFor<[string, string]>("marks-not-saved", ([path, why]) => handler(path, why)),
+  onQuitRefused: (handler) => listenFor("quit-refused", () => handler()),
   histogram: (path, version) => invoke("histogram", { path, version }),
   folderCover: (path) => invoke("folder_cover", { path }),
   foldersExist: (paths) => invoke("folders_exist", { paths }),
