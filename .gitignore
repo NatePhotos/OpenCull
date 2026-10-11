@@ -53,3 +53,7 @@ src-tauri/gen/schemas
 *.jpeg
 *.JPEG
 *.xmp
+
+# The one exception: the picture of the app in the README, put here on
+# purpose and with the leave of the people in it.
+!docs/images/screenshot.jpg
