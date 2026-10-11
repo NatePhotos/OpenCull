@@ -57,6 +57,10 @@ tauri-plugin-window-state = "2"
 ort = "=2.0.0-rc.13"
 ndarray = "0.17.2"
 
+# For keeping a JPEG's Finder tags, permissions and other attributes when it
+# is rewritten with new marks (embed.rs). Already in the build through Tauri.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 # Only for `examples/bench.rs`, which measures it against the decoder the app

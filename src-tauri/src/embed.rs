@@ -22,13 +22,26 @@
 //!   packet that is not text, a packet too big for its segment, a file with
 //!   an index of other pictures that a change of size would break.
 //!
-//! The file's date is put back afterwards. A preview made from it is still
-//! a preview of it, and should not be made again for the sake of a star.
+//! It is off unless the photographer turns it on (Settings, under Culling).
+//!
+//! The file's modified date is left to change, as for any other edit. Backup
+//! and sync tools look at the date to see what changed, and so does
+//! Lightroom; a file that was changed but kept its old date would keep its
+//! old rating in every one of them. Previews are keyed on the date too, so a
+//! changed date means the photo's previews are made again once. That is the
+//! price of the change being seen.
+//!
+//! The same-length overwrite is the one write in the app that is not staged
+//! and renamed. It changes only text inside the packet, the picture's bytes
+//! are never in reach of it, and a crash part way leaves a packet that is
+//! half old and half new; other programs may then ignore the packet, but the
+//! sidecar still holds the marks. Writing the whole file out again for every
+//! star would be the safer and much slower trade, for something that is off
+//! by default.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use crate::raw::io::FileSource;
 use crate::raw::jpeg;
@@ -95,7 +108,6 @@ fn roomy(changed: &str) -> String {
 
 /// Writes `marks` into the JPEG at `path`.
 pub fn write(path: &Path, marks: Marks) -> io::Result<Outcome> {
-    let before = std::fs::metadata(path)?;
     let source = FileSource::open(path)?;
     let layout = jpeg::layout(&source).ok_or_else(|| err("not a JPEG"))?;
     use crate::raw::io::ReadAt;
@@ -141,12 +153,6 @@ pub fn write(path: &Path, marks: Marks) -> io::Result<Outcome> {
         }
     };
 
-    // The date it had: what it shows has not changed.
-    if let Ok(modified) = before.modified() {
-        if let Ok(file) = OpenOptions::new().write(true).open(path) {
-            file.set_modified(modified).ok();
-        }
-    }
     Ok(done)
 }
 
@@ -167,14 +173,10 @@ fn over(path: &Path, at: u64, old: &[u8], new: &[u8]) -> io::Result<()> {
     file.sync_data()
 }
 
-static STAGED: AtomicU64 = AtomicU64::new(0);
-
 /// Writes the file out again with `segment` in place of bytes `from..to`
 /// (which may be none at all), checks it, and puts it where the original was.
 fn afresh(path: &Path, from: u64, to: u64, segment: &[u8]) -> io::Result<()> {
-    let folder = path.parent().ok_or_else(|| err("no folder"))?;
-    let name = path.file_name().ok_or_else(|| err("no name"))?.to_string_lossy();
-    let staged: PathBuf = folder.join(format!(".opencull-staging-{}-{}-{name}", std::process::id(), STAGED.fetch_add(1, Ordering::Relaxed)));
+    let staged = crate::fsx::staging_path(path)?;
 
     let written = (|| -> io::Result<()> {
         let mut original = File::open(path)?;
@@ -214,13 +216,42 @@ fn afresh(path: &Path, from: u64, to: u64, segment: &[u8]) -> io::Result<()> {
         drop(copy);
         drop(original);
         std::fs::set_permissions(&staged, permissions).ok();
-        std::fs::rename(&staged, path)
+        keep_attributes(path, &staged);
+        std::fs::rename(&staged, path)?;
+        crate::fsx::sync_dir(path.parent().unwrap_or(Path::new(".")))
     })();
     if written.is_err() {
         std::fs::remove_file(&staged).ok();
     }
     written
 }
+
+/// Carries what the system keeps about `from` beyond its bytes onto `to`:
+/// on a Mac its Finder tags, where it was downloaded from, its permissions
+/// and owner. A file written out afresh starts with none of that, and a
+/// photographer's colour tags on a JPEG in Finder are their work too.
+///
+/// The modified date is not carried: the file has been changed, and is
+/// dated now.
+#[cfg(target_os = "macos")]
+fn keep_attributes(from: &Path, to: &Path) {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let (Ok(src), Ok(dst)) = (CString::new(from.as_os_str().as_bytes()), CString::new(to.as_os_str().as_bytes())) else { return };
+    // SAFETY: both are valid, NUL-terminated paths that outlive the call,
+    // and no copyfile state is passed.
+    let copied = unsafe { libc::copyfile(src.as_ptr(), dst.as_ptr(), std::ptr::null_mut(), libc::COPYFILE_METADATA) };
+    if copied == 0 {
+        // COPYFILE_STAT brings the old modified date with it. Dated now.
+        if let Ok(file) = OpenOptions::new().write(true).open(to) {
+            file.set_modified(std::time::SystemTime::now()).ok();
+        }
+    }
+}
+
+/// Elsewhere only permissions are carried, above.
+#[cfg(not(target_os = "macos"))]
+fn keep_attributes(_from: &Path, _to: &Path) {}
 
 /// Checks that the next `len` bytes of two files are the same.
 fn same(a: &mut File, b: &mut File, len: u64) -> io::Result<()> {
@@ -240,6 +271,7 @@ fn same(a: &mut File, b: &mut File, len: u64) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use crate::raw::io::ReadAt;
     use crate::raw::jpeg::testing::{exif_segment, jpeg as header};
     use crate::xmp::{Color, Flag};
@@ -406,16 +438,39 @@ mod tests {
         std::fs::remove_file(path).ok();
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    fn the_files_date_is_what_it_was_and_nothing_is_left_beside_it() {
+    fn a_rewritten_jpeg_keeps_its_finder_tags() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let (path, _) = photo("tags", &[]);
+        let file = CString::new(path.as_os_str().as_bytes()).unwrap();
+        let name = CString::new("com.opencull.test").unwrap();
+        let value = b"kept";
+        // SAFETY: valid NUL-terminated strings and a buffer of the stated length.
+        let set = unsafe { libc::setxattr(file.as_ptr(), name.as_ptr(), value.as_ptr().cast(), value.len(), 0, 0) };
+        assert_eq!(set, 0);
+
+        assert_eq!(write(&path, marks(5)).unwrap(), Outcome::Rewritten);
+
+        let mut back = [0u8; 16];
+        // SAFETY: as above, reading into a buffer of the stated length.
+        let got = unsafe { libc::getxattr(file.as_ptr(), name.as_ptr(), back.as_mut_ptr().cast(), back.len(), 0, 0) };
+        assert_eq!(&back[..got.max(0) as usize], value);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn the_files_date_moves_on_so_backups_see_the_change_and_nothing_is_left_beside_it() {
         let (path, _) = photo("date", &[]);
         let then = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
         File::options().write(true).open(&path).unwrap().set_modified(then).unwrap();
 
         assert_eq!(write(&path, marks(5)).unwrap(), Outcome::Rewritten);
-        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), then);
+        assert!(std::fs::metadata(&path).unwrap().modified().unwrap() > then, "rewritten, and dated now");
+        File::options().write(true).open(&path).unwrap().set_modified(then).unwrap();
         assert_eq!(write(&path, marks(1)).unwrap(), Outcome::InPlace);
-        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), then);
+        assert!(std::fs::metadata(&path).unwrap().modified().unwrap() > then, "written over in place, and dated now");
 
         let stem = path.file_name().unwrap().to_string_lossy().into_owned();
         let left: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains("staging") && n.contains(&stem)).collect();

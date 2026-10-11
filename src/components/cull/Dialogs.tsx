@@ -320,7 +320,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
           <Setting
             title="Write ratings into JPEGs"
-            detail="Stores a JPEG's stars and colour label inside the file itself as well as beside it, which is where Lightroom, Bridge and others look. Only the file's information is changed, never the picture. Turn off to leave JPEG files exactly as they are."
+            detail="Stores a JPEG's stars and colour label inside the file itself as well as beside it, which is where Lightroom, Bridge and others look. Only the file's information is changed, never the picture, and the file's modified date updates so backups pick it up. Off by default: JPEG files are left exactly as they are."
             control={toggle("embedInJpeg")}
           />
           <Setting

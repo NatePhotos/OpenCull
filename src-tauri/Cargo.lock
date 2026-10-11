@@ -2551,6 +2551,7 @@ dependencies = [
  "fast_image_resize",
  "jpeg-decoder",
  "jpeg-encoder",
+ "libc",
  "memchr",
  "memmap2",
  "ndarray",
