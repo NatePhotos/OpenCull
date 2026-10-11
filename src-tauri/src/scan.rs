@@ -217,7 +217,7 @@ pub fn scan_folder_of(folder: &Path, include_subfolders: bool, kinds: Kinds) -> 
                 .entry(key(&f.path))
                 // Deterministic if both .jpg and .jpeg somehow exist.
                 .and_modify(|existing| {
-                    if natural_cmp(&name_of(&f.path), &name_of(&found[*existing].path)) == Ordering::Less {
+                    if natural_cmp(&crate::fsx::file_name(&f.path), &crate::fsx::file_name(&found[*existing].path)) == Ordering::Less {
                         *existing = i;
                     }
                 })
@@ -250,7 +250,7 @@ pub fn scan_folder_of(folder: &Path, include_subfolders: bool, kinds: Kinds) -> 
         images.push(Scanned {
             path: f.path.clone(),
             display: shown.path.clone(),
-            name: name_of(&f.path),
+            name: crate::fsx::file_name(&f.path),
             subpath,
             version: format!("{:x}", shown.modified),
             size: f.size,
@@ -271,9 +271,6 @@ pub fn scan_folder_of(folder: &Path, include_subfolders: bool, kinds: Kinds) -> 
     ScanResult { images, left_out, subfolder_count }
 }
 
-fn name_of(path: &Path) -> String {
-    path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()
-}
 
 /// A few photos to stand for a folder on the home screen: spread across it
 /// rather than the first few, which in a real shoot are test frames of a
@@ -286,9 +283,9 @@ pub fn cover_images(folder: &Path, count: usize) -> Vec<Scanned> {
             let mut subs: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.is_dir() && !hidden(&name_of(p)))
+                .filter(|p| p.is_dir() && !hidden(&crate::fsx::file_name(p)))
                 .collect();
-            subs.sort_by(|a, b| natural_cmp(&name_of(a), &name_of(b)));
+            subs.sort_by(|a, b| natural_cmp(&crate::fsx::file_name(a), &crate::fsx::file_name(b)));
             for sub in subs.into_iter().take(8) {
                 images = scan_folder(&sub, false).images;
                 if !images.is_empty() {

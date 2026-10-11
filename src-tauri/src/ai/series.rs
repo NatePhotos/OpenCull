@@ -44,7 +44,7 @@ const MANY: usize = 4;
 /// them. MEASURED on 2,328 photos: the poses found are the same
 /// 230 to 260 whether this is 5 seconds or 60 — it is where people stand
 /// that decides, and this only keeps a comparison from running on for ever.
-pub const POSE_GAP_MS: f64 = 20_000.0;
+const POSE_GAP_MS: f64 = 20_000.0;
 /// How many of the subjects must be found where they were for two frames to
 /// be the same pose.
 const SAME_PEOPLE: f32 = 0.8;
@@ -196,7 +196,7 @@ fn follow(frames: &[&Record]) -> Vec<Vec<usize>> {
 
 /// Marks the frames of one burst or pose against each other. Frames are
 /// given in the order they were shot; the answer is in the same order.
-pub fn compare(frames: &[&Record]) -> Vec<Compared> {
+fn compare(frames: &[&Record]) -> Vec<Compared> {
     let who = follow(frames);
     let people = who.iter().flatten().max().map_or(0, |m| m + 1);
 

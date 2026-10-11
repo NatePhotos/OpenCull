@@ -72,7 +72,7 @@ pub struct App {
 
 impl App {
     pub fn new(previews: Previews, times: Times, faces: ai::store::Store) -> Self {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let cores = crate::cores();
         Self {
             previews,
             writer: xmp::Writer::default(),
@@ -411,8 +411,7 @@ pub struct Ahead {
 /// so that arriving at the photo finds its preview already made.
 #[tauri::command]
 pub fn prefetch(app: AppState, items: Vec<Ahead>, size: u32) {
-    let sizes = crate::serve::FIT_SIZES;
-    let tier = Tier::Fit(sizes.iter().copied().find(|s| *s >= size).unwrap_or(sizes[sizes.len() - 1]));
+    let tier = Tier::Fit(crate::serve::bucket(&crate::serve::FIT_SIZES, size));
     // Furthest first: the queue serves its newest request first, so the
     // nearest photo has to be the last one asked for.
     for item in items.into_iter().rev() {
@@ -450,8 +449,7 @@ fn made_screen(path: &std::path::Path, version: &str) -> Option<Wanted> {
 pub async fn warm(app: AppState<'_>, items: Vec<Ahead>, size: u32) -> Result<usize, String> {
     let previews = app.previews.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let sizes = crate::serve::FIT_SIZES;
-        let tier = Tier::Fit(sizes.iter().copied().find(|s| *s >= size).unwrap_or(sizes[sizes.len() - 1]));
+        let tier = Tier::Fit(crate::serve::bucket(&crate::serve::FIT_SIZES, size));
         previews.pool.clear_idle();
         let mut queued = 0;
         // Furthest first, for the same reason as looking ahead: the queue
@@ -678,13 +676,7 @@ pub async fn ship(
     .map_err(|e| e.to_string())
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Analysed {
-    index: usize,
-    #[serde(flatten)]
-    record: ai::store::Record,
-}
+pub use ai::scan::Analysed;
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -694,10 +686,32 @@ pub enum AiEvent {
     Done { finished: bool },
 }
 
-/// How many photos are analysed between reports to the interface.
-const AI_BATCH: usize = 12;
-/// How many freshly analysed photos between saves of what has been found.
-const AI_SAVE_EVERY: usize = 150;
+/// The app's side of a folder scan: which scan is wanted, whether the
+/// photographer is busy, what is on screen, and where results go.
+struct ScanHost<'a> {
+    app: &'a App,
+    session: &'a Session,
+    mine: u64,
+    events: &'a Channel<AiEvent>,
+}
+
+impl ai::scan::Host for ScanHost<'_> {
+    fn wanted(&self) -> bool {
+        !self.session.closed.load(Ordering::SeqCst) && self.app.ai_scan.load(Ordering::SeqCst) == self.mine
+    }
+    fn hold_back(&self) -> bool {
+        self.app.ai_yields.load(Ordering::Relaxed) && self.app.previews.pool.busy()
+    }
+    fn front(&self) -> Vec<usize> {
+        self.app.ai_front.lock().unwrap().clone()
+    }
+    fn send(&self, items: Vec<Analysed>) -> bool {
+        self.events.send(AiEvent::Batch { items }).is_ok()
+    }
+    fn save(&self, known: &HashMap<String, ai::store::Entry>) {
+        self.app.faces.save(&self.session.folder, known);
+    }
+}
 
 /// Finds and judges the faces in a folder's photos, in the order given —
 /// nearest the photo being looked at first — reporting as it goes.
@@ -717,110 +731,9 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
     app.ai_front.lock().unwrap().clear();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let wanted = || !session.closed.load(Ordering::SeqCst) && app.ai_scan.load(Ordering::SeqCst) == mine;
-        let mut remembered = app.faces.load(&session.folder);
-        // Photos no longer in the folder are forgotten, or the record grows
-        // with every photo ever deleted or renamed.
-        let present: std::collections::HashSet<String> = session.images.iter().map(|i| i.display.to_string_lossy().into_owned()).collect();
-        remembered.retain(|path, _| present.contains(path));
-        let known = Mutex::new(remembered);
-        // Saved from a copy, so no worker waits on the disk.
-        let save = || {
-            let snapshot = known.lock().unwrap().clone();
-            app.faces.save(&session.folder, &snapshot);
-        };
-
-        // What is already known goes out at once.
-        let mut todo = Vec::new();
-        let mut ready = Vec::new();
-        for index in order {
-            let Some(image) = session.images.get(index) else { continue };
-            match ai::store::remembered(&known.lock().unwrap(), &image.display, &image.version) {
-                Some(record) => ready.push(Analysed { index, record }),
-                None => todo.push(index),
-            }
-        }
-        for chunk in ready.chunks(256) {
-            if events.send(AiEvent::Batch { items: chunk.to_vec() }).is_err() {
-                return;
-            }
-        }
-
-        // A few at a time: enough to get through a folder in a minute or two,
-        // few enough that the rest of the machine does not feel it. Each
-        // worker holds a whole photo decoded at full size — about 180 MB for
-        // 60 megapixels, with the models' working memory on top — so four at
-        // most, which keeps the peak under a gigabyte on any machine.
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-        let workers = (cores / 2).clamp(1, 4).min(todo.len().max(1));
-        let queue = ai::queue::Queue::new(todo);
-        let (tx, rx) = std::sync::mpsc::channel::<Analysed>();
-        std::thread::scope(|scope| {
-            for _ in 0..workers {
-                let tx = tx.clone();
-                scope.spawn(|| {
-                    let tx = tx;
-                    loop {
-                        // Whoever is turning pages comes first.
-                        while wanted() && app.ai_yields.load(Ordering::Relaxed) && app.previews.pool.busy() {
-                            std::thread::sleep(Duration::from_millis(60));
-                        }
-                        if !wanted() {
-                            return;
-                        }
-                        // What is being looked at now, then the rest.
-                        let front = app.ai_front.lock().unwrap().clone();
-                        let Some(index) = queue.take(&front) else { return };
-                        let image = &session.images[index];
-                        // A photo that cannot be analysed is marked so, and left
-                        // out of ranking. Remembered when the file itself is
-                        // the trouble, so it is not tried on every open; not
-                        // when the disk was, so it is tried again next time.
-                        let (record, remember) = match ai::analyze(&image.display) {
-                            Ok(analysis) => (ai::store::Record::from(&analysis), true),
-                            Err(ai::Failure::Unusable(_)) => (ai::store::Record::failed(), true),
-                            Err(ai::Failure::Unreadable(_)) => (ai::store::Record::failed(), false),
-                        };
-                        if remember {
-                            known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
-                        }
-                        if tx.send(Analysed { index, record }).is_err() {
-                            return;
-                        }
-                    }
-                });
-            }
-            drop(tx);
-
-            let mut batch = Vec::new();
-            let mut unsaved = 0;
-            let mut last = Instant::now();
-            loop {
-                match rx.recv_timeout(Duration::from_millis(250)) {
-                    Ok(item) => {
-                        batch.push(item);
-                        unsaved += 1;
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-                if batch.len() >= AI_BATCH || (!batch.is_empty() && last.elapsed() >= Duration::from_millis(400)) {
-                    events.send(AiEvent::Batch { items: std::mem::take(&mut batch) }).ok();
-                    last = Instant::now();
-                }
-                if unsaved >= AI_SAVE_EVERY {
-                    save();
-                    unsaved = 0;
-                }
-            }
-            if !batch.is_empty() {
-                events.send(AiEvent::Batch { items: batch }).ok();
-            }
-            if unsaved > 0 {
-                save();
-            }
-        });
-        events.send(AiEvent::Done { finished: queue.exhausted() && wanted() }).ok();
+        let host = ScanHost { app: &app, session: &session, mine, events: &events };
+        let finished = ai::scan::run(&session.images, order, app.faces.load(&session.folder), &host, ai::analyze);
+        events.send(AiEvent::Done { finished }).ok();
     })
     .await
     .map_err(|e| e.to_string())

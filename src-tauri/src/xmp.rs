@@ -352,6 +352,9 @@ struct WriterState {
 }
 
 impl Writer {
+    /// Queues marks for a photo with no JPEG to write into. For tests: the
+    /// app always says which JPEGs, if any.
+    #[cfg(test)]
     pub fn enqueue(&self, image: PathBuf, marks: Marks) {
         self.enqueue_with(image, marks, Vec::new());
     }

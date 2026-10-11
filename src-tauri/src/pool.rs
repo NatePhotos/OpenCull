@@ -148,6 +148,7 @@ impl<T> Clone for Pool<T> {
 impl<T: Send + Sync + 'static> Pool<T> {
     /// `workers` threads in all, the first of which serves only `Now`. Idle
     /// work gets half of the rest.
+    #[cfg(test)]
     pub fn new(workers: usize) -> Self {
         Self::with_idle_limit(workers, (workers.max(2) - 1) / 2)
     }
@@ -247,6 +248,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
         Instant::now() < state.quiet_until || state.queue.len() > state.queue.count(Priority::Idle)
     }
 
+    #[cfg(test)]
     pub fn queued(&self) -> usize {
         self.shared.0.lock().unwrap().queue.len()
     }

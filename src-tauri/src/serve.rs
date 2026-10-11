@@ -156,13 +156,14 @@ pub struct Wanted {
 pub const THUMB_SIZES: [u32; 3] = [320, 640, 1280];
 pub const FIT_SIZES: [u32; 3] = [1600, 2400, 3400];
 
-fn bucket(sizes: &[u32], wanted: u32) -> u32 {
+/// The first of `sizes` at least `wanted`, or the largest.
+pub(crate) fn bucket(sizes: &[u32], wanted: u32) -> u32 {
     sizes.iter().copied().find(|s| *s >= wanted).unwrap_or(*sizes.last().expect("non-empty"))
 }
 
 impl Previews {
     pub fn new(cache: Cache) -> Self {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let cores = crate::cores();
         // A third of the machine for getting ahead, and never more.
         let idle_threads = (cores / 3).clamp(1, 4);
         let pool = Pool::with_idle_limit((cores * 3 / 4).clamp(3, 12), idle_threads);

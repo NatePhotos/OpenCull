@@ -61,7 +61,7 @@ pub fn find(rgb: &[u8], width: u32, height: u32) -> Result<Vec<Found>, String> {
 /// The same, keeping everything the finder is at least `sure` of. The app
 /// asks for `SURE`; asking for less hands back more of what it only half
 /// believes in.
-pub fn find_at(rgb: &[u8], width: u32, height: u32, sure_enough: f32) -> Result<Vec<Found>, String> {
+fn find_at(rgb: &[u8], width: u32, height: u32, sure_enough: f32) -> Result<Vec<Found>, String> {
     let (w, h) = (width as usize, height as usize);
     // The model halves the picture five times over, so its sides must divide
     // by 32. The extra is left black, at the right and the bottom.

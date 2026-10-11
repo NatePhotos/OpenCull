@@ -130,7 +130,7 @@ fn sorted(mut volumes: Vec<Volume>) -> Vec<Volume> {
 }
 
 fn named(path: PathBuf, removable: bool) -> Volume {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned());
+    let name = fsx::file_name(&path);
     Volume { camera_card: has_camera_media(&path), name, removable, path }
 }
 
@@ -312,9 +312,6 @@ pub struct Copied {
     pub warnings: Vec<String>,
 }
 
-fn file_name(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-}
 
 fn stem_of(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
@@ -499,7 +496,7 @@ enum Placed {
 
 /// Puts one photo into the destination: itself, its JPEG, its ratings.
 fn place(item: &Item, destination: &Path, policy: Policy, names: &Names, on_bytes: &mut dyn FnMut(u64)) -> Placed {
-    let name = file_name(&item.path);
+    let name = fsx::file_name(&item.path);
     let stem = stem_of(&item.path);
     let (suffix, overwrite) = match names.reserve(item, destination, policy) {
         Some(Reserved::Skip) => return Placed::Skipped,

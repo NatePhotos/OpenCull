@@ -51,7 +51,7 @@ pub struct Failure {
 
 impl Failure {
     fn new(photo: &Path, file: &Path, reason: impl ToString) -> Self {
-        Failure { path: photo.to_path_buf(), name: display_name(file), reason: reason.to_string() }
+        Failure { path: photo.to_path_buf(), name: fsx::file_name(file), reason: reason.to_string() }
     }
 }
 
@@ -191,7 +191,7 @@ fn free_suffix(stem: &str, files: &[PathBuf], destination: &Path, conflict: Conf
 /// `file`'s name with `suffix` added to the stem it shares with its photo:
 /// `DSC1.ARW` → `DSC1_1.ARW`, `DSC1.ARW.xmp` → `DSC1_1.ARW.xmp`.
 pub(crate) fn rename(file: &Path, stem: &str, suffix: &str) -> String {
-    let name = display_name(file);
+    let name = fsx::file_name(file);
     if suffix.is_empty() {
         return name;
     }
@@ -205,9 +205,6 @@ pub(crate) fn rename(file: &Path, stem: &str, suffix: &str) -> String {
     }
 }
 
-pub(crate) fn display_name(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned())
-}
 
 /// How putting one file in place went, when it got there.
 enum Placed {

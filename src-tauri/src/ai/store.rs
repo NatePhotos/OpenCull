@@ -116,7 +116,7 @@ impl Record {
 }
 
 /// A photo's remembered analysis, with the version of the file it describes.
-type Entry = (String, Record);
+pub type Entry = (String, Record);
 
 #[derive(Clone)]
 pub struct Store {

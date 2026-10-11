@@ -80,12 +80,17 @@ pub fn parts(faces: &[Reading], with_background: bool) -> Option<Parts> {
 }
 
 /// The photograph's mark out of 100. `None` for a photograph with no faces.
+#[cfg(test)]
 pub fn photo(faces: &[Reading], with_background: bool) -> Option<f64> {
     parts(faces, with_background).map(|p| p.total())
 }
 
 /// Each photo's place in its burst, 1 for the best. Photos with no mark come
 /// last, in the order given. Equal marks keep the order given.
+///
+/// The app ranks in the interface (`rankRun` in src/lib/cull-logic.ts),
+/// where the burst is assembled; this is the same rule for the examples that
+/// rank without it (`examples/bursts.rs`). Change one, change both.
 pub fn ranks(marks: &[Option<f64>]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..marks.len()).collect();
     order.sort_by(|a, b| marks[*b].unwrap_or(f64::NEG_INFINITY).total_cmp(&marks[*a].unwrap_or(f64::NEG_INFINITY)));

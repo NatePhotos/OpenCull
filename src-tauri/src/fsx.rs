@@ -23,14 +23,16 @@ pub const STAGING_PREFIX: &str = ".opencull-staging-";
 
 static STAGED: AtomicU64 = AtomicU64::new(0);
 
-fn display_name(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+/// A path's file name, for saying which file. The whole path for one that
+/// has no file name (a drive's root).
+pub fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 /// A fresh hidden name beside `target`, for writing it under until it is whole.
 pub fn staging_path(target: &Path) -> io::Result<PathBuf> {
     let folder = target.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no destination folder"))?;
-    Ok(folder.join(format!("{STAGING_PREFIX}{}-{}-{}", std::process::id(), STAGED.fetch_add(1, Ordering::Relaxed), display_name(target))))
+    Ok(folder.join(format!("{STAGING_PREFIX}{}-{}-{}", std::process::id(), STAGED.fetch_add(1, Ordering::Relaxed), file_name(target))))
 }
 
 /// Makes a rename or a new file in `folder` survive a power cut. Without it,

@@ -286,7 +286,8 @@ fn orientation_slot(jpeg: &[u8]) -> Option<(usize, bool)> {
 }
 
 /// The orientation a JPEG states for itself, 1–8, if it states one.
-pub fn own_orientation(jpeg: &[u8]) -> Option<u8> {
+#[cfg(test)]
+fn own_orientation(jpeg: &[u8]) -> Option<u8> {
     let (at, big_endian) = orientation_slot(jpeg)?;
     let b = jpeg.get(at..at + 2)?;
     let value = if big_endian { u16::from_be_bytes([b[0], b[1]]) } else { u16::from_le_bytes([b[0], b[1]]) };

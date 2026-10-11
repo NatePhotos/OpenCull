@@ -160,7 +160,7 @@ impl ReadAt for FileSource {
 }
 
 /// Fills `buf` from `offset`, whatever the platform calls that.
-pub fn pread_exact(file: &File, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
+fn pread_exact(file: &File, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
     while !buf.is_empty() {
         #[cfg(unix)]
         let read = std::os::unix::fs::FileExt::read_at(file, buf, offset)?;

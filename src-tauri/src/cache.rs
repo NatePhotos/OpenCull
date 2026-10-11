@@ -173,9 +173,6 @@ impl Cache {
         freed
     }
 
-    pub fn clear(&self) -> u64 {
-        self.trim(0)
-    }
 }
 
 #[cfg(test)]
