@@ -1,0 +1,31 @@
+# Coverage-guided fuzzing of the readers that parse photo files.
+#
+#   cargo install cargo-fuzz          # once
+#   cd src-tauri && cargo +nightly fuzz run parse
+#
+# Not part of the app or its tests; `raw::robust` covers the same readers in
+# every `npm test`. This searches far longer and more cleverly, for when the
+# readers change.
+[package]
+name = "opencull-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+opencull = { path = ".." }
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+# Its own workspace, so the app's build never sees it.
+[workspace]
+members = ["."]

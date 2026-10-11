@@ -14,6 +14,9 @@ pub mod io;
 pub mod jpeg;
 pub mod tiff;
 
+#[cfg(test)]
+mod robust;
+
 use std::collections::HashSet;
 use std::path::Path;
 

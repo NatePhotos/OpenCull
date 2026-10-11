@@ -1167,3 +1167,86 @@ pub async fn trim_cache(app: AppState<'_>, limit: u64) -> Result<u64, String> {
     let cache = app.previews.cache.clone();
     tauri::async_runtime::spawn_blocking(move || cache.trim(limit)).await.map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::Cache;
+
+    fn files(path: &str, display: &str) -> PhotoFiles {
+        PhotoFiles { path: path.into(), display: display.into() }
+    }
+
+    fn scanned(path: &str, display: &str) -> Scanned {
+        Scanned { path: path.into(), display: display.into(), ..Default::default() }
+    }
+
+    /// An app with its caches in a folder of their own, removed when done.
+    fn app(name: &str) -> (App, PathBuf) {
+        let root = std::env::temp_dir().join(format!("opencull-commands-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        let app = App::new(Previews::new(Cache::new(root.join("previews"))), Times::new(root.join("times")), ai::store::Store::new(root.join("faces")));
+        (app, root)
+    }
+
+    #[test]
+    fn a_raw_travels_with_its_jpeg_and_a_jpeg_alone_travels_alone() {
+        let pair = transfer_job(&files("/shoot/A.ARW", "/shoot/A.JPG"));
+        assert_eq!(pair.owner, PathBuf::from("/shoot/A.ARW"));
+        assert_eq!(pair.companions, vec![PathBuf::from("/shoot/A.JPG")]);
+        assert!(transfer_job(&files("/shoot/B.JPG", "/shoot/B.JPG")).companions.is_empty());
+    }
+
+    #[test]
+    fn only_photos_in_an_open_folder_may_be_changed() {
+        let (app, root) = app("open");
+        let pair = files("/shoot/A.ARW", "/shoot/A.JPG");
+        assert!(in_open_folders(&app, &[files("/shoot/A.ARW", "/shoot/A.JPG")]).is_err());
+
+        app.previews.allowed.open(&[scanned("/shoot/A.ARW", "/shoot/A.JPG")]);
+        assert!(in_open_folders(&app, &[pair]).is_ok());
+        // Its own path may be known while the JPEG given with it is not.
+        assert!(in_open_folders(&app, &[files("/shoot/A.ARW", "/elsewhere/secret.JPG")]).is_err());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_moved_photo_can_still_be_shown_where_it_went() {
+        let (app, root) = app("moved");
+        app.previews.allowed.open(&[scanned("/shoot/A.ARW", "/shoot/A.ARW"), scanned("/shoot/B.ARW", "/shoot/B.ARW")]);
+        let jobs = [transfer_job(&files("/shoot/A.ARW", "/shoot/A.ARW")), transfer_job(&files("/shoot/B.ARW", "/shoot/B.ARW"))];
+        let outcome = transfer::Outcome {
+            placed: vec![PathBuf::from("/keep/A.ARW"), PathBuf::from("/shoot/B.ARW")],
+            moved: vec![PathBuf::from("/shoot/A.ARW")],
+            ..Default::default()
+        };
+        note_moves(&app, &jobs, &outcome);
+        assert!(app.previews.allowed.in_open_folder(Path::new("/keep/A.ARW")));
+        assert!(!app.previews.allowed.in_open_folder(Path::new("/shoot/A.ARW")));
+        assert!(app.previews.allowed.in_open_folder(Path::new("/shoot/B.ARW")), "not moved, so where it was");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// The shapes the interface reads (src/lib/api.ts). A field renamed here
+    /// and not there is a photo whose failure is never shown.
+    #[test]
+    fn replies_have_the_shape_the_interface_reads() {
+        let failure = transfer::Failure { path: "/shoot/A.ARW".into(), name: "A.ARW".into(), reason: "full".into() };
+        let shipped = Shipped { placed: vec![], moved: vec![], skipped: 0, failed: vec![failure.clone()], sidecar_failed: vec![failure] };
+        let json = serde_json::to_value(&shipped).unwrap();
+        assert_eq!(json["sidecarFailed"][0]["name"], "A.ARW");
+        assert_eq!(json["failed"][0]["path"], "/shoot/A.ARW");
+
+        let ingested = Ingested { status: IngestStatus::Cancelled, message: None, warnings: vec!["x".into()] };
+        let json = serde_json::to_value(&ingested).unwrap();
+        assert_eq!(json["status"], "cancelled");
+        assert_eq!(json["warnings"][0], "x");
+
+        let trash = serde_json::to_value(TrashFailure { path: "/a".into(), reason: "no trash here".into() }).unwrap();
+        assert_eq!(trash["reason"], "no trash here");
+
+        let failed = serde_json::to_value(Analysed { index: 3, record: ai::store::Record::failed() }).unwrap();
+        assert_eq!(failed["index"], 3);
+        assert_eq!(failed["failed"], true);
+    }
+}

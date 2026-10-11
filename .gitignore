@@ -53,3 +53,6 @@ src-tauri/gen/schemas
 *.jpeg
 *.JPEG
 *.xmp
+
+# Labelled photos for src-tauri/examples/evaluate.rs. Never committed.
+private-eval/
