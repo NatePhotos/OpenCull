@@ -47,7 +47,8 @@ pub fn run<T>(
         let results = session.run(given).map_err(|e| format!("a model failed to run: {e}"))?;
         let mut taken = Vec::with_capacity(outputs.len());
         for name in outputs {
-            let (shape, data) = results[*name].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
+            let output = results.get(*name).ok_or_else(|| format!("the model gave no output called {name}"))?;
+            let (shape, data) = output.try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
             taken.push((shape.iter().map(|d| *d as usize).collect::<Vec<usize>>(), data));
         }
         Ok(read(&taken))

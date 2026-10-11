@@ -26,7 +26,10 @@ pub struct Queue {
 impl Queue {
     /// `todo` is the photos to analyse, by their number in the folder, in
     /// the order to work through them when nothing else is asked for.
+    /// A photo given more than once is analysed once, where it first appears.
     pub fn new(todo: Vec<usize>) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        let todo: Vec<usize> = todo.into_iter().filter(|i| seen.insert(*i)).collect();
         let place = todo.iter().enumerate().map(|(at, &index)| (index, at)).collect();
         let taken = todo.iter().map(|_| AtomicBool::new(false)).collect();
         Self { todo, place, taken, next: AtomicUsize::new(0) }
@@ -111,6 +114,16 @@ mod tests {
         let mut all: Vec<usize> = got.into_iter().flatten().collect();
         all.sort_unstable();
         assert_eq!(all, (0..2000).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_photo_given_twice_is_analysed_once() {
+        let q = Queue::new(vec![3, 1, 3, 2, 1]);
+        let mut given = Vec::new();
+        while let Some(i) = q.take(&[]) {
+            given.push(i);
+        }
+        assert_eq!(given, [3, 1, 2]);
     }
 
     #[test]

@@ -75,9 +75,11 @@ opt-level = 1
 opt-level = 3
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+# Panics unwind rather than abort. The preview pool catches a decoder that
+# panics on a damaged file (pool.rs), and that only works if the panic
+# unwinds: under "abort", one bad photo would close the whole app.
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
 strip = true

@@ -23,15 +23,30 @@ pub struct Frame {
     pub components: u8,
 }
 
+/// The most pixels a picture may have and still be decoded. A header can
+/// claim up to 65535 × 65535 — thirteen gigabytes once decoded — and a
+/// claim like that from a damaged file must fail that one file, not take the
+/// app down by running it out of memory.
+///
+/// 250 million is well above any camera made: the largest, at 151 million,
+/// fits with room. Only a stitched panorama would pass it, and that fails
+/// to preview rather than crashing.
+pub const MAX_PIXELS: u64 = 250_000_000;
+
 impl Frame {
     /// Something a screen can show: an ordinary 8-bit baseline or progressive
-    /// picture, in grey or colour.
+    /// picture, in grey or colour, of a size that can be decoded.
     pub fn is_picture(&self) -> bool {
         !self.lossless
             && self.precision == 8
             && self.width > 0
             && self.height > 0
             && matches!(self.components, 1 | 3)
+            && self.pixels() <= MAX_PIXELS
+    }
+
+    pub fn pixels(&self) -> u64 {
+        self.width as u64 * self.height as u64
     }
 }
 
@@ -46,6 +61,11 @@ struct Segment {
 /// step. A header with more than this many is not a header.
 const MAX_SEGMENTS: usize = 256;
 
+/// Fill bytes allowed between segments. The standard sets no limit, but a
+/// real file has a handful; a run of thousands is damage, and each one costs
+/// a read.
+const MAX_FILL: usize = 1024;
+
 /// Every header segment of the JPEG starting at `start`, up to and including
 /// the start of the image data. `end` bounds the walk.
 fn segments(src: &dyn ReadAt, start: u64, end: u64) -> Vec<Segment> {
@@ -56,6 +76,7 @@ fn segments(src: &dyn ReadAt, start: u64, end: u64) -> Vec<Segment> {
     }
 
     let mut pos = start + 2;
+    let mut fill = 0usize;
     while pos + 4 <= end && found.len() < MAX_SEGMENTS {
         let Some(head) = src.read_at(pos, 4) else { break };
         if head[0] != 0xFF {
@@ -65,6 +86,10 @@ fn segments(src: &dyn ReadAt, start: u64, end: u64) -> Vec<Segment> {
         match marker {
             // Padding between segments.
             0xFF => {
+                fill += 1;
+                if fill > MAX_FILL {
+                    break;
+                }
                 pos += 1;
                 continue;
             }
@@ -353,6 +378,23 @@ mod tests {
     use super::testing::*;
     use super::*;
     use crate::raw::tiff::testing as tiff;
+
+    #[test]
+    fn a_header_claiming_more_pixels_than_can_be_decoded_is_not_a_picture() {
+        let huge = jpeg(0xC0, 8, 65535, 65535, &[]);
+        let f = frame(&huge.as_slice(), 0, huge.len() as u64).unwrap();
+        assert!(!f.is_picture());
+        let large = jpeg(0xC0, 8, 14204, 10652, &[]); // 151 MP, the largest camera
+        assert!(frame(&large.as_slice(), 0, large.len() as u64).unwrap().is_picture());
+    }
+
+    #[test]
+    fn a_long_run_of_fill_bytes_ends_the_walk() {
+        let mut bytes = vec![0xFF, 0xD8];
+        bytes.extend(std::iter::repeat_n(0xFF, 10_000));
+        bytes.extend_from_slice(&jpeg(0xC0, 8, 6000, 4000, &[])[2..]);
+        assert!(frame(&bytes.as_slice(), 0, bytes.len() as u64).is_none());
+    }
 
     #[test]
     fn reads_dimensions_from_a_baseline_frame() {

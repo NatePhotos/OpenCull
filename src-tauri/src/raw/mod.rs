@@ -584,6 +584,17 @@ const SCAN_WINDOW: u64 = 24 * 1024 * 1024;
 /// thumbnail, and a blurry one.
 const SCAN_MIN_BYTES: u64 = 200_000;
 
+/// Nothing larger than this is taken for a preview. A camera's largest is a
+/// few tens of megabytes; past this, it is not a preview, or not whole.
+const SCAN_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// How much is read at a time while looking for where a preview ends.
+const SCAN_CHUNK: usize = 1024 * 1024;
+
+/// How many start markers are followed up in one file. Each costs reads, and
+/// sensor data can throw up any number that pass the first look.
+const SCAN_MAX_CANDIDATES: usize = 64;
+
 /// Searches the front of a file for anything that opens as a JPEG.
 ///
 /// Compressed sensor data throws up byte pairs that look like a start marker
@@ -595,6 +606,7 @@ fn scan_for_jpegs(src: &dyn ReadAt) -> Vec<Embedded> {
 
     let mut found: Vec<Embedded> = Vec::new();
     let mut from = 0usize;
+    let mut followed = 0usize;
     while let Some(hit) = memchr::memmem::find(&data[from..], &[0xFF, 0xD8, 0xFF]) {
         let start = from + hit;
         from = start + 3;
@@ -603,16 +615,11 @@ fn scan_for_jpegs(src: &dyn ReadAt) -> Vec<Embedded> {
         if !frame.is_picture() || frame.width.max(frame.height) < 1000 {
             continue;
         }
-        // An end marker cannot occur inside compressed image data, so the
-        // first one after the headers is the end. Searched for in the rest of
-        // the file, not just the window: a preview may begin inside it and
-        // run past it.
-        let Some(rest) = src.read_at(start as u64, (src.size() - start as u64) as usize) else {
-            continue;
-        };
-        let body_from = jpeg_header_len(&rest);
-        let Some(end) = memchr::memmem::find(&rest[body_from..], &[0xFF, 0xD9]) else { continue };
-        let len = (body_from + end + 2) as u64;
+        followed += 1;
+        if followed > SCAN_MAX_CANDIDATES {
+            break;
+        }
+        let Some(len) = jpeg_len(src, start as u64) else { continue };
         if len < SCAN_MIN_BYTES {
             continue;
         }
@@ -625,6 +632,32 @@ fn scan_for_jpegs(src: &dyn ReadAt) -> Vec<Embedded> {
     }
     found.sort_by_key(|e| (e.width as u64 * e.height as u64, e.len));
     found
+}
+
+/// How long the JPEG starting at `start` is, end marker included.
+///
+/// An end marker cannot occur inside compressed image data, so the first one
+/// after the headers is the end. Looked for past the scan window as well: a
+/// preview may begin inside it and run past it. Read a piece at a time and
+/// never past `SCAN_MAX_BYTES`, so a huge file costs one piece of memory, not
+/// the rest of the file.
+fn jpeg_len(src: &dyn ReadAt, start: u64) -> Option<u64> {
+    let limit = src.size().checked_sub(start)?.min(SCAN_MAX_BYTES);
+    let head = src.read_at(start, (limit as usize).min(SCAN_CHUNK))?;
+    let mut pos = jpeg_header_len(&head) as u64;
+    while pos < limit {
+        let n = (limit - pos).min(SCAN_CHUNK as u64) as usize;
+        if n < 2 {
+            break;
+        }
+        let chunk = src.read_at(start + pos, n)?;
+        if let Some(at) = memchr::memmem::find(&chunk, &[0xFF, 0xD9]) {
+            return Some(pos + at as u64 + 2);
+        }
+        // One byte back, so a marker split across two pieces is still found.
+        pos += n as u64 - 1;
+    }
+    None
 }
 
 /// How many bytes of headers precede a JPEG's compressed data. The search for
@@ -662,6 +695,25 @@ mod tests {
     use super::jpeg::testing::{exif_segment, jpeg as fake_jpeg};
     use super::tiff::testing::*;
     use super::*;
+
+    #[test]
+    fn the_end_of_a_jpeg_is_found_across_the_pieces_it_is_read_in() {
+        // The end marker straddles the boundary between the first two pieces.
+        let mut bytes = fake_jpeg(0xC0, 8, 6000, 4000, &[]);
+        bytes.truncate(bytes.len() - 2);
+        bytes.resize(SCAN_CHUNK - 1, 0x11);
+        bytes.extend_from_slice(&[0xFF, 0xD9, 0, 0]);
+        assert_eq!(jpeg_len(&bytes.as_slice(), 0), Some(SCAN_CHUNK as u64 + 1));
+    }
+
+    #[test]
+    fn a_jpeg_with_no_end_is_given_up_on_without_reading_the_whole_file() {
+        let mut bytes = fake_jpeg(0xC0, 8, 6000, 4000, &[]);
+        bytes.truncate(bytes.len() - 2);
+        bytes.resize(SCAN_MAX_BYTES as usize + 4 * SCAN_CHUNK, 0x11);
+        bytes.extend_from_slice(&[0xFF, 0xD9]);
+        assert_eq!(jpeg_len(&bytes.as_slice(), 0), None, "an end past the limit is no end");
+    }
 
     /// A TIFF with the given directories, followed by `blobs` appended whole.
     /// Returns the file and the offset each blob landed at.

@@ -131,7 +131,8 @@ impl<'a> Tiff<'a> {
             let data = if size * count as u64 <= 4 {
                 inline
             } else {
-                self.base + self.u32_of(&e[8..12]) as u64
+                let Some(elsewhere) = self.base.checked_add(self.u32_of(&e[8..12]) as u64) else { continue };
+                elsewhere
             };
             entries.push(Entry { tag: self.u16_of(&e[0..2]), kind, count, data });
         }

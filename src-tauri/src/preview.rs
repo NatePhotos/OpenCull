@@ -225,6 +225,13 @@ pub const CODEC: &str = if cfg!(any(feature = "turbo", feature = "turbo-system")
 /// Decodes a JPEG at a reduced size that still gives `target` pixels along
 /// the long edge.
 fn decode_jpeg(bytes: &[u8], target: u32) -> Result<Pixels, String> {
+    // A header claiming more pixels than can be decoded fails here, before
+    // either decoder sets aside memory for them.
+    if let Some(frame) = crate::raw::jpeg::frame(&bytes, 0, bytes.len() as u64) {
+        if frame.pixels() > crate::raw::jpeg::MAX_PIXELS {
+            return Err(format!("{} × {} is larger than any photo this app decodes", frame.width, frame.height));
+        }
+    }
     // libjpeg-turbo, when the build has it. Anything it will not decode —
     // CMYK, most likely, which no camera writes — is handed to the portable
     // decoder rather than refused.
@@ -238,6 +245,9 @@ fn decode_jpeg(bytes: &[u8], target: u32) -> Result<Pixels, String> {
 /// The pure-Rust decoder: builds anywhere, and about a third the speed.
 fn decode_portable(bytes: &[u8], target: u32) -> Result<Pixels, String> {
     let mut decoder = jpeg_decoder::Decoder::new(bytes);
+    // A second guard, in the decoder itself: four bytes a pixel covers its
+    // working buffers for the largest picture allowed.
+    decoder.set_max_decoding_buffer_size(crate::raw::jpeg::MAX_PIXELS as usize * 4);
     decoder.read_info().map_err(|e| e.to_string())?;
     let info = decoder.info().ok_or("JPEG has no header")?;
 

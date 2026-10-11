@@ -45,8 +45,26 @@ fn planes(rgb: &[u8], into: &mut Vec<f32>) {
     }
 }
 
+/// How many faces go through the model at once. A crowd can put hundreds
+/// of faces in one photo, and every one costs about 800 KB of input before
+/// the model's own working memory — taken all at once, across several
+/// workers, that is gigabytes. Results are the same either way: each face is
+/// judged on its own.
+const BATCH: usize = 32;
+
 /// Judges every face in an upright picture, in the order given.
 pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<Vec<Verdict>, String> {
+    if rgb.len() < width as usize * height as usize * 3 {
+        return Err("the picture is smaller than its stated size".into());
+    }
+    let mut verdicts = Vec::with_capacity(boxes.len());
+    for batch in boxes.chunks(BATCH) {
+        verdicts.extend(judge_batch(rgb, width, height, batch)?);
+    }
+    Ok(verdicts)
+}
+
+fn judge_batch(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<Vec<Verdict>, String> {
     if boxes.is_empty() {
         return Ok(Vec::new());
     }
@@ -63,9 +81,16 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
         planes(&eyes, &mut eyes_in);
     }
 
+    // How many numbers each output gives per face.
+    const WIDTHS: [usize; 8] = [3, 4, 5, 1, 1, 1, 1, 1];
     let inputs = vec![("face", vec![n, 3, side, side], face_in), ("eyes", vec![n, 3, strip_h, strip_w], eyes_in)];
     onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw"], |out| {
-        (0..n)
+        // A model swapped for one that answers in another shape fails the
+        // photo, rather than reading past the end of what it gave.
+        if out.len() != WIDTHS.len() || out.iter().zip(WIDTHS).any(|((_, data), len)| data.len() < n * len) {
+            return Err("the face model answered in an unexpected shape".to_string());
+        }
+        Ok((0..n)
             .map(|i| {
                 let take = |which: usize, len: usize| &out[which].1[i * len..(i + 1) * len];
                 let mut v = Verdict::default();
@@ -79,8 +104,8 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
                 v.head_yaw = take(7, 1)[0];
                 v
             })
-            .collect()
-    })
+            .collect())
+    })?
 }
 
 #[cfg(test)]
@@ -100,6 +125,22 @@ mod tests {
             assert!((v.gaze.iter().sum::<f32>() - 1.0).abs() < 1e-3);
             assert!((0.0..=0.41).contains(&v.ear) && (0.0..=1.0).contains(&v.quality) && (0.0..=1.0).contains(&v.away));
         }
+    }
+
+    #[test]
+    fn a_crowd_is_judged_in_batches_with_the_same_answers() {
+        let (w, h) = (640u32, 480u32);
+        let rgb: Vec<u8> = (0..w * h * 3).map(|i| ((i * 13) % 251) as u8).collect();
+        let crowd: Vec<FaceBox> = (0..BATCH + 5).map(|i| FaceBox { mid_x: 0.1 + 0.02 * i as f64, mid_y: 0.5, w: 0.05, h: 0.08 }).collect();
+        let all = judge(&rgb, w, h, &crowd).unwrap();
+        assert_eq!(all.len(), crowd.len());
+        let last = judge(&rgb, w, h, &crowd[BATCH + 4..]).unwrap()[0];
+        assert!((all[BATCH + 4].quality - last.quality).abs() < 1e-4, "the face in the second batch is judged as it is alone");
+    }
+
+    #[test]
+    fn a_picture_shorter_than_its_size_is_refused_not_read_past() {
+        assert!(judge(&[0; 12], 640, 480, &[FaceBox { mid_x: 0.5, mid_y: 0.5, w: 0.2, h: 0.2 }]).is_err());
     }
 
     #[test]
