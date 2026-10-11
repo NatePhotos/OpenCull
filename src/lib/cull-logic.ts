@@ -159,11 +159,7 @@ export function sorted(photos: Photo[], key: SortKey, ascending: boolean): numbe
   });
 }
 
-/**
- * Every photo's worst problem, by its number in the folder. Worked out once
- * each time analysis or comparison moves on, not by every thumbnail on screen
- * on every change to anything.
- */
+/** Every photo's worst problem, by index. Recomputed only when analysis or comparison changes. */
 let problemsMemo: { ai: (AiResult | undefined)[]; compared: (Compared | undefined)[]; problems: (Problem | null)[] } | null = null;
 export function problemsOf(s: { ai: (AiResult | undefined)[]; compared: (Compared | undefined)[] }): (Problem | null)[] {
   if (problemsMemo && problemsMemo.ai === s.ai && problemsMemo.compared === s.compared) return problemsMemo.problems;

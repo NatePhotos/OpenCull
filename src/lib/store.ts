@@ -7,7 +7,7 @@ import { load, remove, save } from "./prefs";
 import { filtered, groupOf, marksOf, rankRun, runsOf, sorted, uprightOf } from "./cull-logic";
 import { baseName } from "./format";
 
-// What views take from the culling rules, from where they always have.
+// Re-exported for the views that import them from the store.
 export { BLINK, groupOf, groupsOf, hasFilter as hasActiveFilter, PROBLEM_LABEL, problemOf, problemsOf, type Problem } from "./cull-logic";
 import { FILE_KINDS, SORT_KEYS, type AiFace, type AiResult, type Color, type Compared, type FileKinds, type Flag, type FlagFilter, type Marks, type MetaEvent, type Photo, type Rank, type SortKey, type ViewMode } from "./types";
 
@@ -187,10 +187,8 @@ interface Actions {
   clearFilters(): void;
   setSort(key: SortKey, ascending: boolean): void;
   /**
-   * Puts the folder back in sorted order. Marking a photo does not move it,
-   * even when sorting by rating — a photo jumping away the moment it is rated
-   * loses the photographer's place — so the order is brought up to date only
-   * when asked.
+   * Re-applies the sort. Marking a photo never moves it, so sorting by rating
+   * does not jump the photographer's place; the order updates only on request.
    */
   resort(): void;
 
@@ -386,8 +384,7 @@ export const useStore = create<Store>((set, get) => {
   // before any photo is analysed.
   let runs: { session: number; list: number[][]; of: Map<number, number> } | null = null;
 
-  // Counts folder openings and closings, so a listing that arrives after
-  // another opening or a close is known to be stale.
+  // Bumped on every open and close, so a stale folder listing can be told apart.
   let openings = 0;
 
   /**
@@ -480,8 +477,7 @@ export const useStore = create<Store>((set, get) => {
     stripResizing: false,
     includeSubfolders: load("includeSubfolders", false),
     fileKinds: load<FileKinds>("fileKinds", "both", FILE_KINDS),
-    // Off unless asked for: rating a photo should not rewrite the original
-    // file unless the photographer chose that.
+    // Off by default: rating should not rewrite original files unless asked.
     embedInJpeg: load("embedInJpeg", false),
     speedCull: false,
     speedCullAlways: load("speedCullAlways", false),
@@ -536,9 +532,8 @@ export const useStore = create<Store>((set, get) => {
     async openFolder(path) {
       const before = get();
       if (before.session) get().closeFolder();
-      // Which opening this is. The same folder opened twice before the first
-      // reply arrives must not keep both: the first backend session would be
-      // left open, still reading the folder, with nothing to close it.
+      // Opening the same folder twice quickly must not leave the first
+      // backend session open.
       const mine = ++openings;
 
       const { includeSubfolders, fileKinds } = get();
@@ -567,8 +562,7 @@ export const useStore = create<Store>((set, get) => {
         set({ session: null, loading: false, openError: String(e) });
         return;
       }
-      // Closed, or another folder (or this one again) opened, while this
-      // one was being listed.
+      // Closed or superseded while this one was being listed.
       if (mine !== openings || get().session?.folder !== path) {
         void api.closeFolder(reply.session).catch(logged("closing a folder"));
         return;
@@ -875,8 +869,7 @@ export const useStore = create<Store>((set, get) => {
         set({ notice: { title: "Nothing was moved to the Trash", body: String(e) } });
         return;
       }
-      // The folder may have been closed, or another opened, while this ran.
-      // Its photos are no longer the ones `pending` points at.
+      // The folder may have changed while this ran; `pending` would be stale.
       if (get().session?.id !== session) return;
       const failed = new Set(failures.map((f) => f.path));
       drop(new Set(pending.filter((i) => !failed.has(s.photos[i].path))));
@@ -929,8 +922,7 @@ export const useStore = create<Store>((set, get) => {
 
     removeRecents: (paths) => set((s) => ({ recents: s.recents.filter((r) => !paths.includes(r)) })),
     relocateRecent: (from, to) => {
-      // The place it was left goes with it; the old key is cleared when it
-      // leaves the recents, below.
+      // Carry the resume position across; the old key is cleared below.
       const left = load<string | null>(positionKey(from), null);
       if (left) save(positionKey(to), left.startsWith(from) ? to + left.slice(from.length) : left);
       set((s) => ({ recents: s.recents.map((r) => (r === from ? to : r)).filter((r, i, all) => all.indexOf(r) === i) }));

@@ -202,8 +202,7 @@ const previewBase = /Windows|Android/.test(navigator.userAgent) ? "http://opencu
 
 /**
  * Listens for an event from the app shell until the returned function is
- * called. Safe to stop before listening has started: `listen` resolves
- * later, and is undone as soon as it does.
+ * called. Safe to call that before `listen` has resolved.
  */
 function listenFor<T>(event: string, handler: (payload: T) => void): () => void {
   let stop: (() => void) | undefined;
@@ -307,11 +306,7 @@ if (!inTauri) {
 
 export const api = backend;
 
-/**
- * A rejection handler that writes what failed to the app's log. For calls
- * that go on in the background, where nothing on screen depends on them but
- * a failure should still be findable rather than vanish.
- */
+/** A rejection handler that writes the failure to the app's log, for background calls nothing on screen waits on. */
 export const logged =
   (what: string) =>
   (e: unknown): void =>

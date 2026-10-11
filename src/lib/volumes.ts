@@ -5,19 +5,16 @@ import { api, type Volume } from "./api";
 const LOOK_EVERY_MS = 2500;
 
 /**
- * The cards and drives attached, kept up to date while `active`. `null`
- * until the first look has come back.
- *
- * One look is shared by the home screen, which offers a card as it is
- * plugged in, and the ingest view, which lists them.
+ * The cards and drives attached, polled while `active`; `null` until the
+ * first answer. Used by the home screen and the ingest view.
  */
 export function useVolumes(active: boolean): Volume[] | null {
   const [volumes, setVolumes] = useState<Volume[] | null>(null);
   useEffect(() => {
     if (!active) return;
     let stale = false;
-    // A look that fails is not reported: it is tried again in a moment, and
-    // a drive that does not answer would otherwise fill the log.
+    // Failures are not logged: the next poll retries, and an unresponsive
+    // drive would otherwise fill the log.
     const look = () => void api.ingestVolumes().then((found) => !stale && setVolumes(found), () => {});
     look();
     const timer = setInterval(look, LOOK_EVERY_MS);

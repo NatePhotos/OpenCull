@@ -1,5 +1,4 @@
-// The few parts of a browser window the store reaches for as it loads. The
-// logic under test needs none of them to work; they only have to be there.
+// Minimal browser globals the store touches when it loads.
 
 const g = globalThis as unknown as Record<string, unknown>;
 

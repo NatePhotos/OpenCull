@@ -237,9 +237,8 @@ export function installShortcuts(bindings: () => Record<Action, Combo>, recordin
 
     if (e.type !== "keydown" || recording()) return;
     const s = useStore.getState();
-    // A dialog is open, or someone is typing: keys belong to that. Asked of
-    // the page as well as the store, so a dialog added later is covered
-    // without anyone remembering to list it here.
+    // A dialog is open, or someone is typing: keys belong to that. The DOM
+    // check covers dialogs not listed in the store.
     if (s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending) return;
     if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
 

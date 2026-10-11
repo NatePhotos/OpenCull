@@ -13,8 +13,6 @@ import { cn } from "@/lib/utils";
 
 /** Asks before photos go to the trash. */
 
-// Settings: a dialog of its own, being most of what the Dialogs file held.
-
 export function SettingsDialog() {
   const open = useStore((s) => s.settingsOpen);
   // Kept here, outside the body, so Settings opens where it was left.
@@ -54,8 +52,8 @@ const SETTINGS_TABS: [SettingsTab, string, LucideIcon][] = [
 ];
 
 function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
-  // Only what Settings shows. The whole store changes many times a second
-  // while a folder is analysed, and none of that is any concern of this.
+  // Only what Settings shows: the store changes many times a second during
+  // analysis.
   const s = useStore(
     useShallow((st) => ({
       aiEnabled: st.aiEnabled,
@@ -183,7 +181,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
           <Setting
             title="Write ratings into JPEGs"
-            detail="Stores a JPEG's stars and colour label inside the file itself as well as beside it, which is where Lightroom, Bridge and others look. Only the file's information is changed, never the picture, and the file's modified date updates so backups pick it up. Off by default: JPEG files are left exactly as they are."
+            detail="Also stores a JPEG's stars and colour label inside the file, where Lightroom, Bridge and others look for them. Only the metadata changes, never the picture, and the file's modified date updates so backups notice. Off by default."
             control={toggle("embedInJpeg")}
           />
           <Setting

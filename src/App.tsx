@@ -82,9 +82,8 @@ export default function App() {
     });
   }, []);
 
-  // A rating that could not be saved at all: its sidecar could not be
-  // written. Said once for each folder, for the same reason as above, but
-  // never left unsaid — the photographer believes it is saved.
+  // A rating whose sidecar could not be written is not saved anywhere. Said
+  // once per folder, like the JPEG warning above.
   useEffect(() => {
     let told: number | null = null;
     return api.onMarksNotSaved((path, why) => {
@@ -94,19 +93,19 @@ export default function App() {
       told = folder;
       s.set("notice", {
         title: "A rating could not be saved",
-        body: `${baseName(path)}: ${why}.\n\nThe mark shows here, but it is not saved beside the photo, so it will be gone when the folder is opened again and no other program will see it. Check that the folder can be written to — a card's lock switch, a full disk, a network drive that has gone. This is only said once for each folder.`,
+        body: `${baseName(path)}: ${why}.\n\nThe mark shows here but was not saved, so it will be gone when the folder is next opened. Check that the folder can be written to: a card's lock switch, a full disk, a disconnected network drive. Shown once per folder.`,
       });
     });
   }, []);
 
-  // Quitting is refused while photos are being copied off a card, moved or
-  // shipped. Say why, or it looks as though the app has stopped listening.
+  // Quitting is refused while photos are being copied, moved or shipped.
+  // Say why, or the app looks unresponsive.
   useEffect(
     () =>
       api.onQuitRefused(() =>
         useStore.getState().set("notice", {
           title: "Photos are still being copied",
-          body: "Quitting now would leave some photos copied and others not. Wait for the copy, move or ship to finish — or, for a card, press Cancel Copy first: the photo in hand is finished either way.",
+          body: "Quitting now would leave the job half done. Wait for it to finish, or for a card copy press Cancel Copy first; the photo in progress is always completed.",
         }),
       ),
     [],

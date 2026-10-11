@@ -87,8 +87,8 @@ export function useWarmAhead(): void {
   useEffect(() => {
     if (!preparing) return;
     const timer = setInterval(() => {
-      // A count that fails to come back is asked for again in a second; not
-      // reported, or a stalled backend would fill the log once a second.
+      // Polled every second; failures are not logged for the same reason as
+      // in volumes.ts.
       void api.warmRemaining().then(
         (n) => useStore.getState().set("warmRemaining", n),
         () => {},

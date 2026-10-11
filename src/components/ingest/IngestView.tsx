@@ -286,7 +286,7 @@ export function IngestView() {
   };
 
   const canIngest = selected.size > 0 && destination !== null && !busy;
-  /** Set when the photographer cancels. A copy that then finishes anyway must not carry on as if they had not. */
+  /** Set on cancel, so a copy that finishes anyway does not open its destination. */
   const cancelled = useRef(false);
 
   const requestIngest = async () => {
@@ -311,8 +311,7 @@ export function IngestView() {
     } catch (e) {
       result = { status: "failed" as const, message: String(e), warnings: [] };
     }
-    // Cancelled, and perhaps already closed: whatever came of it, the
-    // photographer asked for it to stop, so nothing more is opened.
+    // Cancelled: whatever the copy returned, nothing more is opened.
     if (cancelled.current) return;
     stopProgress();
     if (result.status === "failed") return setPhase({ is: "failed", message: result.message ?? "Something went wrong while copying." });
@@ -326,7 +325,7 @@ export function IngestView() {
         const more = result.warnings.length > 5 ? `\n…and ${result.warnings.length - 5} more.` : "";
         useStore.getState().set("notice", {
           title: "Some ratings did not come across",
-          body: `Every photo was copied, but for these the stars, flags or labels were not:\n${shown}${more}`,
+          body: `Every photo was copied, but these lost their stars, flags or labels:\n${shown}${more}`,
         });
       }
     }

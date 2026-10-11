@@ -116,9 +116,8 @@ function failureSummary(result: Shipped, total: number, opening: string | null):
 /** Sends photos on: opens them in an editing program, copies or moves them, or both. */
 export function ShipDialog() {
   const open = useStore((s) => s.shipOpen);
-  // While files are going across, Ship cannot be closed — not by Escape, a
-  // click outside or its close button. Closing it would lose the report of
-  // any that failed, and a ship that lost files must never look like it worked.
+  // Ship cannot be closed while files are going across: closing would lose
+  // the report of any that failed.
   const [busy, setBusy] = useState(false);
   return (
     <Dialog

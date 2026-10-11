@@ -1,29 +1,20 @@
 // Small settings that outlive the app, kept in the web view's own storage.
 //
-// Settings the whole app shares live in the store, which saves them as they
-// change (PERSISTED in store.ts). Settings that belong to one view use
-// usePersistentState below. Two others save themselves, for reasons of
-// their own:
-//
-// - the loupe's zoom level (useZoom.ts), which lives outside React so every
-//   photo and view shares it, and which a self-test must not save;
-// - keyboard shortcuts (shortcuts.ts), saved whole when changed in Settings
-//   and merged over the defaults when read, so a new action gets its key.
-//
-// Nothing else saves settings.
+// App-wide settings live in the store, which saves them as they change
+// (PERSISTED in store.ts). Settings that belong to one view use
+// usePersistentState below. The only exceptions are the loupe's zoom level
+// (useZoom.ts), which a self-test must not save, and keyboard shortcuts
+// (shortcuts.ts), which are merged over the defaults when read.
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 
 const PREFIX = "opencull.";
 
 /**
- * A saved setting, or `fallback` when there is none or what is saved is not
- * something the setting can be. Storage outlives versions of the app and can
- * be edited by hand, so a value is never trusted just for being there: one
- * the backend then refuses would stop a folder opening.
- *
- * `allowed` lists the values a setting may take, for one that is one of a few.
- * Without it, a value must at least be the same kind as `fallback`.
+ * A saved setting, or `fallback` when there is none or it is not a valid
+ * value: storage outlives app versions and can be edited by hand. `allowed`
+ * lists the valid values for an enum setting; otherwise a value must be the
+ * same kind as `fallback`.
  */
 export function load<T>(key: string, fallback: T, allowed?: readonly T[]): T {
   try {

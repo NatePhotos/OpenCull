@@ -23,7 +23,7 @@ function timeLeftText(seconds: number): string {
 const RATE_MEMORY = 3;
 const RATE_SAMPLE = 0.4;
 
-/** The progress of the copy running, if one is, kept and told as it reports. */
+/** Tracks the running copy's progress from its reports. */
 export function useCopyProgress() {
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [fraction, setFraction] = useState(0);
@@ -62,7 +62,7 @@ export function useCopyProgress() {
     setSecondsLeft(smoothed > 0 ? Math.max(0, p.bytesTotal - p.bytesSettled) / smoothed : null);
   };
 
-  /** The copy is over, or no longer shown. */
+  /** The copy has ended or is no longer shown. */
   const stop = () => setProgress(null);
 
   const status = (() => {
