@@ -61,6 +61,8 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
+[![OpenCull, with a photo open: the camera's settings on the left, the photo in the middle, each face cut out large on the right, and the filmstrip below][product-screenshot]](docs/images/screenshot.jpg)
+
 Culling is the first job after a shoot: going through every frame and
 deciding what to keep. OpenCull is built to make that fast.
 
@@ -254,6 +256,7 @@ Project Link: [https://github.com/NatePhotos/OpenCull](https://github.com/NatePh
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- MARKDOWN LINKS & IMAGES -->
+[product-screenshot]: docs/images/screenshot.jpg
 [release-shield]: https://img.shields.io/github/v/release/NatePhotos/OpenCull?include_prereleases&style=for-the-badge
 [release-url]: https://github.com/NatePhotos/OpenCull/releases
 [build-shield]: https://img.shields.io/github/actions/workflow/status/NatePhotos/OpenCull/build.yml?branch=main&style=for-the-badge
