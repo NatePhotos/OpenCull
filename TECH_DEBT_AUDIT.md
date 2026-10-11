@@ -262,3 +262,22 @@ The open questions were put to the maintainer. Their answers, and what each one 
 | ID | Category | File:Line | Sev | Effort | Description | Recommendation |
 |----|----------|-----------|-----|--------|-------------|----------------|
 | F074 | Data safety | src/lib/store.ts:570 | Medium | S | `embedInJpeg: load("embedInJpeg", true)`: rating a photo rewrites the user's original JPEG files by default. The maintainer wants this off. | Change the default to `false`. Users who already saved a preference keep it. With the default off, F021 and F022 affect only users who opt in. |
+
+## Status on branch `tech-debt-fixes` (2026-10-11)
+
+**Resolved:** every finding F001–F074 except those listed below. Each commit message names the findings it fixes.
+
+**Partly done:**
+- **F029:** AI workers are capped at 4, but not sized by available memory.
+- **F042:** transfer and ingest use the same group-naming rule, but still as two implementations.
+- **F045:** the loupe's remembered zoom level and the app's shortcut bindings still save prefs their own way.
+- **F047:** commands still return `Result<_, String>`.
+- **F057:** the model hashes are published; the export script and a training-data statement need the maintainer.
+- **F069:** components still call `useStore.setState` directly in a few places.
+
+**Needs the maintainer:**
+- **X1:** HOW-IT-WORKS says 12 wrong "looking away" calls; ai/mod.rs says 13.
+- **Q10:** whether AI results match on Windows and Linux.
+- **F055:** the labelled sets and training code.
+
+**Not verified:** the loupe, ingest and settings refactors type-check, build and pass the tests, but have not been tried in the running app.
