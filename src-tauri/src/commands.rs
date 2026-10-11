@@ -292,6 +292,7 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
     let groups = timed.then(|| burst::group(&times));
 
     let session = app.next_session.fetch_add(1, Ordering::SeqCst);
+    app.previews.allowed.open(&result.images);
     app.sessions.lock().unwrap().insert(
         session,
         Arc::new(Session { folder, images: result.images.clone(), timed, closed: AtomicBool::new(false) }),
@@ -303,6 +304,7 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
 pub fn close_folder(app: AppState, session: u64) {
     if let Some(s) = app.sessions.lock().unwrap().remove(&session) {
         s.closed.store(true, Ordering::SeqCst);
+        app.previews.allowed.close(&s.images);
     }
     // Thumbnails queued for a folder nobody is looking at would only hold up
     // the next one's.
@@ -495,8 +497,17 @@ pub struct MarkChange {
 /// behind it.
 #[tauri::command]
 pub fn set_marks(app: AppState, changes: Vec<MarkChange>) {
+    // Marks are written beside, and into, photos in open folders only: a
+    // JPEG is only ever rewritten because it is one the app listed.
+    let allowed = &app.previews.allowed;
     for change in changes {
-        app.writer.enqueue_with(PathBuf::from(change.path), change.marks, change.into.into_iter().map(PathBuf::from).collect());
+        let photo = PathBuf::from(change.path);
+        if !allowed.in_open_folder(&photo) {
+            eprintln!("marks for {} refused: not a photo in an open folder", photo.display());
+            continue;
+        }
+        let into = change.into.into_iter().map(PathBuf::from).filter(|jpeg| allowed.in_open_folder(jpeg)).collect();
+        app.writer.enqueue_with(photo, change.marks, into);
     }
 }
 
@@ -529,6 +540,7 @@ pub struct TrashFailure {
 /// Returns the photos that could not be moved, each with why.
 #[tauri::command]
 pub async fn move_to_trash(app: AppState<'_>, items: Vec<PhotoFiles>) -> Result<Vec<TrashFailure>, String> {
+    in_open_folders(&app, &items)?;
     let writer = app.writer.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // A sidecar still queued would be written straight back after its
@@ -550,6 +562,27 @@ pub async fn move_to_trash(app: AppState<'_>, items: Vec<PhotoFiles>) -> Result<
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Refuses unless every one of `items` is a photo in a folder that is open.
+/// Commands that change files act only on photos the app itself listed,
+/// never on any path the view happens to name.
+fn in_open_folders(app: &App, items: &[PhotoFiles]) -> Result<(), String> {
+    let allowed = &app.previews.allowed;
+    match items.iter().find(|i| !allowed.in_open_folder(Path::new(&i.path)) || !allowed.in_open_folder(Path::new(&i.display))) {
+        Some(stranger) => Err(format!("{} is not a photo in an open folder", stranger.path)),
+        None => Ok(()),
+    }
+}
+
+/// Tells the list of what may be shown where photos the app moved went.
+fn note_moves(app: &App, jobs: &[transfer::Job], outcome: &transfer::Outcome) {
+    let moved: std::collections::HashSet<&PathBuf> = outcome.moved.iter().collect();
+    for (job, placed) in jobs.iter().zip(&outcome.placed) {
+        if moved.contains(&job.owner) {
+            app.previews.allowed.moved(&job.owner, placed);
+        }
+    }
 }
 
 /// The files that make up one photo: itself, and the JPEG beside a RAW.
@@ -585,13 +618,16 @@ impl From<transfer::Outcome> for Shipped {
 /// taken goes alongside under a new one.
 #[tauri::command]
 pub async fn transfer_photos(app: AppState<'_>, items: Vec<PhotoFiles>, destination: String, moving: bool) -> Result<Shipped, String> {
-    let writer = app.writer.clone();
+    in_open_folders(&app, &items)?;
+    let app = app.inner().clone();
     let _busy = app.busy.hold();
     tauri::async_runtime::spawn_blocking(move || {
         // A rating still waiting to be written would otherwise stay behind.
-        writer.flush();
+        app.writer.flush();
         let jobs: Vec<transfer::Job> = items.iter().map(transfer_job).collect();
-        transfer::run(&jobs, Path::new(&destination), moving, transfer::Conflict::KeepBoth, |_| {}).into()
+        let outcome = transfer::run(&jobs, Path::new(&destination), moving, transfer::Conflict::KeepBoth, |_| {});
+        note_moves(&app, &jobs, &outcome);
+        outcome.into()
     })
     .await
     .map_err(|e| e.to_string())
@@ -621,20 +657,22 @@ pub async fn ship(
     skip_duplicates: bool,
     progress: Channel<usize>,
 ) -> Result<Shipped, String> {
-    let writer = app.writer.clone();
+    in_open_folders(&app, &items)?;
+    let app = app.inner().clone();
     let _busy = app.busy.hold();
     tauri::async_runtime::spawn_blocking(move || {
-        writer.flush();
+        app.writer.flush();
         let Some(destination) = destination else {
             let placed = items.into_iter().map(|i| i.path).collect();
             return Shipped { placed, moved: Vec::new(), skipped: 0, failed: Vec::new(), sidecar_failed: Vec::new() };
         };
         let jobs: Vec<transfer::Job> = items.iter().map(transfer_job).collect();
         let conflict = if skip_duplicates { transfer::Conflict::Skip } else { transfer::Conflict::KeepBoth };
-        transfer::run(&jobs, Path::new(&destination), moving, conflict, |done| {
+        let outcome = transfer::run(&jobs, Path::new(&destination), moving, conflict, |done| {
             progress.send(done).ok();
-        })
-        .into()
+        });
+        note_moves(&app, &jobs, &outcome);
+        outcome.into()
     })
     .await
     .map_err(|e| e.to_string())
@@ -851,8 +889,10 @@ pub async fn ingest_browse(path: String) -> Result<Browsed, String> {
 
 /// The photos a folder on a card has to offer.
 #[tauri::command]
-pub async fn ingest_scan(path: String) -> Result<Vec<Scanned>, String> {
-    tauri::async_runtime::spawn_blocking(move || ingest::scan(Path::new(&path))).await.map_err(|e| e.to_string())
+pub async fn ingest_scan(app: AppState<'_>, path: String) -> Result<Vec<Scanned>, String> {
+    let images = tauri::async_runtime::spawn_blocking(move || ingest::scan(Path::new(&path))).await.map_err(|e| e.to_string())?;
+    app.previews.allowed.browsing(&images);
+    Ok(images)
 }
 
 #[derive(Serialize, Clone)]
@@ -936,6 +976,10 @@ pub async fn ingest_copy(
     progress: Channel<ingest::Progress>,
 ) -> Result<Ingested, String> {
     let app = app.inner().clone();
+    // Only photos from the card listing the photographer chose from.
+    if let Some(stranger) = items.iter().find(|i| !app.previews.allowed.on_card(&i.path) || !app.previews.allowed.on_card(&i.display)) {
+        return Err(format!("{} is not on the card being ingested", stranger.path.display()));
+    }
     if app.ingesting.swap(true, Ordering::SeqCst) {
         return Err("a copy is already running".into());
     }
@@ -1047,10 +1091,12 @@ pub async fn histogram(app: AppState<'_>, path: String, version: String) -> Resu
 
 /// A few photos to stand for a folder on the home screen.
 #[tauri::command]
-pub async fn folder_cover(path: String) -> Result<Vec<Scanned>, String> {
-    tauri::async_runtime::spawn_blocking(move || scan::cover_images(Path::new(&path), 4))
+pub async fn folder_cover(app: AppState<'_>, path: String) -> Result<Vec<Scanned>, String> {
+    let images = tauri::async_runtime::spawn_blocking(move || scan::cover_images(Path::new(&path), 4))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    app.previews.allowed.covers(&images);
+    Ok(images)
 }
 
 /// Which of these folders are still where they were.

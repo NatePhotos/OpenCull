@@ -17,7 +17,7 @@ pub(crate) fn is_image(ext: &str) -> bool {
 }
 
 /// One photo as the scan found it.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Scanned {
     /// The file that owns the photo's marks and sidecar.

@@ -177,6 +177,11 @@ const CATALOG_HEAD_START: std::time::Duration = std::time::Duration::from_millis
 /// Opens `files` in the editor called `id`, after `catalog` if one is given.
 pub fn open(id: &str, files: &[PathBuf], catalog: Option<&Path>) -> Result<(), String> {
     let editor = EDITORS.iter().find(|e| e.id == id).ok_or_else(|| format!("no editing program called {id}"))?;
+    // Paths are handed to the program as they are. A full path can never be
+    // mistaken for one of its options, as a name beginning with "-" could.
+    if let Some(odd) = files.iter().map(PathBuf::as_path).chain(catalog).find(|f| !f.is_absolute()) {
+        return Err(format!("{} is not a full path to a file", odd.display()));
+    }
     let program = installed_at(editor).ok_or_else(|| format!("{} is not installed on this computer", editor.name))?;
 
     if let Some(catalog) = catalog.filter(|c| editor.takes_catalog && c.exists()) {
@@ -188,7 +193,10 @@ pub fn open(id: &str, files: &[PathBuf], catalog: Option<&Path>) -> Result<(), S
 
 fn start(launches: &[Launch]) -> Result<(), String> {
     for l in launches {
-        std::process::Command::new(&l.program).args(&l.args).spawn().map_err(|e| format!("could not start {}: {e}", l.program.display()))?;
+        let mut child = std::process::Command::new(&l.program).args(&l.args).spawn().map_err(|e| format!("could not start {}: {e}", l.program.display()))?;
+        // Waited for in the background, so a program that has finished does
+        // not linger as a process the system keeps a place for.
+        std::thread::Builder::new().name("opencull-editor-wait".into()).spawn(move || child.wait()).ok();
     }
     Ok(())
 }
@@ -245,6 +253,12 @@ fn walk(dir: &Path, depth: usize, found: &mut Vec<(PathBuf, SystemTime)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_that_is_not_a_full_path_is_never_handed_to_an_editor() {
+        let refused = open("lightroom", &[PathBuf::from("-n")], None).unwrap_err();
+        assert!(refused.contains("not a full path"), "{refused}");
+    }
 
     #[test]
     fn the_file_browser_is_always_offered_and_always_last() {

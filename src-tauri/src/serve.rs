@@ -12,8 +12,15 @@
 //! The version is in the address so that the view may keep what it is given
 //! for good: a file that changes gets a new address, and the old picture is
 //! simply never asked for again.
+//!
+//! Only files the app itself has listed are served: photos in a folder that
+//! is open, the few shown for each recent folder on the home screen, and
+//! those on a card being looked through to ingest. An address naming any
+//! other file on the computer is refused, so nothing that ever found its way
+//! into the view could read pictures from elsewhere.
 
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +30,87 @@ use tauri::UriSchemeResponder;
 use crate::cache::Cache;
 use crate::pool::{Pool, Priority};
 use crate::preview::{self, Tier};
+use crate::scan::Scanned;
+
+/// The files the view may see, and the app may change, because the app
+/// listed them itself.
+#[derive(Default)]
+pub struct Allowed {
+    /// Photos in open folders, each counted: one folder can be open twice.
+    open: Mutex<HashMap<PathBuf, usize>>,
+    /// Photos on the card or drive being looked through to ingest: the
+    /// latest listing only.
+    browsing: Mutex<HashSet<PathBuf>>,
+    /// The few photos shown for each recent folder on the home screen.
+    covers: Mutex<HashSet<PathBuf>>,
+}
+
+/// More cover pictures than any home screen shows. Past this, the oldest
+/// grants are simply dropped.
+const MAX_COVERS: usize = 2000;
+
+fn files_of(images: &[Scanned]) -> impl Iterator<Item = PathBuf> + '_ {
+    images.iter().flat_map(|i| [i.path.clone(), i.display.clone()])
+}
+
+impl Allowed {
+    /// A folder has been opened, with these photos in it.
+    pub fn open(&self, images: &[Scanned]) {
+        let mut open = self.open.lock().unwrap();
+        for file in files_of(images) {
+            *open.entry(file).or_default() += 1;
+        }
+    }
+
+    /// A folder opened with these photos has been closed.
+    pub fn close(&self, images: &[Scanned]) {
+        let mut open = self.open.lock().unwrap();
+        for file in files_of(images) {
+            if let Some(count) = open.get_mut(&file) {
+                *count -= 1;
+                if *count == 0 {
+                    open.remove(&file);
+                }
+            }
+        }
+    }
+
+    /// A photo the app moved elsewhere is now at `to`, and no longer at `from`.
+    pub fn moved(&self, from: &Path, to: &Path) {
+        let mut open = self.open.lock().unwrap();
+        if let Some(count) = open.remove(from) {
+            *open.entry(to.to_path_buf()).or_default() += count;
+        }
+    }
+
+    /// The photos now listed for ingest, in place of any listed before.
+    pub fn browsing(&self, images: &[Scanned]) {
+        *self.browsing.lock().unwrap() = files_of(images).collect();
+    }
+
+    pub fn covers(&self, images: &[Scanned]) {
+        let mut covers = self.covers.lock().unwrap();
+        if covers.len() > MAX_COVERS {
+            covers.clear();
+        }
+        covers.extend(files_of(images));
+    }
+
+    /// In a folder that is open.
+    pub fn in_open_folder(&self, file: &Path) -> bool {
+        self.open.lock().unwrap().contains_key(file)
+    }
+
+    /// On the card or drive being looked through to ingest.
+    pub fn on_card(&self, file: &Path) -> bool {
+        self.browsing.lock().unwrap().contains(file)
+    }
+
+    /// Anywhere the view has been shown it.
+    pub fn may_show(&self, file: &Path) -> bool {
+        self.in_open_folder(file) || self.on_card(file) || self.covers.lock().unwrap().contains(file)
+    }
+}
 
 pub struct Served {
     pub bytes: Vec<u8>,
@@ -52,6 +140,8 @@ pub struct Previews {
     /// borrows from whichever pool it finds itself in, which confines it to
     /// these few threads and leaves every other core for the photo on screen.
     idle: Arc<rayon::ThreadPool>,
+    /// The files that may be served.
+    pub allowed: Arc<Allowed>,
 }
 
 /// One parsed request.
@@ -97,7 +187,7 @@ impl Previews {
                 })
                 .expect("spawn cache reader");
         }
-        Self { cache, pool, readers: Arc::new(Mutex::new(tx)), idle: Arc::new(idle) }
+        Self { cache, pool, readers: Arc::new(Mutex::new(tx)), idle: Arc::new(idle), allowed: Default::default() }
     }
 
     fn key(&self, wanted: &Wanted) -> PathBuf {
@@ -206,23 +296,35 @@ fn parse(request: &Request<Vec<u8>>) -> Option<Wanted> {
     Some(Wanted { path: path?, version, tier })
 }
 
-fn reply(status: StatusCode, mime: &str, body: Vec<u8>) -> Response<Vec<u8>> {
-    Response::builder()
+/// The pages that may be told the answer: the app's own window, as each
+/// system names it, and the development server.
+const APP_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://localhost:1420"];
+
+fn reply(status: StatusCode, mime: &str, body: Vec<u8>, origin: Option<&str>) -> Response<Vec<u8>> {
+    let mut response = Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, mime)
         // The address changes when the file does, so this never goes stale.
-        .header(header::CACHE_CONTROL, "private, max-age=31536000, immutable")
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .body(body)
-        .expect("fixed headers")
+        .header(header::CACHE_CONTROL, "private, max-age=31536000, immutable");
+    if let Some(origin) = origin.filter(|o| APP_ORIGINS.contains(o)) {
+        response = response.header(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin).header(header::VARY, "Origin");
+    }
+    response.body(body).expect("fixed headers")
 }
 
 /// Answers one request from the view.
 pub fn handle(previews: &Previews, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
+    let origin = request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok()).map(str::to_string);
+    let origin = origin.as_deref();
     let Some(wanted) = parse(&request) else {
-        responder.respond(reply(StatusCode::BAD_REQUEST, "text/plain", Vec::new()));
+        responder.respond(reply(StatusCode::BAD_REQUEST, "text/plain", Vec::new(), origin));
         return;
     };
+    if !previews.allowed.may_show(&wanted.path) {
+        responder.respond(reply(StatusCode::FORBIDDEN, "text/plain", Vec::new(), origin));
+        return;
+    }
+    let origin = origin.map(str::to_string);
     // Thumbnails fill cells; everything else is for the photo being looked at.
     let priority = match wanted.tier {
         Tier::Thumb(_) => Priority::Soon,
@@ -234,15 +336,60 @@ pub fn handle(previews: &Previews, request: Request<Vec<u8>>, responder: UriSche
             // The bytes are shared when more than one request was waiting on
             // the same preview. Usually there is one, and nothing is copied.
             let bytes = Arc::try_unwrap(served).map(|s| s.bytes).unwrap_or_else(|s| s.bytes.clone());
-            responder.respond(reply(StatusCode::OK, mime, bytes));
+            responder.respond(reply(StatusCode::OK, mime, bytes, origin.as_deref()));
         }
-        Err(_) => responder.respond(reply(StatusCode::NOT_FOUND, "text/plain", Vec::new())),
+        Err(_) => responder.respond(reply(StatusCode::NOT_FOUND, "text/plain", Vec::new(), origin.as_deref())),
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scanned(path: &str, display: &str) -> Scanned {
+        Scanned { path: path.into(), display: display.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn only_files_the_app_listed_may_be_shown() {
+        let allowed = Allowed::default();
+        let pair = [scanned("/shoot/A.ARW", "/shoot/A.JPG")];
+        assert!(!allowed.may_show(Path::new("/shoot/A.JPG")));
+
+        allowed.open(&pair);
+        allowed.open(&pair);
+        assert!(allowed.may_show(Path::new("/shoot/A.ARW")) && allowed.may_show(Path::new("/shoot/A.JPG")));
+        assert!(!allowed.may_show(Path::new("/Users/someone/private.png")));
+
+        allowed.close(&pair);
+        assert!(allowed.in_open_folder(Path::new("/shoot/A.JPG")), "still open the second time");
+        allowed.close(&pair);
+        assert!(!allowed.may_show(Path::new("/shoot/A.JPG")));
+    }
+
+    #[test]
+    fn only_the_latest_card_listing_counts() {
+        let allowed = Allowed::default();
+        allowed.browsing(&[scanned("/card/A.ARW", "/card/A.ARW")]);
+        allowed.browsing(&[scanned("/card/B.ARW", "/card/B.ARW")]);
+        assert!(!allowed.on_card(Path::new("/card/A.ARW")) && allowed.on_card(Path::new("/card/B.ARW")));
+    }
+
+    #[test]
+    fn a_moved_photo_is_known_where_it_went() {
+        let allowed = Allowed::default();
+        allowed.open(&[scanned("/shoot/A.ARW", "/shoot/A.ARW")]);
+        allowed.moved(Path::new("/shoot/A.ARW"), Path::new("/keep/A.ARW"));
+        assert!(!allowed.in_open_folder(Path::new("/shoot/A.ARW")) && allowed.in_open_folder(Path::new("/keep/A.ARW")));
+    }
+
+    #[test]
+    fn the_answer_is_only_shared_with_the_app_itself() {
+        let ours = reply(StatusCode::OK, "image/jpeg", Vec::new(), Some("tauri://localhost"));
+        assert_eq!(ours.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "tauri://localhost");
+        let theirs = reply(StatusCode::OK, "image/jpeg", Vec::new(), Some("https://example.com"));
+        assert!(theirs.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+    }
 
     fn request(uri: &str) -> Request<Vec<u8>> {
         Request::builder().uri(uri).body(Vec::new()).unwrap()
