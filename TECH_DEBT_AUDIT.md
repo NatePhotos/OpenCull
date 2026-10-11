@@ -267,13 +267,11 @@ The open questions were put to the maintainer. Their answers, and what each one 
 
 **Resolved:** every finding F001–F074 except those listed below. Each commit message names the findings it fixes.
 
-**Partly done:**
-- **F029:** AI workers are capped at 4, but not sized by available memory.
-- **F042:** transfer and ingest use the same group-naming rule, but still as two implementations.
-- **F045:** the loupe's remembered zoom level and the app's shortcut bindings still save prefs their own way.
-- **F047:** commands still return `Result<_, String>`.
-- **F057:** the model hashes are published; the export script and a training-data statement need the maintainer.
-- **F069:** components still call `useStore.setState` directly in a few places.
+**Left as they are, on purpose:**
+- **F029:** AI workers are capped at 4, which keeps peak memory under about 1 GB. Sizing them by free memory would need a new dependency (std can't read it), for little gain over the cap.
+- **F042:** transfer and ingest follow one naming rule and share `transfer::rename` and the list of names a photo takes. Ingest's version must also coordinate four copies running at once, which a single-threaded move doesn't need, so they stay two small functions.
+- **F047:** structured failures, a typed ingest status and a typed cache-usage record are done. Commands still return `Result<_, String>` for errors that only ever become a message on screen.
+- **F057:** the model hashes are published and tested. The export script and a training-data statement need the maintainer.
 
 **Needs the maintainer:**
 - **X1:** HOW-IT-WORKS says 12 wrong "looking away" calls; ai/mod.rs says 13.
