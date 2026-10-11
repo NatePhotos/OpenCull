@@ -1,4 +1,10 @@
 // Small settings that outlive the app, kept in the web view's own storage.
+//
+// Settings the whole app shares live in the store, which saves them as they
+// change (PERSISTED in store.ts). Settings that belong to one view use
+// usePersistentState below. Nothing else saves settings.
+
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 
 const PREFIX = "opencull.";
 
@@ -39,4 +45,22 @@ export function save(key: string, value: unknown): void {
     // Storage full or unavailable. A setting that does not stick is not worth
     // interrupting anyone over.
   }
+}
+
+export function remove(key: string): void {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {
+    // As for save.
+  }
+}
+
+/**
+ * `useState` for a setting one view keeps for itself between uses: loaded
+ * once as the view opens, saved whenever it changes.
+ */
+export function usePersistentState<T>(key: string, fallback: T, allowed?: readonly T[]): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => load(key, fallback, allowed));
+  useEffect(() => save(key, value), [key, value]);
+  return [value, setValue];
 }

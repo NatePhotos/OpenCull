@@ -3,8 +3,9 @@
 
 import { create } from "zustand";
 import { api, describeFailure, logged } from "./api";
-import { load, save } from "./prefs";
-import { baseName, filtered, groupOf, marksOf, rankRun, runsOf, sorted, uprightOf } from "./cull-logic";
+import { load, remove, save } from "./prefs";
+import { filtered, groupOf, marksOf, rankRun, runsOf, sorted, uprightOf } from "./cull-logic";
+import { baseName } from "./format";
 
 // What views take from the culling rules, from where they always have.
 export { BLINK, groupOf, groupsOf, hasFilter as hasActiveFilter, PROBLEM_LABEL, problemOf, type Problem } from "./cull-logic";
@@ -254,6 +255,14 @@ const PERSISTED = [
 ] as const satisfies readonly (keyof State)[];
 
 const MAX_RECENTS = 24;
+
+/** Where the photo a folder was left on is kept: one key per recent folder. */
+const positionKey = (folder: string) => `position.${folder}`;
+
+/** Records which photo the folder on screen is on, to pick up there next time. */
+function savePosition(s: Pick<State, "session" | "photos" | "current">) {
+  if (s.session && s.current >= 0) save(positionKey(s.session.folder), s.photos[s.current].path);
+}
 const MAX_UNDO = 200;
 
 export const useStore = create<Store>((set, get) => {
@@ -434,8 +443,7 @@ export const useStore = create<Store>((set, get) => {
   }
 
   function rememberPosition() {
-    const { session, photos, current } = get();
-    if (session && current >= 0) save(`position.${session.folder}`, photos[current].path);
+    savePosition(get());
   }
 
   return {
@@ -587,7 +595,7 @@ export const useStore = create<Store>((set, get) => {
       const order = reply.timed ? sorted(photos, s0.sort, s0.sortAscending) : photos.map((p) => p.index);
 
       // Pick up where this folder was left.
-      const remembered = load<string | null>(`position.${path}`, null);
+      const remembered = load<string | null>(positionKey(path), null);
       // Where this folder was left. By the frame, if not by the file: left
       // on a RAW and opened for JPEGs alone, it is the same photo.
       const frame = (path: string) => path.replace(/\.[^./\\]+$/, "").toLowerCase();
@@ -867,8 +875,7 @@ export const useStore = create<Store>((set, get) => {
       const failed = new Set(failures.map((f) => f.path));
       drop(new Set(pending.filter((i) => !failed.has(s.photos[i].path))));
       if (failures.length > 0) {
-        const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
-        const shown = failures.slice(0, 5).map((f) => `${name(f.path)}: ${f.reason}`).join("\n");
+        const shown = failures.slice(0, 5).map((f) => `${baseName(f.path)}: ${f.reason}`).join("\n");
         const more = failures.length > 5 ? `\n…and ${failures.length - 5} more.` : "";
         set({ notice: { title: `${failures.length} photo${failures.length === 1 ? " was" : "s were"} not moved to the Trash`, body: `${shown}${more}\n\nThey are still in the folder.` } });
       }
@@ -915,7 +922,13 @@ export const useStore = create<Store>((set, get) => {
     },
 
     removeRecents: (paths) => set((s) => ({ recents: s.recents.filter((r) => !paths.includes(r)) })),
-    relocateRecent: (from, to) => set((s) => ({ recents: s.recents.map((r) => (r === from ? to : r)).filter((r, i, all) => all.indexOf(r) === i) })),
+    relocateRecent: (from, to) => {
+      // The place it was left goes with it; the old key is cleared when it
+      // leaves the recents, below.
+      const left = load<string | null>(positionKey(from), null);
+      if (left) save(positionKey(to), left.startsWith(from) ? to + left.slice(from.length) : left);
+      set((s) => ({ recents: s.recents.map((r) => (r === from ? to : r)).filter((r, i, all) => all.indexOf(r) === i) }));
+    },
   };
 });
 
@@ -925,15 +938,17 @@ useStore.subscribe((state) => {
   for (const key of PERSISTED) {
     if (state[key] !== last[key]) save(key, state[key]);
   }
+  // A folder no longer among the recents has no use for where it was left.
+  if (state.recents !== last.recents) {
+    const kept = new Set(state.recents);
+    for (const gone of last.recents) if (!kept.has(gone)) remove(positionKey(gone));
+  }
   last = state;
 });
 
 // Quitting from the culling view is the normal way to stop for the night, so
 // the place is recorded then, and not only on the way back to the home screen.
-window.addEventListener("beforeunload", () => {
-  const { session, photos, current } = useStore.getState();
-  if (session && current >= 0) save(`position.${session.folder}`, photos[current].path);
-});
+window.addEventListener("beforeunload", () => savePosition(useStore.getState()));
 
 /** The photos a right-click acts on: the selection if it holds the photo. */
 export function contextTargets(index: number): number[] {

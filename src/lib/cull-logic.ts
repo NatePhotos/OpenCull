@@ -114,11 +114,6 @@ export function problemOf(result: AiResult | undefined, compared?: Compared): Pr
   return null;
 }
 
-export function baseName(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
-
 export function marksOf(p: Photo): Marks {
   return { rating: p.rating, flag: p.flag, color: p.color };
 }

@@ -65,13 +65,13 @@ export function holdFull(url: string | null): void {
   if (was) release(was.img);
   full = null;
   if (url) {
-    const mine = { url, img: null as unknown as HTMLImageElement, ready: false };
-    mine.img = load(url, () => {
-      if (full !== mine) return;
-      mine.ready = true;
+    // Told when it is ready, which is always after `full` is set below.
+    const img = load(url, () => {
+      if (full?.img !== img) return;
+      full.ready = true;
       watching.forEach((tell) => tell());
     });
-    full = mine;
+    full = { url, img, ready: false };
   }
   if (was?.ready) watching.forEach((tell) => tell());
 }

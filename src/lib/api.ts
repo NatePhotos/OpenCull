@@ -10,7 +10,8 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AiEvent, Compared, FileKinds, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
 
 export interface AppInfo {
-  platform: string;
+  /** As Rust names it. Others are possible, and are treated as Linux. */
+  platform: "macos" | "windows" | "linux" | (string & {});
   version: string;
   cacheDir: string;
   /** A folder named on the command line, to open straight away. */

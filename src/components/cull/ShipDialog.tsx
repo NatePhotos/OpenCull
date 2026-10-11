@@ -18,6 +18,7 @@ import { api, describeFailure, type EditingApp, type Shipped, logged } from "@/l
 import { load, save } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { baseName } from "@/lib/format";
 import { COLORS, type Color, type Flag, type Photo } from "@/lib/types";
 import { FlagSymbol, RatingSymbol } from "./symbols";
 
@@ -91,8 +92,6 @@ function resolve(settings: Settings, photos: Photo[], order: number[], selected:
   }
 }
 
-const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
-
 /** A photo's files as the backend takes them: a RAW travels with its JPEG. */
 const filesOf = (p: Photo) => ({ path: p.path, display: p.display });
 
@@ -162,12 +161,8 @@ function Ship({ onBusy }: { onBusy: (busy: boolean) => void }) {
   const [duplicates, setDuplicates] = useState<{ images: Photo[]; count: number } | null>(null);
 
   // Saved as it changes, not on close, so quitting with Ship open keeps the choices.
-  const change = (patch: Partial<Settings>) =>
-    setSettings((s) => {
-      const next = { ...s, ...patch };
-      save("ship", next);
-      return next;
-    });
+  useEffect(() => save("ship", settings), [settings]);
+  const change = (patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch }));
 
   useEffect(() => {
     let stale = false;
@@ -197,12 +192,7 @@ function Ship({ onBusy }: { onBusy: (busy: boolean) => void }) {
       (found) => {
         if (stale) return;
         setCatalogs(found);
-        setSettings((s) => {
-          if (s.choseCatalog || s.catalog) return s;
-          const next = { ...s, catalog: found[0] ?? null };
-          save("ship", next);
-          return next;
-        });
+        setSettings((s) => (s.choseCatalog || s.catalog ? s : { ...s, catalog: found[0] ?? null }));
       },
       () => !stale && setCatalogs([]),
     );

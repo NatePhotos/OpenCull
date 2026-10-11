@@ -5,7 +5,7 @@ import { api, bucket, FIT_SIZES, logged } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { hold, holdFull, isHeld } from "@/lib/held";
 import { load, save } from "@/lib/prefs";
-import { isMac } from "@/lib/shortcuts";
+import { comboLabel, isMac, loadBindings } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type Photo } from "@/lib/types";
@@ -720,6 +720,8 @@ function InfoOverlay({ photo }: { photo: Photo }) {
 /** Flag, stars and colour for the photo in the loupe, along its bottom edge. */
 function RatingBar({ photo }: { photo: Photo }) {
   const s = useStore.getState();
+  // Read as it is drawn, so a shortcut changed in Settings shows here too.
+  const bindings = loadBindings();
   const divider = <span className="h-5 w-px bg-[#595959]" />;
   return (
     <div
@@ -727,10 +729,10 @@ function RatingBar({ photo }: { photo: Photo }) {
       className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-3.5 rounded-xl border border-white/10 bg-[#2a2a30]/80 px-4.5 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"
     >
       <span className="flex items-center gap-2">
-        <button type="button" title="Pick (P)" onClick={() => s.setFlag(photo.flag === "pick" ? "none" : "pick", [photo.index])}>
+        <button type="button" title={`Pick (${comboLabel(bindings.pick)})`} onClick={() => s.setFlag(photo.flag === "pick" ? "none" : "pick", [photo.index])}>
           <Flag className={cn("size-3.5", photo.flag === "pick" ? "fill-white text-white" : "fill-[#666] text-[#666]")} />
         </button>
-        <button type="button" title="Reject (X)" onClick={() => s.setFlag(photo.flag === "reject" ? "none" : "reject", [photo.index])}>
+        <button type="button" title={`Reject (${comboLabel(bindings.reject)})`} onClick={() => s.setFlag(photo.flag === "reject" ? "none" : "reject", [photo.index])}>
           <X className={cn("size-3.5", photo.flag === "reject" ? "text-[#e64d4d]" : "text-[#666]")} strokeWidth={3.5} />
         </button>
       </span>

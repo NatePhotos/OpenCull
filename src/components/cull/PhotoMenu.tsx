@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/context-menu";
 import { api, logged } from "@/lib/api";
 import { contextTargets, useStore } from "@/lib/store";
+import { fileBrowserName } from "@/lib/format";
 import { COLORS } from "@/lib/types";
 
 /**
@@ -23,7 +24,7 @@ import { COLORS } from "@/lib/types";
  */
 export function PhotoMenu({ index, children }: { index: number; children: ReactNode }) {
   const platform = useStore((s) => s.platform);
-  const fileBrowser = platform === "macos" ? "Finder" : platform === "windows" ? "Explorer" : "File Manager";
+  const fileBrowser = fileBrowserName(platform);
 
   return (
     <ContextMenu>

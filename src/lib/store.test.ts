@@ -154,3 +154,18 @@ describe("re-sort", () => {
     expect(s().order).toEqual([2, 0, 1]);
   });
 });
+
+describe("where each folder was left", () => {
+  it("is forgotten when the folder leaves the recents, and moves with a folder that moved", () => {
+    useStore.setState({ recents: ["/a", "/b"] });
+    localStorage.setItem("opencull.position./b", JSON.stringify("/b/P1.ARW"));
+    localStorage.setItem("opencull.position./a", JSON.stringify("/a/P2.ARW"));
+
+    s().removeRecents(["/b"]);
+    expect(localStorage.getItem("opencull.position./b")).toBeNull();
+
+    s().relocateRecent("/a", "/moved/a");
+    expect(JSON.parse(localStorage.getItem("opencull.position./moved/a")!)).toBe("/moved/a/P2.ARW");
+    expect(localStorage.getItem("opencull.position./a")).toBeNull();
+  });
+});

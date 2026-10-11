@@ -2,18 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { Circle, CircleCheck, FolderPlus, FolderSearch, Images, Keyboard, Settings, Trash2, X } from "lucide-react";
 
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { CardIcon } from "@/components/ingest/IngestView";
+import { CardIcon } from "@/components/cull/symbols";
 import { api, type Volume, logged } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { useVolumes } from "@/lib/volumes";
 import { cn } from "@/lib/utils";
+import { baseName, fileBrowserName } from "@/lib/format";
 import type { Scanned } from "@/lib/types";
 
 const GRADIENT = "bg-gradient-to-r from-[#4d80ff] to-[#804dff]";
-
-function baseName(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
 
 function parentOf(path: string): string {
   return path.replace(/[\\/][^\\/]+[\\/]?$/, "") || path;
@@ -53,30 +50,18 @@ export function HomeView({ dropping }: { dropping: boolean }) {
   const ingestOpen = useStore((s) => s.ingestOpen);
   const [arrived, setArrived] = useState<Volume | null>(null);
   const attached = useRef<Set<string> | null>(null);
+  const volumes = useVolumes(!selfTest && !ingestOpen);
   useEffect(() => {
-    if (selfTest || ingestOpen) return;
-    let stale = false;
-    const look = () =>
-      void api.ingestVolumes().then(
-        (volumes) => {
-          if (stale) return;
-          const before = attached.current;
-          attached.current = new Set(volumes.map((v) => v.path));
-          if (!before) return;
-          const fresh = volumes.find((v) => v.removable && !before.has(v.path));
-          if (fresh) setArrived(fresh);
-          // Pulled out again before anything was done about it.
-          else setArrived((was) => (was && !attached.current!.has(was.path) ? null : was));
-        },
-        () => {},
-      );
-    look();
-    const timer = setInterval(look, 2500);
-    return () => {
-      stale = true;
-      clearInterval(timer);
-    };
-  }, [selfTest, ingestOpen]);
+    if (!volumes) return;
+    const before = attached.current;
+    const now = new Set(volumes.map((v) => v.path));
+    attached.current = now;
+    if (!before) return;
+    const fresh = volumes.find((v) => v.removable && !before.has(v.path));
+    if (fresh) setArrived(fresh);
+    // Pulled out again before anything was done about it.
+    else setArrived((was) => (was && !now.has(was.path) ? null : was));
+  }, [volumes]);
 
   const toggle = (path: string) =>
     setSelected((prev) => {
@@ -223,7 +208,7 @@ function FolderCard({
   onLocate: () => void;
 }) {
   const platform = useStore((s) => s.platform);
-  const fileBrowser = platform === "macos" ? "Finder" : platform === "windows" ? "Explorer" : "File Manager";
+  const fileBrowser = fileBrowserName(platform);
 
   const open = () => {
     if (selecting) onToggle();

@@ -8,6 +8,7 @@ import { HomeView } from "@/components/home/HomeView";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, inTauri } from "@/lib/api";
 import { installShortcuts, loadBindings, saveBindings, type Action, type Combo } from "@/lib/shortcuts";
+import { baseName } from "@/lib/format";
 import { useStore } from "@/lib/store";
 
 export default function App() {
@@ -75,7 +76,7 @@ export default function App() {
       told = folder;
       s.set("notice", {
         title: "A rating could not be written into the JPEG",
-        body: `${path.split(/[\\/]/).pop()}: ${why}.\n\nThe rating is still saved beside the photo, so OpenCull has it, but other programs will not see it on the JPEG. This is only said once for each folder. To stop writing into JPEGs altogether, turn it off in Settings, under Culling.`,
+        body: `${baseName(path)}: ${why}.\n\nThe rating is still saved beside the photo, so OpenCull has it, but other programs will not see it on the JPEG. This is only said once for each folder. To stop writing into JPEGs altogether, turn it off in Settings, under Culling.`,
       });
     });
   }, []);
@@ -92,7 +93,7 @@ export default function App() {
       told = folder;
       s.set("notice", {
         title: "A rating could not be saved",
-        body: `${path.split(/[\\/]/).pop()}: ${why}.\n\nThe mark shows here, but it is not saved beside the photo, so it will be gone when the folder is opened again and no other program will see it. Check that the folder can be written to — a card's lock switch, a full disk, a network drive that has gone. This is only said once for each folder.`,
+        body: `${baseName(path)}: ${why}.\n\nThe mark shows here, but it is not saved beside the photo, so it will be gone when the folder is opened again and no other program will see it. Check that the folder can be written to — a card's lock switch, a full disk, a network drive that has gone. This is only said once for each folder.`,
       });
     });
   }, []);

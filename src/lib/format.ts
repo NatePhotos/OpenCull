@@ -2,6 +2,17 @@
 
 import type { Exif } from "./types";
 
+/** The last part of a path: a file's or a folder's own name. */
+export function baseName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+/** What the system's file browser is called, for "Reveal in …". */
+export function fileBrowserName(platform: string): string {
+  return platform === "macos" ? "Finder" : platform === "windows" ? "Explorer" : "File Manager";
+}
+
 export function shutter(seconds: number | null | undefined): string | null {
   if (!seconds || seconds <= 0) return null;
   return seconds < 1 ? `1/${Math.round(1 / seconds)}s` : `${seconds.toFixed(1)}s`;

@@ -27,3 +27,13 @@ export function RatingSymbol({ rating, lit, behind }: { rating: number; lit: boo
     </span>
   );
 }
+
+/** A memory card, for cards among the drives offered for ingest. */
+export function CardIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn("size-3.5 shrink-0 text-[#73b3ff]", className)} aria-hidden>
+      <path d="M6 2h8l5 5v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3a1 1 0 0 1 1-1z" />
+      <path d="M9 6v3M12 6v3M15 8v1" />
+    </svg>
+  );
+}

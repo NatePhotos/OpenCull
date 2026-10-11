@@ -15,15 +15,16 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ThumbImage } from "@/components/cull/Thumb";
 import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type IngestProgress, type Volume, logged } from "@/lib/api";
-import { load, save } from "@/lib/prefs";
+import { usePersistentState } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import type { Scanned } from "@/lib/types";
+import { SORT_KEYS, type Scanned, type SortKey } from "@/lib/types";
+import { useVolumes } from "@/lib/volumes";
+import { CardIcon } from "@/components/cull/symbols";
 
-type Sort = "captureTime" | "filename" | "rating";
 
-const SORTS: Record<Sort, { title: string; up: string; down: string }> = {
+const SORTS: Record<SortKey, { title: string; up: string; down: string }> = {
   captureTime: { title: "Capture Time", up: "Oldest first", down: "Newest first" },
   filename: { title: "Filename", up: "A → Z", down: "Z → A" },
   rating: { title: "Rating", up: "Low → High", down: "High → Low" },
@@ -97,7 +98,7 @@ export function IngestView() {
   const startAt = useStore((s) => s.ingestFrom);
   const platform = useStore((s) => s.platform);
 
-  const [volumes, setVolumes] = useState<Volume[]>([]);
+  const volumes = useVolumes(true) ?? [];
   const [levels, setLevels] = useState<Level[]>([]);
   const [children, setChildren] = useState<IngestFolder[]>([]);
   const [browsing, setBrowsing] = useState(false);
@@ -106,9 +107,9 @@ export function IngestView() {
   const [items, setItems] = useState<Item[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [phase, setPhase] = useState<Phase>({ is: "idle" });
-  const [sort, setSort] = useState<Sort>(() => load<Sort>("ingestSort", "captureTime"));
-  const [ascending, setAscending] = useState(() => load("ingestSortAscending", true));
-  const [destination, setDestination] = useState<string | null>(() => load<string | null>("ingestDestination", null));
+  const [sort, setSort] = usePersistentState<SortKey>("ingestSort", "captureTime", SORT_KEYS);
+  const [ascending, setAscending] = usePersistentState("ingestSortAscending", true);
+  const [destination, setDestination] = usePersistentState<string | null>("ingestDestination", null);
 
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [fraction, setFraction] = useState(0);
@@ -127,18 +128,6 @@ export function IngestView() {
 
   // ── Sources ───────────────────────────────────────────────────────────────
 
-  // Cards come and go while this is open.
-  useEffect(() => {
-    let stale = false;
-    const refresh = () => void api.ingestVolumes().then((found) => !stale && setVolumes(found), () => {});
-    refresh();
-    const timer = setInterval(refresh, 2500);
-    return () => {
-      stale = true;
-      clearInterval(timer);
-    };
-  }, []);
-
   // A destination remembered from last time may have been moved or deleted.
   useEffect(() => {
     if (!destination) return;
@@ -148,10 +137,6 @@ export function IngestView() {
       .catch(logged("checking the ingest destination"));
     // Once, as ingest opens.
   }, []);
-
-  useEffect(() => save("ingestSort", sort), [sort]);
-  useEffect(() => save("ingestSortAscending", ascending), [ascending]);
-  useEffect(() => save("ingestDestination", destination), [destination]);
 
   /** Lists the photos in a folder and makes it the one being ingested from. */
   const choose = useCallback((path: string) => {
@@ -263,7 +248,7 @@ export function IngestView() {
   const order = useMemo(() => {
     const way = ascending ? 1 : -1;
     const name = (a: number, b: number) => byName.compare(items[a].name, items[b].name);
-    const compare: Record<Sort, (a: number, b: number) => number> = {
+    const compare: Record<SortKey, (a: number, b: number) => number> = {
       captureTime: (a, b) => way * (takenAt(items[a]) - takenAt(items[b])) || name(a, b),
       filename: (a, b) => way * name(a, b),
       rating: (a, b) => way * (items[a].rating - items[b].rating) || name(a, b),
@@ -502,8 +487,8 @@ export function IngestView() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as Sort)}>
-                  {(Object.keys(SORTS) as Sort[]).map((s) => (
+                <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                  {(Object.keys(SORTS) as SortKey[]).map((s) => (
                     <DropdownMenuRadioItem key={s} value={s}>
                       {SORTS[s].title}
                     </DropdownMenuRadioItem>
@@ -646,15 +631,6 @@ function VolumeRow({ volume, selected, onClick }: { volume: Volume; selected: bo
 }
 
 /** A memory card: a rectangle with one corner cut and its contacts along the top. */
-export function CardIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn("size-3.5 shrink-0 text-[#73b3ff]", className)} aria-hidden>
-      <path d="M6 2h8l5 5v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3a1 1 0 0 1 1-1z" />
-      <path d="M9 6v3M12 6v3M15 8v1" />
-    </svg>
-  );
-}
-
 const GAP = 12;
 const PAD = 16;
 const MIN_CELL = 140;
