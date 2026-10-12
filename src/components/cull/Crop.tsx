@@ -403,11 +403,13 @@ function CropBar() {
       <button type="button" title={`Rotate right (${mod}])`} onClick={() => c.turnBy(QUARTER_RIGHT)} className={tool}>
         <RotateCw />
       </button>
+      {/* The icon set names these two by the line they flip about, not the
+          way the picture goes, so each is the other's name. */}
       <button type="button" title="Flip horizontal" onClick={() => c.turnBy(MIRROR_ACROSS)} className={tool}>
-        <FlipHorizontal2 />
+        <FlipVertical2 />
       </button>
       <button type="button" title="Flip vertical" onClick={() => c.turnBy(MIRROR_DOWN)} className={tool}>
-        <FlipVertical2 />
+        <FlipHorizontal2 />
       </button>
       {divider}
       <DropdownMenu>
