@@ -77,6 +77,9 @@ interface State {
   askBeforeTrash: boolean;
   /** Look for a newer version each time the app opens. */
   checkForUpdates: boolean;
+  /** A version the photographer chose to pass over. It is not offered again
+   *  unasked; the one after it is. */
+  skippedUpdate: string;
   /** A newer version that has been found, if one has. */
   updateFound: UpdateFound | null;
   /** The offer to install it is on screen. */
@@ -312,6 +315,7 @@ const PERSISTED = [
   "embedInJpeg",
   "askBeforeTrash",
   "checkForUpdates",
+  "skippedUpdate",
   "warmAhead",
   "speedCullAlways",
   "keepZoom",
@@ -616,6 +620,7 @@ export const useStore = create<Store>((set, get) => {
     embedInJpeg: load("embedInJpeg", false),
     askBeforeTrash: load("askBeforeTrash", true),
     checkForUpdates: load("checkForUpdates", true),
+    skippedUpdate: load("skippedUpdate", ""),
     updateFound: null,
     updateOpen: false,
     speedCull: false,
@@ -663,7 +668,7 @@ export const useStore = create<Store>((set, get) => {
       // no connection, and the app is none the worse for not knowing.
       if (!info.selfTest && get().checkForUpdates) {
         void api.updateCheck().then(
-          (found) => found && set({ updateFound: found }),
+          (found) => found && found.version !== get().skippedUpdate && set({ updateFound: found }),
           () => {},
         );
       }

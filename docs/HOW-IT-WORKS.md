@@ -194,7 +194,9 @@ release: a small file naming that release's version and, for each system,
 where its update file is and what its signature is. If the version is newer
 than the one running, the app offers it — on the home screen only, never over
 a folder being culled — and, if asked to, downloads the file, checks the
-signature, puts the new version in place of the old and reopens. Nothing is
+signature, puts the new version in place of the old and reopens. A version
+can be skipped: it is not offered again unasked, the one after it is, and
+Check Now in Settings still finds it. Nothing is
 sent but the request itself. It is the only thing the app uses the internet
 for, it is done by the backend so the view has no leave to reach the network
 at all, and Settings has a switch for it.
