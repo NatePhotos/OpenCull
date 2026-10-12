@@ -72,9 +72,10 @@ deciding what to keep. OpenCull is built to make that fast.
 * **RAW, JPEG or both.** Shoot both and each pair is culled as one photo.
   Or choose to see only the RAWs, or only the JPEGs.
 * **Marks you can take anywhere.** Stars, flags and colour labels are written
-  as standard sidecar files that Lightroom, Capture One and the rest read. A
-  JPEG's stars and colour label are also written into the JPEG itself, which
-  is where those programs look for them.
+  as standard sidecar files that Lightroom, Capture One and the rest read.
+  Turn on **Write ratings into JPEGs** in Settings to also write a JPEG's
+  stars and colour label into the file itself, where those programs look for
+  them. It is off by default.
 * **Looks at the faces for you.** It finds the faces in every photo and shows
   whose eyes are shut, who is looking away and how sharp each one is.
 * **Compares a person with themselves.** It follows each person through a

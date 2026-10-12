@@ -88,8 +88,9 @@ capture time; EXIF panel and histogram; undo; move to trash; copying and moving
 photos to another folder; Ship; rebindable shortcuts; recent folders; the Mac
 app's settings, less the ones that belong to features not here.
 
-A JPEG's marks are also written into the JPEG itself, in its XMP packet,
-because that is where Lightroom, Bridge and others keep a JPEG's rating and
+With **Write ratings into JPEGs** turned on in Settings — it is off unless
+asked for — a JPEG's marks are also written into the JPEG itself, in its XMP
+packet, because that is where Lightroom, Bridge and others keep a JPEG's rating and
 the only place they look for it; a sidecar is still written, so the app's own
 record does not depend on it. It is the one place the app writes into a
 photograph. Only the packet is touched, never the picture. Where the packet

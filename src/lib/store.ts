@@ -577,7 +577,8 @@ export const useStore = create<Store>((set, get) => {
     panelResizing: false,
     includeSubfolders: load("includeSubfolders", false),
     fileKinds: load<FileKinds>("fileKinds", "both"),
-    embedInJpeg: load("embedInJpeg", true),
+    // Off by default: rating should not rewrite original files unless asked.
+    embedInJpeg: load("embedInJpeg", false),
     speedCull: false,
     speedCullAlways: load("speedCullAlways", false),
     keepZoom: load("keepZoom", true),
