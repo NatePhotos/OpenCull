@@ -122,10 +122,10 @@ export interface Backend {
   moveToTrash(items: { path: string; display: string }[]): Promise<string[]>;
   /** Copies or moves photos, with their JPEGs and ratings, to another folder. Never replaces anything there. */
   transferPhotos(items: { path: string; display: string }[], destination: string, moving: boolean): Promise<Shipped>;
-  /** How many of these photos would land on a file already in `destination`. */
-  shipConflicts(paths: string[], destination: string): Promise<number>;
-  /** Writes out pending ratings, then copies or moves the photos if there is a destination. */
-  ship(paths: string[], destination: string | null, moving: boolean, skipDuplicates: boolean, onProgress: (done: number) => void): Promise<Shipped>;
+  /** How many of these photos, or their JPEGs, would land on a file already in `destination`. */
+  shipConflicts(items: { path: string; display: string }[], destination: string): Promise<number>;
+  /** Writes out pending ratings, then copies or moves the photos, with their JPEGs, if there is a destination. */
+  ship(items: { path: string; display: string }[], destination: string | null, moving: boolean, skipDuplicates: boolean, onProgress: (done: number) => void): Promise<Shipped>;
   editingApps(): Promise<EditingApp[]>;
   lightroomCatalogs(): Promise<string[]>;
   openInEditor(editor: string, files: string[], catalog: string | null): Promise<void>;
@@ -194,11 +194,11 @@ const tauri: Backend = {
   flushMarks: () => invoke("flush_marks"),
   moveToTrash: (items) => invoke("move_to_trash", { items }),
   transferPhotos: (items, destination, moving) => invoke("transfer_photos", { items, destination, moving }),
-  shipConflicts: (paths, destination) => invoke("ship_conflicts", { paths, destination }),
-  ship: (paths, destination, moving, skipDuplicates, onProgress) => {
+  shipConflicts: (items, destination) => invoke("ship_conflicts", { items, destination }),
+  ship: (items, destination, moving, skipDuplicates, onProgress) => {
     const progress = new Channel<number>();
     progress.onmessage = onProgress;
-    return invoke("ship", { paths, destination, moving, skipDuplicates, progress });
+    return invoke("ship", { items, destination, moving, skipDuplicates, progress });
   },
   editingApps: () => invoke("editing_apps"),
   lightroomCatalogs: () => invoke("lightroom_catalogs"),

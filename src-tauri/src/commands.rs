@@ -564,24 +564,25 @@ pub async fn transfer_photos(app: AppState<'_>, items: Vec<TrashItem>, destinati
     .map_err(|e| e.to_string())
 }
 
-/// How many of these photos would land on a file already in `destination`.
+/// How many of these photos would land on a name already taken in
+/// `destination`: theirs, or their JPEG's.
 #[tauri::command]
-pub async fn ship_conflicts(paths: Vec<String>, destination: String) -> Result<usize, String> {
+pub async fn ship_conflicts(items: Vec<TrashItem>, destination: String) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let owners: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        transfer::conflicts(&owners, Path::new(&destination))
+        let jobs: Vec<transfer::Job> = items.iter().map(|i| transfer_job(i, true)).collect();
+        transfer::conflicts(&jobs, Path::new(&destination))
     })
     .await
     .map_err(|e| e.to_string())
 }
 
 /// Ship's file step: writes out every pending rating, then — if a
-/// destination is given — copies or moves the photos there with them.
-/// `progress` hears how many photos are done.
+/// destination is given — copies or moves the photos there, each with its
+/// JPEG and its ratings. `progress` hears how many photos are done.
 #[tauri::command]
 pub async fn ship(
     app: AppState<'_>,
-    paths: Vec<String>,
+    items: Vec<TrashItem>,
     destination: Option<String>,
     moving: bool,
     skip_duplicates: bool,
@@ -591,9 +592,10 @@ pub async fn ship(
     tauri::async_runtime::spawn_blocking(move || {
         writer.flush();
         let Some(destination) = destination else {
-            return Shipped { placed: paths, moved: Vec::new(), skipped: 0, failed: Vec::new(), sidecar_failed: Vec::new() };
+            let placed = items.into_iter().map(|i| i.path).collect();
+            return Shipped { placed, moved: Vec::new(), skipped: 0, failed: Vec::new(), sidecar_failed: Vec::new() };
         };
-        let jobs: Vec<transfer::Job> = paths.into_iter().map(|p| transfer::Job { owner: PathBuf::from(p), companions: Vec::new() }).collect();
+        let jobs: Vec<transfer::Job> = items.iter().map(|i| transfer_job(i, true)).collect();
         let conflict = if skip_duplicates { transfer::Conflict::Skip } else { transfer::Conflict::KeepBoth };
         transfer::run(&jobs, Path::new(&destination), moving, conflict, |done| {
             progress.send(done).ok();

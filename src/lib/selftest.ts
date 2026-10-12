@@ -218,23 +218,29 @@ export async function runSelfTest(folder: string): Promise<void> {
     const scratch = (await api.appInfo()).cacheDir.replace(/[\\/][^\\/]+$/, "");
     const pair = sample.slice(0, 2);
     const originals = pair.map((p) => p.path);
-    const clear = await api.shipConflicts(originals, scratch);
+    const both = pair.map((p) => ({ path: p.path, display: p.display }));
+    const clear = await api.shipConflicts(both, scratch);
     let heard = 0;
     t = performance.now();
-    const sent = await api.ship(originals, scratch, false, false, (done) => (heard = done));
+    const sent = await api.ship(both, scratch, false, false, (done) => (heard = done));
     const took = performance.now() - t;
     await until(() => heard === pair.length, "Ship to report its progress", 5_000);
     const arrived = (await api.pathsExist(sent.placed)).every(Boolean);
     const untouched = (await api.pathsExist(originals)).every(Boolean);
-    const taken = await api.shipConflicts(originals, scratch);
-    const skipped = await api.ship(originals, scratch, false, true, () => {});
+    // A RAW's JPEG goes with it, under the name the RAW landed on.
+    const extension = (path: string) => path.match(/\.[^.\\/]+$/)?.[0] ?? "";
+    const jpegs = pair.flatMap((p, i) => (p.display === p.path ? [] : [sent.placed[i].slice(0, sent.placed[i].length - extension(sent.placed[i]).length) + extension(p.display)]));
+    const paired = (await api.pathsExist(jpegs)).every(Boolean);
+    const taken = await api.shipConflicts(both, scratch);
+    const skipped = await api.ship(both, scratch, false, true, () => {});
     const beside = await api.transferPhotos([{ path: pair[0].path, display: pair[0].display }], scratch, false);
     const renamed = beside.placed[0] !== sent.placed[0] && (await api.pathsExist(beside.placed))[0];
     say(
-      `ship: ${sent.placed.length} photos copied in ${Math.round(took)} ms; originals ${untouched ? "untouched" : "MISSING"}; a second ship ${skipped.skipped === pair.length ? "skips" : "DOES NOT SKIP"} them; a copy beside them ${renamed ? "takes a new name" : "DID NOT GET A NEW NAME"}`,
+      `ship: ${sent.placed.length} photos and ${jpegs.length} JPEGs beside them copied in ${Math.round(took)} ms; originals ${untouched ? "untouched" : "MISSING"}; a second ship ${skipped.skipped === pair.length ? "skips" : "DOES NOT SKIP"} them; a copy beside them ${renamed ? "takes a new name" : "DID NOT GET A NEW NAME"}`,
     );
     if (clear !== 0 || sent.failed.length > 0 || sent.sidecarFailed.length > 0 || sent.moved.length > 0 || !arrived) throw new Error(`ship did not copy cleanly: ${sent.failed.join("; ") || "files missing"}`);
     if (!untouched) throw new Error("a copy took the original with it");
+    if (!paired) throw new Error("ship left a RAW's JPEG behind");
     if (taken !== pair.length || skipped.skipped !== pair.length || skipped.placed.join() !== originals.join()) throw new Error("ship did not notice the names already taken");
     if (!renamed || beside.failed.length > 0) throw new Error("a copy onto a taken name did not go alongside under a new one");
     say(`editing programs found here: ${(await api.editingApps()).filter((a) => a.installed).map((a) => a.name).join(", ")}`);

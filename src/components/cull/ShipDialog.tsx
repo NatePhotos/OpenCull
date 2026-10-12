@@ -93,6 +93,9 @@ function resolve(settings: Settings, photos: Photo[], order: number[], selected:
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** A photo's files as Ship sends them: itself, and the JPEG beside a RAW. */
+const files = (p: Photo) => ({ path: p.path, display: p.display });
+
 /** A list cut to its first few, saying how many more there were. */
 function listed(items: string[]): string {
   const head = items.slice(0, 5).join("\n");
@@ -230,7 +233,7 @@ function Ship() {
   const ship = async () => {
     if (blocked || shipping) return;
     if (transferring) {
-      const taken = await api.shipConflicts(images.map((p) => p.path), settings.destination!).catch(() => 0);
+      const taken = await api.shipConflicts(images.map(files), settings.destination!).catch(() => 0);
       if (taken > 0) return setDuplicates({ images, count: taken });
     }
     void run(images, false);
@@ -244,7 +247,7 @@ function Ship() {
 
     let result: Shipped;
     try {
-      result = await api.ship(shipped.map((p) => p.path), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
+      result = await api.ship(shipped.map(files), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
         setProgress(0.1 + 0.7 * (done / total)),
       );
     } catch (e) {

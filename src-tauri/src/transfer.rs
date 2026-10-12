@@ -55,9 +55,11 @@ pub fn run(jobs: &[Job], destination: &Path, moving: bool, conflict: Conflict, p
     outcome
 }
 
-/// How many of `owners` would land on a file already at `destination`.
-pub fn conflicts(owners: &[PathBuf], destination: &Path) -> usize {
-    owners.iter().filter(|o| o.file_name().is_some_and(|n| destination.join(n).exists())).count()
+/// How many of `jobs` would land on a file already at `destination`: the
+/// photo's own name taken, or that of anything travelling with it.
+pub fn conflicts(jobs: &[Job], destination: &Path) -> usize {
+    let taken = |file: &PathBuf| file.file_name().is_some_and(|n| destination.join(n).exists());
+    jobs.iter().filter(|job| taken(&job.owner) || job.companions.iter().any(taken)).count()
 }
 
 fn send(job: &Job, destination: &Path, moving: bool, conflict: Conflict, outcome: &mut Outcome) {
@@ -413,8 +415,19 @@ mod tests {
         let a = f.source("A.ARW", "a");
         let b = f.source("B.ARW", "b");
 
-        assert_eq!(conflicts(&[a, b], &f.to), 1);
+        assert_eq!(conflicts(&[job(&a), job(&b)], &f.to), 1);
         assert_eq!(f.names_there(), ["A.ARW"]);
+    }
+
+    #[test]
+    fn a_taken_jpeg_name_counts_against_its_raw() {
+        let f = Folders::new("count-pair");
+        std::fs::write(f.to.join("A.JPG"), "a stranger's").unwrap();
+        let raw = f.source("A.ARW", "raw");
+        let jpg = f.source("A.JPG", "jpeg");
+
+        assert_eq!(conflicts(&[Job { owner: raw.clone(), companions: vec![jpg] }], &f.to), 1);
+        assert_eq!(conflicts(&[job(&raw)], &f.to), 0, "on its own the RAW's name is free");
     }
 
     #[test]

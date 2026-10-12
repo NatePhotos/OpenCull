@@ -93,8 +93,9 @@ export const mock: Backend = {
   flushMarks: () => later(undefined),
   moveToTrash: () => later([]),
   transferPhotos: (items, _destination, moving) => later({ placed: items.map((i) => i.path), moved: moving ? items.map((i) => i.path) : [], skipped: 0, failed: [], sidecarFailed: [] }),
-  shipConflicts: (paths) => later(paths.length > 3 ? 2 : 0),
-  ship: async (paths, destination, moving, _skip, onProgress) => {
+  shipConflicts: (items) => later(items.length > 3 ? 2 : 0),
+  ship: async (items, destination, moving, _skip, onProgress) => {
+    const paths = items.map((i) => i.path);
     for (let done = 1; done <= paths.length; done++) {
       await later(null, 40);
       onProgress(done);
