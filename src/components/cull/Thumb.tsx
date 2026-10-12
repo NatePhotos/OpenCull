@@ -163,9 +163,18 @@ export const Rings = memo(function Rings({
   radius?: number;
 }) {
   const ring = "pointer-events-none absolute inset-0";
+  // The colour label is the ring at the edge, until the photo is selected or
+  // in the loupe and that ring is wanted for saying so. It then steps inside
+  // it, thinner, so both can be seen — as the Mac app has it.
+  const inside = primary || selected;
   return (
     <>
-      {color !== "none" && <span className={ring} style={{ borderRadius: radius, boxShadow: `inset 0 0 0 3px var(--opencull-${color})` }} />}
+      {color !== "none" && (
+        <span
+          className="pointer-events-none absolute"
+          style={{ inset: inside ? 3 : 0, borderRadius: inside ? Math.max(1, radius - 3) : radius, boxShadow: `inset 0 0 0 ${inside ? 2 : 3}px var(--opencull-${color})` }}
+        />
+      )}
       {selected && <span className={ring} style={{ borderRadius: radius, boxShadow: "inset 0 0 0 3px var(--opencull-select)" }} />}
       {primary && <span className={ring} style={{ borderRadius: radius, boxShadow: `inset 0 0 0 ${selected ? 1.5 : 3}px #d9d9d9` }} />}
     </>
