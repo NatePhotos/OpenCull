@@ -204,6 +204,8 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
   const s = useStore();
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [stopAsking, setStopAsking] = useState(false);
+  const bin = s.platform === "windows" ? "Recycle Bin" : "Trash";
   const limitTimer = useRef<number | undefined>(undefined);
   const set = useStore.getState().set;
 
@@ -313,6 +315,28 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             detail="Stores a JPEG's stars and colour label inside the file itself as well as beside it, which is where Lightroom, Bridge and others look. Only the file's information is changed, never the picture. Turn off to leave JPEG files exactly as they are."
             control={toggle("embedInJpeg")}
           />
+          <Setting
+            title={`Ask before moving to the ${bin}`}
+            detail={`Asks each time before photos are sent to the ${bin}. Turn off to send them the moment the key is pressed; they stay in the ${bin} until you empty it.`}
+            control={<Switch checked={s.askBeforeTrash} onCheckedChange={(on) => (on ? set("askBeforeTrash", true) : setStopAsking(true))} />}
+          />
+          <AlertDialog open={stopAsking} onOpenChange={setStopAsking}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Stop asking before moving photos to the {bin}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The Move to {bin} key and menu item will send the photo, or every selected photo, to the {bin} at once, along with any JPEG and sidecar file beside it. Nothing will ask first. You can turn the question back on here
+                  at any time.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep Asking</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={() => set("askBeforeTrash", false)}>
+                  Stop Asking
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Setting
             title="Include subfolders"
             detail="Opens photos inside a folder's subfolders as well, so a shoot split across a card's own folders culls as one. The folder on screen reloads when you change this."

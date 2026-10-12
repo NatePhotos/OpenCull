@@ -71,6 +71,8 @@ interface State {
   fileKinds: FileKinds;
   /** Write a JPEG's marks into the file itself, as well as beside it. */
   embedInJpeg: boolean;
+  /** Ask before photos go to the trash. */
+  askBeforeTrash: boolean;
   /** Move on to the next photo after marking one. Follows Caps Lock. */
   speedCull: boolean;
   /** The same, left on whatever Caps Lock is doing. */
@@ -300,6 +302,7 @@ const PERSISTED = [
   "includeSubfolders",
   "fileKinds",
   "embedInJpeg",
+  "askBeforeTrash",
   "warmAhead",
   "speedCullAlways",
   "keepZoom",
@@ -458,6 +461,28 @@ export const useStore = create<Store>((set, get) => {
     set({ ...change, view, current: next, ...(next !== current ? { anchor: next, selected: new Set<number>() } : {}) });
   }
 
+  /** Photos on their way to the trash. Without the question to answer, the
+   *  key can be pressed again before the first press has landed; this keeps
+   *  the same photo from being sent twice. */
+  const trashing = new Set<number>();
+
+  /** Sends photos to the trash, and takes those that went out of what is shown. */
+  async function trash(indices: number[]) {
+    const s = get();
+    if (!s.session) return;
+    const session = s.session.id;
+    const going = indices.filter((i) => !trashing.has(i));
+    if (going.length === 0) return;
+    going.forEach((i) => trashing.add(i));
+    try {
+      const failed = new Set(await api.moveToTrash(going.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }))));
+      // The folder may have been closed, or another opened, while this ran.
+      if (get().session?.id === session) drop(new Set(going.filter((i) => !failed.has(s.photos[i].path))));
+    } finally {
+      going.forEach((i) => trashing.delete(i));
+    }
+  }
+
   /** Takes photos that are no longer in the folder out of what is shown. */
   function drop(gone: Set<number>) {
     if (gone.size === 0) return;
@@ -579,6 +604,7 @@ export const useStore = create<Store>((set, get) => {
     fileKinds: load<FileKinds>("fileKinds", "both"),
     // Off by default: rating should not rewrite original files unless asked.
     embedInJpeg: load("embedInJpeg", false),
+    askBeforeTrash: load("askBeforeTrash", true),
     speedCull: false,
     speedCullAlways: load("speedCullAlways", false),
     keepZoom: load("keepZoom", true),
@@ -937,17 +963,16 @@ export const useStore = create<Store>((set, get) => {
     requestTrash(targets) {
       const s = get();
       const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
-      if (list.length > 0) set({ trashPending: list });
+      if (list.length === 0) return;
+      if (s.askBeforeTrash) set({ trashPending: list });
+      else void trash(list);
     },
 
     async confirmTrash() {
-      const s = get();
-      const pending = s.trashPending;
-      if (!pending || !s.session) return;
+      const pending = get().trashPending;
+      if (!pending) return;
       set({ trashPending: null });
-
-      const failed = new Set(await api.moveToTrash(pending.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }))));
-      drop(new Set(pending.filter((i) => !failed.has(s.photos[i].path))));
+      await trash(pending);
     },
 
     async transfer(targets, moving) {
