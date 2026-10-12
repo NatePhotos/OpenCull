@@ -5,7 +5,7 @@ import { bucket, THUMB_SIZES } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { PhotoMenu } from "./PhotoMenu";
-import { FlagBadge, RankBar, Rings, StarRow, ThumbImage, useHasRankBar } from "./Thumb";
+import { FlagBadge, FramedThumb, RankBar, Rings, StarRow, useHasRankBar } from "./Thumb";
 
 const GAP = 16;
 
@@ -85,7 +85,7 @@ const Cell = memo(function Cell({ index, cell, size }: { index: number; cell: nu
         className={cn("relative shrink-0 overflow-hidden rounded-md bg-cell transition-transform duration-150", !primary && !selected && "hover:scale-[1.02] hover:ring-1 hover:ring-[#595959]")}
         style={{ width: cell, height: cell }}
       >
-        <ThumbImage photo={photo} size={size} className="size-full object-contain p-1" />
+        <FramedThumb photo={photo} size={size} box={{ w: cell - 8, h: cell - 8 }} inset={4} className="size-full object-contain p-1" />
         {photo.flag === "reject" && <span className="absolute inset-0 bg-black/50" />}
         <RankBar index={index} height={16} />
         <span className={cn("absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 p-1.5", ranked && "pb-[20px]")}>

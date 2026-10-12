@@ -75,6 +75,20 @@ export const mock: Backend = {
           exif: exif(i, ms),
           fullWidth: portrait ? 4672 : 7008,
           fullHeight: portrait ? 7008 : 4672,
+          // A few framed already, to show what that looks like: a tight
+          // crop, a straightened one, one lying on its side, and one cropped
+          // and mirrored.
+          framing:
+            i === 1
+              ? { turn: 1, crop: { cx: 4200, cy: 2000, w: 3000, h: 2000, angle: 0 } }
+              : i === 2
+                ? { turn: 1, crop: { cx: 3504, cy: 2336, w: 5400, h: 3600, angle: 6 } }
+                : i === 4
+                  ? { turn: 6, crop: null }
+                  : i === 5
+                    ? { turn: 2, crop: { cx: 2600, cy: 2336, w: 3200, h: 4000, angle: -4 } }
+                    : { turn: 1, crop: null },
+          framable: i % 29 !== 28,
         });
         groups.push(run > 1 ? group : null);
       }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { Focus, ScanFace } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { sideways, turnTransform } from "@/lib/framing";
 import { isFullHeld, isHeld, watchFull } from "@/lib/held";
 import { BLINK, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -210,12 +211,17 @@ function cutOf(region: Region, fill: number, closer: boolean, photo: Photo, widt
 }
 
 function Cut({ region, fill, closer = false, photo, width, height, softSrc, sharpSrc, fullSrc }: { region: Region; fill: number; closer?: boolean; photo: Photo; width: number; height: number; softSrc: string | null; sharpSrc: string | null; fullSrc: string | null }) {
-  const { imgW, imgH, left, top, scale } = cutOf(region, fill, closer, photo, width, height);
+  // A photo the photographer has turned is cut as it lies, in a box on its
+  // side, and the box then turned with it — so the face is the way up it is
+  // in the photo, from the same picture.
+  const turn = turnTransform(photo.framing.turn);
+  const [across, down] = sideways(photo.framing.turn) ? [height, width] : [width, height];
+  const { imgW, imgH, left, top, scale } = cutOf(region, fill, closer, photo, across, down);
   const style = { width: imgW * scale, height: imgH * scale, left: -left * scale, top: -top * scale };
 
   // Both are decoded before they are given here, so each is drawn in the
   // frame it appears: the soft one first, the sharp one over it.
-  return (
+  const layers = (
     <>
       {[softSrc, sharpSrc].map((src, layer) => src && <img key={layer} src={src} alt="" decoding="sync" draggable={false} className="absolute max-w-none" style={style} />)}
       {/* The full-size picture, over both, for a cut the others cannot
@@ -224,6 +230,12 @@ function Cut({ region, fill, closer = false, photo, width, height, softSrc, shar
           rendering beneath meanwhile, never to hold everything up for it. */}
       {fullSrc && <img key="full" src={fullSrc} alt="" decoding="async" draggable={false} className="absolute max-w-none" style={style} />}
     </>
+  );
+  if (!turn) return layers;
+  return (
+    <span className="absolute overflow-hidden" style={{ width: across, height: down, left: (width - across) / 2, top: (height - down) / 2, transform: turn }}>
+      {layers}
+    </span>
   );
 }
 

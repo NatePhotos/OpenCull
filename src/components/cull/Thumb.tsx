@@ -1,7 +1,8 @@
-import { memo, useEffect, useState } from "react";
-import { Flag, X } from "lucide-react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
+import { Crop, Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { placement, shownSize } from "@/lib/framing";
 import { PROBLEM_LABEL, problemOf, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
@@ -14,7 +15,7 @@ import type { Photo } from "@/lib/types";
  * a folder closed — and a cell that gave up at the first refusal would stay
  * blank for as long as it was on screen.
  */
-export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string }) {
+export function ThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
 
@@ -49,11 +50,42 @@ export function ThumbImage({ photo, size, className }: { photo: Pick<Photo, "dis
       draggable={false}
       decoding="async"
       className={className}
+      style={style}
       onError={() => {
         if (attempt >= 2) setFailed(true);
         else setTimeout(() => setAttempt((a) => a + 1), 300 * (attempt + 1));
       }}
     />
+  );
+}
+
+/**
+ * A photo's thumbnail as the photo is framed: turned and cropped as its
+ * framing says, inside a cell `box` across, `inset` in from the cell's edge.
+ *
+ * A photo with no framing — nearly all of them — is `ThumbImage` with
+ * `className` and nothing more, exactly as it was drawn before there was
+ * such a thing as framing. A framed one is the same picture, placed behind a
+ * window the shape of what is left of it: no other picture is asked for.
+ */
+export function FramedThumb({ photo, size, box, inset = 0, cover = false, className }: { photo: Photo; size: number; box: { w: number; h: number }; inset?: number; cover?: boolean; className: string }) {
+  const placed = placement(photo);
+  if (!placed) return <ThumbImage photo={photo} size={size} className={className} />;
+
+  const shown = shownSize(photo);
+  const by = cover ? Math.max(box.w / shown.w, box.h / shown.h) : Math.min(box.w / shown.w, box.h / shown.h);
+  const [w, h] = [shown.w * by, shown.h * by];
+  return (
+    <>
+      <span className="absolute overflow-hidden" style={{ width: w, height: h, left: inset + (box.w - w) / 2, top: inset + (box.h - h) / 2 }}>
+        <ThumbImage photo={photo} size={size} style={placed} />
+      </span>
+      {photo.framing.crop && (
+        <span className="absolute left-1 top-1 rounded-[3px] bg-black/55 p-[2px]" title="Cropped">
+          <Crop className="size-2.5 text-white/85" strokeWidth={2.5} />
+        </span>
+      )}
+    </>
   );
 }
 

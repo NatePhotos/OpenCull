@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import { api, type UpdateFound } from "./api";
+import { isPlain, PLAIN } from "./framing";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
@@ -727,6 +728,8 @@ export const useStore = create<Store>((set, get) => {
         captureMs: reply.times[index] ?? null,
         fullWidth: 0,
         fullHeight: 0,
+        framing: PLAIN,
+        framable: false,
         group: reply.groups?.[index] ?? null,
       }));
       // When every capture time came back with the listing, the folder opens
@@ -779,7 +782,7 @@ export const useStore = create<Store>((set, get) => {
         if (event.type === "batch") {
           const next = s.photos.slice();
           for (const m of event.items) {
-            next[m.index] = { ...next[m.index], ...m.marks, exif: m.exif, captureMs: m.exif.captureMs ?? next[m.index].captureMs, fullWidth: m.fullWidth, fullHeight: m.fullHeight };
+            next[m.index] = { ...next[m.index], ...m.marks, exif: m.exif, captureMs: m.exif.captureMs ?? next[m.index].captureMs, fullWidth: m.fullWidth, fullHeight: m.fullHeight, framing: isPlain(m.framing) ? PLAIN : m.framing, framable: m.framable };
           }
           read += event.items.length;
           set({ photos: next, view: filtered(s.order, next, s), metaProgress: read / next.length });

@@ -3,6 +3,7 @@ import { Flag, Loader2, X } from "lucide-react";
 
 import { api, bucket, FIT_SIZES } from "@/lib/api";
 import * as fmt from "@/lib/format";
+import { framingKey, magnified, placement, shownSize, uprightToShown } from "@/lib/framing";
 import { hold, holdFull, isHeld } from "@/lib/held";
 import { load, save } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
@@ -85,6 +86,9 @@ const HELD_BEHIND = 2;
  * long enough that a held arrow key never starts one.
  */
 const FULL_SETTLE_MS = 250;
+
+/** How far a crop must stretch the window-sized rendering before the full-size picture is drawn in its place. */
+const WORTH_FULL = 1.15;
 
 /**
  * One photo, as large as it will go.
@@ -174,7 +178,12 @@ function Canvas({ photo }: { photo: Photo }) {
   const learn = (img: HTMLImageElement) => {
     if (!known && img.naturalWidth > 0 && shape?.index !== photo.index) setShape({ index: photo.index, w: img.naturalWidth, h: img.naturalHeight });
   };
-  const natural = known ? { w: photo.fullWidth, h: photo.fullHeight } : learnt ? { w: learnt.w, h: learnt.h } : { w: 3, h: 2 };
+  // The shape laid out is the shape of what is shown: the whole frame, or
+  // what a crop leaves of it, the way up it has been turned. Everything
+  // below — the fit, the zoom, where a click lands — is measured on that,
+  // and so needs to know nothing of framing.
+  const natural = known ? shownSize(photo) : learnt ? { w: learnt.w, h: learnt.h } : { w: 3, h: 2 };
+  const placed = known ? placement(photo) : undefined;
   const fit = box.w > 0 ? Math.min(box.w / natural.w, box.h / natural.h) : 0;
   const shown = { w: natural.w * fit, h: natural.h * fit };
 
@@ -185,9 +194,23 @@ function Canvas({ photo }: { photo: Photo }) {
   // Moving to another photo. Done while rendering, not after, so the new
   // photo is never drawn at the old one's zoom for a frame.
   const [zoomedFor, setZoomedFor] = useState(photo.index);
+  const framed = framingKey(photo.framing);
+  const [framedFor, setFramedFor] = useState(framed);
   const shownBefore = useRef(shown);
+  if (zoomedFor === photo.index && framedFor !== framed) {
+    // The same photo, cropped or turned since: a zoom into the old shape
+    // means nothing on the new one, so it is seen whole again.
+    setFramedFor(framed);
+    if (zoom.scale > 1.001) setZoom(FIT);
+    window.clearTimeout(rest.current);
+    setGlide(0);
+    setDrawnAt(null);
+    setLeaving(null);
+    setMoving(false);
+  }
   if (zoomedFor !== photo.index) {
     setZoomedFor(photo.index);
+    setFramedFor(framed);
     const was = shownBefore.current;
     if (zoom.scale > 1.001 && keepZoom && was.w > 0 && shown.w > 0) {
       // The same view with a different photo behind it: the same level, on
@@ -381,7 +404,10 @@ function Canvas({ photo }: { photo: Photo }) {
   useEffect(() => {
     if (!faceZoom || faceZoom.nonce === seenFace.current) return;
     seenFace.current = faceZoom.nonce;
-    const point = { x: (faceZoom.x - 0.5) * shown.w, y: (faceZoom.y - 0.5) * shown.h };
+    // A face is found on the upright picture; it is zoomed to where the
+    // photo's framing has put it, or to the nearest edge if cropped away.
+    const at = uprightToShown(photo, faceZoom);
+    const point = { x: (Math.min(1, Math.max(0, at.x)) - 0.5) * shown.w, y: (Math.min(1, Math.max(0, at.y)) - 0.5) * shown.h };
     const z = now.current;
     if (z.scale > 1.001) glideTo(tight({ scale: z.scale, x: -point.x * z.scale, y: -point.y * z.scale }), GLIDE.in);
     else zoomInOn(point);
@@ -527,7 +553,10 @@ function Canvas({ photo }: { photo: Photo }) {
     if (box.w > 0) useStore.getState().set("fitSize", fitSize);
   }, [fitSize, box.w]);
   const fullUrl = api.url("full", photo);
-  const wantFull = zoomed;
+  // A tight crop fills the frame from a small part of the picture, further
+  // than the window-sized rendering was made to go. The full-size picture is
+  // the file's own, so drawing from it makes nothing.
+  const wantFull = zoomed || (known && magnified(photo) > WORTH_FULL);
 
   // A self-test times these pictures arriving cold, so nothing is held for it.
   const holding = !useStore((s) => s.selfTest);
@@ -593,7 +622,7 @@ function Canvas({ photo }: { photo: Photo }) {
         {box.w > 0 && (
           <div
             ref={sheet}
-            className={cn("absolute left-1/2 top-1/2", inMotion && "will-change-transform")}
+            className={cn("absolute left-1/2 top-1/2", inMotion && "will-change-transform", placed && "overflow-hidden")}
             style={{
               width: laid.w,
               height: laid.h,
@@ -603,6 +632,12 @@ function Canvas({ photo }: { photo: Photo }) {
               transition: glide > 0 ? `transform ${glide}ms ease-in-out` : undefined,
             }}
           >
+            {/* The pictures, in one box that is always here: for a photo with
+                no framing it is the sheet itself, and for a framed one it
+                is placed so the sheet shows what the framing leaves. Always
+                here, because adding it only when needed would take every
+                picture down and put it back as a crop was made. */}
+            <div className="absolute left-0 top-0 size-full" style={placed}>
             {/* Decoded before it is painted, not after: the view already holds
                 this picture, and asking it to wait a frame is what would make
                 a held arrow key flicker. */}
@@ -645,10 +680,11 @@ function Canvas({ photo }: { photo: Photo }) {
                 onLoad={() => setFullReady(fullUrl)}
               />
             )}
+            </div>
           </div>
         )}
         {marquee && <MarqueeBox marquee={marquee} frame={box} />}
-        <ZoomBadge percent={zoomed ? Math.round((zoom.scale / actual) * 100) : null} sharp={wantFull && fullReady === fullUrl} loading={wantFull && fullReady !== fullUrl} />
+        <ZoomBadge percent={zoomed ? Math.round((zoom.scale / actual) * 100) : null} sharp={zoomed && fullReady === fullUrl} loading={zoomed && fullReady !== fullUrl} />
       </div>
     </PhotoMenu>
   );

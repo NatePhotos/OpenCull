@@ -44,12 +44,40 @@ export interface Scanned {
   modified: number;
 }
 
+/**
+ * A crop: a rectangle by its middle and its size, in pixels of the full-size
+ * picture as it is viewed, turned `angle` degrees clockwise about its middle.
+ */
+export interface Crop {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  angle: number;
+}
+
+/**
+ * How a photo is framed. Nothing is done to the picture: the previews are the
+ * whole upright frame, and this says how to place them.
+ */
+export interface Framing {
+  /**
+   * How the upright picture is turned to give the view: one of the eight ways
+   * a rectangle can be turned and mirrored, numbered as EXIF numbers them.
+   * 1 is not at all.
+   */
+  turn: number;
+  crop: Crop | null;
+}
+
 export interface Meta {
   index: number;
   marks: Marks;
   exif: Exif;
   fullWidth: number;
   fullHeight: number;
+  framing: Framing;
+  framable: boolean;
 }
 
 export type MetaEvent =
@@ -65,8 +93,13 @@ export interface Photo extends Scanned, Marks {
    * opens, ahead of the rest of the EXIF, because the folder's order hangs on it.
    */
   captureMs: number | null;
+  /** The size of the upright picture, before any turn or crop of the photographer's. */
   fullWidth: number;
   fullHeight: number;
+  /** How it is turned and cropped. */
+  framing: Framing;
+  /** Whether it can be turned and cropped here at all. */
+  framable: boolean;
   /** Which burst this frame belongs to, or null if it stands alone. */
   group: number | null;
 }

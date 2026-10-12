@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Filmstrip } from "./Filmstrip";
 import { Loupe } from "./Loupe";
 import { useStrip } from "./strip";
-import { ThumbImage } from "./Thumb";
+import { FramedThumb } from "./Thumb";
 
 interface Scene {
   number: number;
@@ -101,7 +101,7 @@ function SceneCard({ scene, active }: { scene: Scene; active: boolean }) {
       className={cn("relative overflow-hidden rounded-md bg-[#141414]", active ? "ring-2 ring-[#d9d9d9]" : "opacity-75 hover:opacity-100")}
       style={{ width: CARD_W, height: CARD_H }}
     >
-      <ThumbImage photo={first} size={320} className="size-full object-cover" />
+      <FramedThumb photo={first} size={320} box={{ w: CARD_W, h: CARD_H }} cover className="size-full object-cover" />
       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#d9d9d9]">{scene.number}</span>
       {scene.frames.length > 1 && (
         <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#73b8ff]">×{scene.frames.length}</span>

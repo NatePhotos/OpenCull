@@ -5,7 +5,7 @@ import { groupOf, hasActiveFilter, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { PhotoMenu } from "./PhotoMenu";
 import { useStrip } from "./strip";
-import { FlagBadge, RankBar, Rings, StarRow, ThumbImage, useHasRankBar } from "./Thumb";
+import { FlagBadge, FramedThumb, RankBar, Rings, StarRow, useHasRankBar } from "./Thumb";
 
 const HANDLE = 4;
 const PAD = 10;
@@ -146,7 +146,7 @@ const Cell = memo(function Cell({ index, width, height, size }: { index: number;
         className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[#141414] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
         style={{ width, height }}
       >
-        <ThumbImage photo={photo} size={size} className="size-full object-contain" />
+        <FramedThumb photo={photo} size={size} box={{ w: width, h: height }} className="size-full object-contain" />
         {photo.flag === "reject" && <span className="absolute inset-0 bg-black/50" />}
         {selected && !primary && <span className="absolute inset-0 bg-select/20" />}
         <span className={cn("absolute inset-x-0 bottom-0 flex flex-col items-center gap-0.5 p-1", ranked && "pb-[17px]")}>

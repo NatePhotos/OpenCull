@@ -7,10 +7,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && tsc -p tsconfig.node.json && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "cd src-tauri && cargo test --lib"
+    "test": "npm run test:web && npm run test:rust",
+    "test:web": "vitest run",
+    "test:rust": "cd src-tauri && cargo test --lib"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -37,6 +39,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "5.0.2"
   }
 }
