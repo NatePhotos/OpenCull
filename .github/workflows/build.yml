@@ -77,11 +77,28 @@ jobs:
       - name: Tests
         run: npm test
 
+      # The app updates itself only from files signed with the project's
+      # update key. Where that key is to hand, the build also makes those
+      # files and the small `latest.json` that says where they are. Where it
+      # is not — a pull request from a fork is never given it — the build
+      # makes the installers alone, as it always did.
+      - name: Signed updates, if the key is here
+        id: updates
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: echo "args=${KEY:+--config src-tauri/tauri.updater.conf.json}" >> "$GITHUB_OUTPUT"
+
       - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
+          args: ${{ steps.updates.outputs.args }}
+          # Of the two Windows installers, the one an update falls back on.
+          updaterJsonPreferNsis: true
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: OpenCull ${{ github.ref_name }}
           releaseBody: See the README for what works, what does not yet, and how to open the app the first time.

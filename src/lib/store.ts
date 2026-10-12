@@ -2,7 +2,7 @@
 // each photo in it, and what is on screen.
 
 import { create } from "zustand";
-import { api } from "./api";
+import { api, type UpdateFound } from "./api";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
@@ -27,6 +27,8 @@ export type ZoomCommand = { kind: "toggle" | "centre" | "in" | "out"; nonce: num
 interface State {
   platform: string;
   selfTest: boolean;
+  /** This app's version, as its release is numbered. */
+  version: string;
 
   session: Session | null;
   /** The folder is still being listed. */
@@ -73,6 +75,12 @@ interface State {
   embedInJpeg: boolean;
   /** Ask before photos go to the trash. */
   askBeforeTrash: boolean;
+  /** Look for a newer version each time the app opens. */
+  checkForUpdates: boolean;
+  /** A newer version that has been found, if one has. */
+  updateFound: UpdateFound | null;
+  /** The offer to install it is on screen. */
+  updateOpen: boolean;
   /** Move on to the next photo after marking one. Follows Caps Lock. */
   speedCull: boolean;
   /** The same, left on whatever Caps Lock is doing. */
@@ -303,6 +311,7 @@ const PERSISTED = [
   "fileKinds",
   "embedInJpeg",
   "askBeforeTrash",
+  "checkForUpdates",
   "warmAhead",
   "speedCullAlways",
   "keepZoom",
@@ -572,6 +581,7 @@ export const useStore = create<Store>((set, get) => {
   return {
     platform: "",
     selfTest: false,
+    version: "",
     session: null,
     loading: false,
     metaProgress: 0,
@@ -605,6 +615,9 @@ export const useStore = create<Store>((set, get) => {
     // Off by default: rating should not rewrite original files unless asked.
     embedInJpeg: load("embedInJpeg", false),
     askBeforeTrash: load("askBeforeTrash", true),
+    checkForUpdates: load("checkForUpdates", true),
+    updateFound: null,
+    updateOpen: false,
     speedCull: false,
     speedCullAlways: load("speedCullAlways", false),
     keepZoom: load("keepZoom", true),
@@ -645,7 +658,15 @@ export const useStore = create<Store>((set, get) => {
 
     async init() {
       const info = await api.appInfo();
-      set({ platform: info.platform, selfTest: info.selfTest });
+      set({ platform: info.platform, selfTest: info.selfTest, version: info.version });
+      // Asked in the background, and no matter if it cannot be: there may be
+      // no connection, and the app is none the worse for not knowing.
+      if (!info.selfTest && get().checkForUpdates) {
+        void api.updateCheck().then(
+          (found) => found && set({ updateFound: found }),
+          () => {},
+        );
+      }
       // A self-test's cache is its own and thrown away; it has no limit to keep.
       if (!info.selfTest) void api.setCacheLimit(get().cacheLimitGb * GIGABYTE).catch(() => {});
       if (info.selfTest && info.openPath) {

@@ -19,6 +19,7 @@ pub mod scan;
 pub mod serve;
 pub mod times;
 pub mod transfer;
+pub mod update;
 pub mod xmp;
 
 use std::sync::Arc;
@@ -32,7 +33,7 @@ use serve::Previews;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let launch = Launch::from_args();
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init());
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_updater::Builder::new().build());
     if !launch.self_test {
         // The window reopens where it was left, at the size it was left.
         // Whether it is showing is not part of that: it starts hidden and is
@@ -169,6 +170,9 @@ pub fn run() {
             commands::ai_set_yield,
             commands::ai_cache_usage,
             commands::ai_clear_cache,
+            update::update_check,
+            update::update_install,
+            update::open_release_page,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

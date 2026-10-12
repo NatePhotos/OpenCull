@@ -5,6 +5,7 @@ import { NoticeDialog, SettingsDialog, ShortcutsDialog, TrashDialog } from "@/co
 import { ShipDialog } from "@/components/cull/ShipDialog";
 import { IngestView } from "@/components/ingest/IngestView";
 import { HomeView } from "@/components/home/HomeView";
+import { UpdateDialog } from "@/components/UpdateDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, inTauri } from "@/lib/api";
 import { installShortcuts, loadBindings, saveBindings, type Action, type Combo } from "@/lib/shortcuts";
@@ -117,6 +118,7 @@ export default function App() {
       <SettingsDialog />
       <ShipDialog />
       <NoticeDialog />
+      <UpdateDialog />
       <ShortcutsDialog bindings={bindings} onChange={changeBindings} onRecording={setRecording} />
     </TooltipProvider>
   );

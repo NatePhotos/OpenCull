@@ -187,6 +187,45 @@ Lens names are read from standard EXIF. Nikon and older Canon bodies keep
 theirs somewhere private, so those show as unknown.
 
 
+## Updates
+
+As it opens, the app asks GitHub for `latest.json` from the newest published
+release: a small file naming that release's version and, for each system,
+where its update file is and what its signature is. If the version is newer
+than the one running, the app offers it — on the home screen only, never over
+a folder being culled — and, if asked to, downloads the file, checks the
+signature, puts the new version in place of the old and reopens. Nothing is
+sent but the request itself. It is the only thing the app uses the internet
+for, it is done by the backend so the view has no leave to reach the network
+at all, and Settings has a switch for it.
+
+A download is installed only if it was signed with the project's update key.
+The public half of that key is in `tauri.conf.json`; the private half is not
+in this repository. The signature also records which version it was made for,
+and the app requires that to match what `latest.json` claims, so an old
+release cannot be passed off as a new one. This is a different thing from the
+paid certificates the systems themselves ask about, which the project does
+not have.
+
+MEASURED on a Mac, against a stand-in server: a build of one version found a
+signed build of the next, installed it, and was that version afterwards; the
+same file with one byte changed was refused and nothing was replaced. The
+Windows and Linux halves are the updater's own and have not been run here.
+
+Making a release with updates in it:
+
+- The build makes the update files only when it is given the key, as the
+  `TAURI_SIGNING_PRIVATE_KEY` secret of the repository (`build.yml`). A build
+  without it — a fork's pull request, or one made locally — makes ordinary
+  installers and nothing else, and needs no key.
+- `latest.json` is put on the release by the build. The app reads it from the
+  release GitHub calls latest, so a release is offered to nobody while it is
+  still a draft or marked as a pre-release.
+- Lose the key and the versions already installed can never update
+  themselves again: each would have to be replaced by hand, once, with a
+  build that trusts a new key.
+
+
 ## Checking it works
 
 The logic has unit tests:
@@ -261,6 +300,7 @@ src-tauri/src/
   scan.rs      listing folders, pairing RAW with JPEG
   xmp.rs       sidecar ratings, read and written
   burst.rs     which frames came from one press of the shutter
+  update.rs    finding a newer version and putting it in place
   commands.rs  what the interface can ask for
 src/
   lib/         state, shortcuts, the bridge to the backend

@@ -205,6 +205,20 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   const [clearing, setClearing] = useState(false);
   const [stopAsking, setStopAsking] = useState(false);
+  /** What asking for updates by hand came back with: nothing yet, asking, none newer, or why not. */
+  const [updates, setUpdates] = useState<"" | "checking" | "newest" | { failed: string }>("");
+  const checkNow = async () => {
+    setUpdates("checking");
+    try {
+      const found = await api.updateCheck();
+      if (!found) return setUpdates("newest");
+      setUpdates("");
+      // The offer takes over from here, in a window of its own.
+      useStore.setState({ updateFound: found, settingsOpen: false, updateOpen: true });
+    } catch (e) {
+      setUpdates({ failed: String(e) });
+    }
+  };
   const bin = s.platform === "windows" ? "Recycle Bin" : "Trash";
   const limitTimer = useRef<number | undefined>(undefined);
   const set = useStore.getState().set;
@@ -247,7 +261,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     }
   };
 
-  const toggle = (key: "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg") => (
+  const toggle = (key: "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates") => (
     <Switch checked={s[key]} onCheckedChange={(on) => set(key, on)} />
   );
   const boxKey = isMac ? "⌘ Command" : "Ctrl";
@@ -349,6 +363,20 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
                   useStore.getState().reloadForSubfolders();
                 }}
               />
+            }
+          />
+          <Setting
+            title="Check for updates"
+            detail={`Looks for a newer OpenCull each time the app opens, and offers to install it. It is the only thing OpenCull uses the internet for, and nothing about you or your photos is sent. ${
+              updates === "newest" ? `You have ${s.version}, the newest version.` : typeof updates === "object" ? `Could not check just now: ${updates.failed}` : `You have ${s.version}.`
+            }`}
+            control={
+              <div className="flex items-center gap-2.5">
+                <Button variant="outline" size="sm" disabled={updates === "checking"} onClick={() => void checkNow()}>
+                  {updates === "checking" ? "Checking…" : "Check Now"}
+                </Button>
+                {toggle("checkForUpdates")}
+              </div>
             }
           />
         </TabsContent>

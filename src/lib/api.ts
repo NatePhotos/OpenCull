@@ -19,6 +19,12 @@ export interface AppInfo {
   selfTest: boolean;
 }
 
+/** A newer version than the one running. */
+export interface UpdateFound {
+  version: string;
+  current: string;
+}
+
 export interface FolderReply {
   session: number;
   images: Scanned[];
@@ -146,6 +152,12 @@ export interface Backend {
   /** Bytes remembered of past analysis, and how many folders that is. */
   aiCacheUsage(): Promise<[number, number]>;
   aiClearCache(): Promise<void>;
+  /** Asks whether a newer version has been released. The one thing that uses the internet. */
+  updateCheck(): Promise<UpdateFound | null>;
+  /** Downloads and installs the newest version and reopens the app. Settles only if it could not. */
+  updateInstall(onProgress: (done: number, total: number | null) => void): Promise<void>;
+  /** Opens a release's page in the browser, or the list of releases. */
+  openReleasePage(version: string | null): Promise<void>;
   ingestVolumes(): Promise<Volume[]>;
   ingestBrowse(path: string): Promise<{ folders: IngestFolder[]; imageCount: number }>;
   ingestScan(path: string): Promise<Scanned[]>;
@@ -215,6 +227,13 @@ const tauri: Backend = {
   aiSetYield: (on) => invoke("ai_set_yield", { on }),
   aiCacheUsage: () => invoke("ai_cache_usage"),
   aiClearCache: () => invoke("ai_clear_cache"),
+  updateCheck: () => invoke("update_check"),
+  updateInstall: (onProgress) => {
+    const progress = new Channel<{ done: number; total: number | null }>();
+    progress.onmessage = (p) => onProgress(p.done, p.total);
+    return invoke("update_install", { progress });
+  },
+  openReleasePage: (version) => invoke("open_release_page", { version }),
   ingestVolumes: () => invoke("ingest_volumes"),
   ingestBrowse: (path) => invoke("ingest_browse", { path }),
   ingestScan: (path) => invoke("ingest_scan", { path }),

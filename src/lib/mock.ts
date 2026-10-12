@@ -162,6 +162,16 @@ export const mock: Backend = {
   aiSetYield: () => later(undefined),
   aiCacheUsage: () => later([2_400_000, 14] as [number, number]),
   aiClearCache: () => later(undefined),
+  // `?update` in the address shows what a newer version being found looks like.
+  updateCheck: () => later(new URLSearchParams(location.search).has("update") ? { version: "9.9.9", current: "0.0.0" } : null, 300),
+  updateInstall: async (onProgress) => {
+    for (let done = 0; done <= 20; done++) {
+      await later(null, 80);
+      onProgress(done, 20);
+    }
+    throw new Error("this is the preview, so nothing was installed");
+  },
+  openReleasePage: () => later(undefined),
   ingestVolumes: () =>
     later([
       { path: "/Volumes/SONY_CARD", name: "SONY_CARD", removable: true, cameraCard: true },

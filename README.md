@@ -82,7 +82,11 @@ deciding what to keep. OpenCull is built to make that fast.
   burst, or through a pose shot again, and ranks the frames, so the one with
   everyone's eyes open is the one it puts first.
 * **Keeps your photos yours.** Everything runs on your own computer. Nothing
-  is uploaded, and there is no account.
+  is uploaded, and there is no account. The one thing it uses the internet
+  for is asking whether a newer version of itself is out, which sends nothing
+  about you or your photos and can be turned off in Settings.
+* **Keeps itself up to date.** When a new version is out, OpenCull says so
+  when it opens and installs it for you if you want it.
 * **Start to finish.** Copy photos off a card, cull them, and hand the keepers
   to your editing program.
 
@@ -125,6 +129,10 @@ before running them the first time:
 * **Windows** — SmartScreen shows "Windows protected your PC". Choose **More
   info**, then **Run anyway**.
 * **Linux** — for the AppImage, make it executable (`chmod +x`) and run it.
+
+That is the only time you need this page. From then on OpenCull offers each
+new version itself, and installing it keeps your settings. If an update
+cannot be installed where the app lives, it says so and brings you back here.
 
 ### Build From Source
 
