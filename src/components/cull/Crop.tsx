@@ -20,7 +20,7 @@ const AROUND = 44;
 const BENEATH = 96;
 
 /** How long the picture takes to settle back under the frame after a handle is let go. */
-const SETTLE_MS = 160;
+const SETTLE_MS = 80;
 
 /** A line shorter than this, on screen, is a slip of the hand and straightens nothing. */
 const LINE_MIN = 14;
@@ -371,8 +371,15 @@ function CropBar() {
       </button>
       <Slider
         // Its fill runs from the left end, which says nothing of a tilt that
-        // goes either way from the middle, so it is not drawn.
-        className="w-[150px] shrink-0 [&_[data-slot=slider-range]]:bg-transparent"
+        // goes either way from the middle, so it is not drawn; and its track
+        // is made dark, to be seen against the bar it sits on.
+        className="w-[150px] shrink-0 [&_[data-slot=slider-range]]:bg-transparent [&_[data-slot=slider-track]]:h-1.5! [&_[data-slot=slider-track]]:bg-black/70 [&_[data-slot=slider-track]]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]"
+        title="The tilt. Double-click to level."
+        // On the knob or anywhere along it: level again.
+        onDoubleClick={() => {
+          c.tilt(0);
+          c.tiltDone();
+        }}
         min={-MOST_TILT}
         max={MOST_TILT}
         step={0.1}

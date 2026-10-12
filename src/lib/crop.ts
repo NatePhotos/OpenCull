@@ -57,6 +57,13 @@ interface State {
   lining: boolean;
   /** The crop as a tilt began, which the tilt shrinks and lets grow back. */
   tiltFrom: Crop | null;
+  /**
+   * The size the crop was before it was first tilted. A tilt makes it smaller
+   * to keep it on the picture; a lesser tilt, or none, gives that size back —
+   * in this drag of the slider or a later one. Forgotten once the size is
+   * changed by hand, which is a new size to go back to.
+   */
+  untilted: { w: number; h: number } | null;
 
   begin(index: number, photo: { fullWidth: number; fullHeight: number; framing: Framing }): void;
   end(): void;
@@ -152,13 +159,14 @@ export const useCrop = create<State>((set, get) => ({
   overlayTurn: 1,
   lining: false,
   tiltFrom: null,
+  untilted: null,
 
   begin(index, photo) {
     const upright = { w: photo.fullWidth, h: photo.fullHeight };
     const view = sideways(photo.framing.turn) ? { w: upright.h, h: upright.w } : upright;
     const crop = photo.framing.crop ?? wholeOf(view);
     const aspect = crop.w / crop.h;
-    set({ index, turn: photo.framing.turn, upright, view, crop, was: photo.framing, aspect, shape: shapeOf(aspect, view), lining: false, tiltFrom: null });
+    set({ index, turn: photo.framing.turn, upright, view, crop, was: photo.framing, aspect, shape: shapeOf(aspect, view), lining: false, tiltFrom: null, untilted: null });
   },
 
   end: () => set({ index: null, lining: false, tiltFrom: null }),
@@ -170,8 +178,12 @@ export const useCrop = create<State>((set, get) => ({
 
   set(crop) {
     const s = get();
+    // A size set by hand is the size to go back to; sliding the picture
+    // about leaves it as it was.
+    const resized = Math.abs(crop.w - s.crop.w) > 0.01 || Math.abs(crop.h - s.crop.h) > 0.01;
+    const untilted = resized ? null : s.untilted;
     // Dragged with the shape free, the shape is whatever it has come to.
-    set(s.locked ? { crop } : { crop, aspect: crop.w / crop.h, shape: shapeOf(crop.w / crop.h, s.view) });
+    set(s.locked ? { crop, untilted } : { crop, untilted, aspect: crop.w / crop.h, shape: shapeOf(crop.w / crop.h, s.view) });
   },
 
   setShape(name, ratio) {
@@ -183,7 +195,7 @@ export const useCrop = create<State>((set, get) => ({
     const tall = listed?.ratio === 0 ? s.view.h > s.view.w : s.crop.h > s.crop.w;
     const aspect = listed ? facing(Math.max(long, 1 / long), tall) : long;
     save("cropLocked", true);
-    set({ aspect, locked: true, shape: listed ? name : shapeOf(aspect, s.view), crop: reshaped(s.crop, aspect, s.view) });
+    set({ aspect, locked: true, shape: listed ? name : shapeOf(aspect, s.view), crop: reshaped(s.crop, aspect, s.view), untilted: null });
   },
 
   toggleLock() {
@@ -195,14 +207,15 @@ export const useCrop = create<State>((set, get) => ({
   swap() {
     const s = get();
     const aspect = 1 / s.aspect;
-    set({ aspect, crop: reshaped(s.crop, aspect, s.view), shape: shapeOf(aspect, s.view) });
+    set({ aspect, crop: reshaped(s.crop, aspect, s.view), shape: shapeOf(aspect, s.view), untilted: null });
   },
 
   tilt(angle) {
     const s = get();
-    const from = s.tiltFrom ?? s.crop;
+    const size = s.untilted ?? { w: s.crop.w, h: s.crop.h };
+    const from = s.tiltFrom ?? { ...s.crop, ...size };
     const to = Math.max(-MOST_TILT, Math.min(MOST_TILT, Math.round(angle * 100) / 100));
-    set({ tiltFrom: from, crop: shrunkToFit({ ...from, angle: to }, s.view) });
+    set({ tiltFrom: from, untilted: size, crop: shrunkToFit({ ...from, angle: to }, s.view) });
   },
 
   tiltDone: () => set({ tiltFrom: null }),
@@ -212,13 +225,13 @@ export const useCrop = create<State>((set, get) => ({
     const next = turned({ fullWidth: s.upright.w, fullHeight: s.upright.h, framing: { turn: s.turn, crop: s.crop } }, by);
     const view = sideways(next.turn) ? { w: s.upright.h, h: s.upright.w } : s.upright;
     const aspect = sideways(by) ? 1 / s.aspect : s.aspect;
-    set({ turn: followedBy(s.turn, by), view, crop: next.crop!, aspect, shape: shapeOf(aspect, view), tiltFrom: null });
+    set({ turn: followedBy(s.turn, by), view, crop: next.crop!, aspect, shape: shapeOf(aspect, view), tiltFrom: null, untilted: s.untilted && sideways(by) ? { w: s.untilted.h, h: s.untilted.w } : s.untilted });
   },
 
   reset() {
     const s = get();
     const aspect = s.view.w / s.view.h;
-    set({ crop: wholeOf(s.view), aspect, shape: SHAPES[0].name, tiltFrom: null, lining: false });
+    set({ crop: wholeOf(s.view), aspect, shape: SHAPES[0].name, tiltFrom: null, untilted: null, lining: false });
   },
 
   cycleOverlay() {

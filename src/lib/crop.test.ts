@@ -84,6 +84,25 @@ describe("a crop in the making", () => {
     expect(useCrop.getState().crop.angle).toBe(45);
   });
 
+  it("gets its size back when levelled later, unless it was resized in between", () => {
+    const c = useCrop.getState();
+    c.tilt(12);
+    c.tiltDone();
+    expect(useCrop.getState().crop.w).toBeLessThan(6000);
+    // Another go at the slider, back to level: the whole photo again.
+    c.tilt(0);
+    c.tiltDone();
+    expect(useCrop.getState().result().crop).toBeNull();
+
+    // Tilted, then made smaller by hand: that is now the size to go back to.
+    c.tilt(12);
+    c.tiltDone();
+    const tilted = useCrop.getState().crop;
+    c.set({ ...tilted, w: tilted.w / 2, h: tilted.h / 2 });
+    c.tilt(0);
+    expect(useCrop.getState().crop.w).toBeCloseTo(tilted.w / 2);
+  });
+
   it("turns with the photo, shape and all", () => {
     const c = useCrop.getState();
     c.setShape("16 × 9");
