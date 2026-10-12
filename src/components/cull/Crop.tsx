@@ -105,6 +105,8 @@ export function CropView({ photo }: { photo: Photo }) {
     window.clearTimeout(settle.current);
     setSettling(false);
     if (doing === "handle") setHeld(at);
+    // Noted before it is changed, so one undo takes back the whole drag.
+    if (doing === "handle" || doing === "move") start.mark();
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
 

@@ -103,6 +103,64 @@ describe("a crop in the making", () => {
     expect(useCrop.getState().crop.w).toBeCloseTo(tilted.w / 2);
   });
 
+  it("is undone and redone a step at a time", () => {
+    const c = useCrop.getState();
+    const whole = useCrop.getState().crop;
+
+    // A handle dragged: noted once as it is pressed, changed many times.
+    c.mark();
+    c.set({ ...whole, w: 5000, cx: 2500 });
+    c.set({ ...whole, w: 4000, cx: 2000 });
+    c.setShape("1 × 1");
+    // A drag of the slider is one step, however far it goes.
+    c.tilt(3);
+    c.tilt(8);
+    c.tiltDone();
+    c.turnBy(QUARTER_RIGHT);
+
+    const turn = () => useCrop.getState().turn;
+    const crop = () => useCrop.getState().crop;
+    c.undo();
+    expect([turn(), crop().angle]).toEqual([1, 8]);
+    c.undo();
+    expect(crop().angle).toBe(0);
+    expect(crop().w).toBeCloseTo(crop().h);
+    c.undo();
+    expect([crop().w, crop().h]).toEqual([4000, 4000]);
+    c.undo();
+    expect(crop()).toEqual(whole);
+    // Nothing more to take back: it stays as it began.
+    c.undo();
+    expect(crop()).toEqual(whole);
+
+    c.redo();
+    expect(crop().w).toBe(4000);
+    c.redo();
+    c.redo();
+    c.redo();
+    expect([turn(), crop().angle]).toEqual([6, 8]);
+    c.redo();
+    expect(turn()).toBe(6);
+
+    // Something new done after an undo leaves nothing to redo.
+    c.undo();
+    c.reset();
+    c.redo();
+    expect(useCrop.getState().result().crop).toBeNull();
+  });
+
+  it("does not stop at a handle that was pressed and not moved", () => {
+    const c = useCrop.getState();
+    c.setShape("1 × 1");
+    const square = useCrop.getState().crop;
+    c.mark();
+    c.mark();
+    c.undo();
+    expect(useCrop.getState().crop.w).toBe(6000);
+    c.redo();
+    expect(useCrop.getState().crop).toEqual(square);
+  });
+
   it("turns with the photo, shape and all", () => {
     const c = useCrop.getState();
     c.setShape("16 × 9");

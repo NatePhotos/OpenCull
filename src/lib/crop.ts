@@ -35,6 +35,20 @@ export const OVERLAY_NAMES: Record<Overlay, string> = { thirds: "Rule of Thirds"
 const SMALLEST = 96;
 export const MOST_TILT = 45;
 
+/** The crop as it stood at one moment, to go back to. */
+type Step = Pick<State, "turn" | "view" | "crop" | "aspect" | "locked" | "shape" | "untilted">;
+
+/** How many steps back are kept. */
+const MOST_STEPS = 200;
+
+const stepOf = (s: State): Step => ({ turn: s.turn, view: s.view, crop: s.crop, aspect: s.aspect, locked: s.locked, shape: s.shape, untilted: s.untilted });
+
+/** Whether two steps would look the same on screen. */
+function sameStep(a: Step, b: Step): boolean {
+  const near = (x: number, y: number) => Math.abs(x - y) < 0.01;
+  return a.turn === b.turn && a.locked === b.locked && a.shape === b.shape && near(a.aspect, b.aspect) && near(a.crop.cx, b.crop.cx) && near(a.crop.cy, b.crop.cy) && near(a.crop.w, b.crop.w) && near(a.crop.h, b.crop.h) && near(a.crop.angle, b.crop.angle);
+}
+
 interface State {
   /** The photo being cropped, by its place in the folder; null when none is. */
   index: number | null;
@@ -64,7 +78,18 @@ interface State {
    * changed by hand, which is a new size to go back to.
    */
   untilted: { w: number; h: number } | null;
+  /**
+   * What the crop was before each thing done to it, and what was undone.
+   * These are steps within the making of one crop: accepting the crop is
+   * still one step to the app, however many went into it.
+   */
+  past: Step[];
+  future: Step[];
 
+  /** Notes the crop as it stands, before something is done to it. */
+  mark(): void;
+  undo(): void;
+  redo(): void;
   begin(index: number, photo: { fullWidth: number; fullHeight: number; framing: Framing }): void;
   end(): void;
   /** The framing as it now stands: what accepting the crop would save. */
@@ -160,16 +185,55 @@ export const useCrop = create<State>((set, get) => ({
   lining: false,
   tiltFrom: null,
   untilted: null,
+  past: [],
+  future: [],
+
+  mark() {
+    const s = get();
+    const now = stepOf(s);
+    const last = s.past[s.past.length - 1];
+    // Noted once, however often it is asked for before anything changes.
+    if (last && sameStep(last, now)) return;
+    set({ past: [...s.past.slice(-MOST_STEPS + 1), now], future: [] });
+  },
+
+  undo() {
+    const s = get();
+    const now = stepOf(s);
+    const past = s.past.slice();
+    // A handle pressed and let go without being moved leaves a note of
+    // nothing having changed. Those are passed over, not stopped at.
+    while (past.length > 0) {
+      const step = past.pop()!;
+      if (sameStep(step, now)) continue;
+      set({ ...step, past, future: [...s.future, now], tiltFrom: null, lining: false });
+      return;
+    }
+    set({ past });
+  },
+
+  redo() {
+    const s = get();
+    const now = stepOf(s);
+    const future = s.future.slice();
+    while (future.length > 0) {
+      const step = future.pop()!;
+      if (sameStep(step, now)) continue;
+      set({ ...step, future, past: [...s.past, now], tiltFrom: null, lining: false });
+      return;
+    }
+    set({ future });
+  },
 
   begin(index, photo) {
     const upright = { w: photo.fullWidth, h: photo.fullHeight };
     const view = sideways(photo.framing.turn) ? { w: upright.h, h: upright.w } : upright;
     const crop = photo.framing.crop ?? wholeOf(view);
     const aspect = crop.w / crop.h;
-    set({ index, turn: photo.framing.turn, upright, view, crop, was: photo.framing, aspect, shape: shapeOf(aspect, view), lining: false, tiltFrom: null, untilted: null });
+    set({ index, turn: photo.framing.turn, upright, view, crop, was: photo.framing, aspect, shape: shapeOf(aspect, view), lining: false, tiltFrom: null, untilted: null, past: [], future: [] });
   },
 
-  end: () => set({ index: null, lining: false, tiltFrom: null }),
+  end: () => set({ index: null, lining: false, tiltFrom: null, past: [], future: [] }),
 
   result() {
     const s = get();
@@ -187,6 +251,7 @@ export const useCrop = create<State>((set, get) => ({
   },
 
   setShape(name, ratio) {
+    get().mark();
     const s = get();
     const listed = SHAPES.find((shape) => shape.name === name);
     const long = listed ? (listed.ratio > 0 ? listed.ratio : Math.max(s.view.w / s.view.h, s.view.h / s.view.w)) : ratio;
@@ -199,18 +264,22 @@ export const useCrop = create<State>((set, get) => ({
   },
 
   toggleLock() {
+    get().mark();
     const s = get();
     save("cropLocked", !s.locked);
     set({ locked: !s.locked, aspect: s.crop.w / s.crop.h, shape: shapeOf(s.crop.w / s.crop.h, s.view) });
   },
 
   swap() {
+    get().mark();
     const s = get();
     const aspect = 1 / s.aspect;
     set({ aspect, crop: reshaped(s.crop, aspect, s.view), shape: shapeOf(aspect, s.view), untilted: null });
   },
 
   tilt(angle) {
+    // A whole drag of the slider, or of the picture round, is one step.
+    if (!get().tiltFrom) get().mark();
     const s = get();
     const size = s.untilted ?? { w: s.crop.w, h: s.crop.h };
     const from = s.tiltFrom ?? { ...s.crop, ...size };
@@ -221,6 +290,7 @@ export const useCrop = create<State>((set, get) => ({
   tiltDone: () => set({ tiltFrom: null }),
 
   turnBy(by) {
+    get().mark();
     const s = get();
     const next = turned({ fullWidth: s.upright.w, fullHeight: s.upright.h, framing: { turn: s.turn, crop: s.crop } }, by);
     const view = sideways(next.turn) ? { w: s.upright.h, h: s.upright.w } : s.upright;
@@ -229,6 +299,7 @@ export const useCrop = create<State>((set, get) => ({
   },
 
   reset() {
+    get().mark();
     const s = get();
     const aspect = s.view.w / s.view.h;
     set({ crop: wholeOf(s.view), aspect, shape: SHAPES[0].name, tiltFrom: null, untilted: null, lining: false });

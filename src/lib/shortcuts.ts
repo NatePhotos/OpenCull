@@ -240,8 +240,9 @@ export function perform(action: Action): void {
  * Enter keeps the crop and Escape leaves the photo as it was; X swaps tall
  * for wide, A holds or frees the shape, O steps through the guides and
  * Shift+O turns them. Moving to another photo keeps the crop and carries on
- * cropping there. Everything else does nothing, rather than what it does to
- * a photo that is not being cropped.
+ * cropping there. Undo and redo step back and forth through what has been
+ * done to this crop, and no further. Everything else does nothing, rather
+ * than what it does to a photo that is not being cropped.
  */
 function cropKey(e: KeyboardEvent, table: Record<Action, Combo>) {
   const s = useStore.getState();
@@ -250,6 +251,9 @@ function cropKey(e: KeyboardEvent, table: Record<Action, Combo>) {
   const is = (action: Action) => sameCombo(table[action], pressed);
   const plain = !pressed.mod && !pressed.alt;
   e.preventDefault();
+  // Held down, undo and redo run back and forth through the steps.
+  if (is("undo")) return crop.undo();
+  if (is("redo")) return crop.redo();
   if (e.repeat) return;
 
   if (e.code === "Enter" || e.code === "NumpadEnter" || is("crop")) return s.closeCrop(true);
