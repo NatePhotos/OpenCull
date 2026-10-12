@@ -3,9 +3,9 @@
 
 import { create } from "zustand";
 import { api, type UpdateFound } from "./api";
-import { isPlain, PLAIN } from "./framing";
+import { isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, turned } from "./framing";
 import { load, save } from "./prefs";
-import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
+import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
 interface Session {
   id: number;
@@ -21,7 +21,11 @@ interface Session {
 }
 
 /** One undoable step: every photo it touched, before and after. */
-type Edit = { index: number; before: Marks; after: Marks }[];
+/**
+ * One thing done, to be undone as one: each photo it touched, with its marks
+ * before and after — or, where it was the framing that changed, that.
+ */
+type Edit = { index: number; before: Marks; after: Marks; framing?: { before: Framing; after: Framing } }[];
 
 export type ZoomCommand = { kind: "toggle" | "centre" | "in" | "out"; nonce: number };
 
@@ -178,6 +182,12 @@ interface Actions {
   setFlag(flag: Flag, targets?: number[]): void;
   setColor(color: Color, targets?: number[]): void;
   clearRatingAndColor(targets?: number[]): void;
+  /** Crops or turns one photo. */
+  setFraming(index: number, framing: Framing): void;
+  /** Turns photos a quarter left or right, or mirrors them across or down. */
+  turnPhotos(how: "left" | "right" | "across" | "down", targets?: number[]): void;
+  /** Takes the crop and any turn off photos. */
+  resetFraming(targets?: number[]): void;
   undo(): void;
   redo(): void;
 
@@ -416,6 +426,38 @@ export const useStore = create<Store>((set, get) => {
       view: filtered(s.order, photos, s),
       ...(record ? { undoStack: [...s.undoStack.slice(-MAX_UNDO + 1), edit], redoStack: [] } : {}),
     });
+  }
+
+  /**
+   * Crops and turns photos, and has it written beside them. One step to
+   * undo, however many photos. A photo that cannot be framed here — its
+   * sidecar cannot be followed, or its picture is not the whole of it — is
+   * passed over.
+   */
+  function applyFraming(changes: { index: number; framing: Framing }[], record = true) {
+    const s = get();
+    const edit: Edit = [];
+    const photos = s.photos.slice();
+    for (const { index, framing } of changes) {
+      const photo = photos[index];
+      if (!photo || !photo.framable || photo.fullWidth <= 0 || sameFraming(photo.framing, framing)) continue;
+      const marks = marksOf(photo);
+      edit.push({ index, before: marks, after: marks, framing: { before: photo.framing, after: framing } });
+      photos[index] = { ...photo, framing: isPlain(framing) ? PLAIN : framing };
+    }
+    if (edit.length === 0) return;
+
+    // A self-test frames nothing in anyone's folder.
+    if (!s.selfTest) {
+      const jpegs = (p: Photo) => (s.embedInJpeg ? [...new Set([p.path, p.display])].filter((file) => /\.jpe?g$/i.test(file)) : []);
+      void api.setFraming(
+        edit.map((e) => {
+          const p = photos[e.index];
+          return { path: p.path, into: jpegs(p), framing: p.framing, upright: [p.fullWidth, p.fullHeight] as [number, number], seed: e.after };
+        }),
+      );
+    }
+    set({ photos, ...(record ? { undoStack: [...s.undoStack.slice(-MAX_UNDO + 1), edit], redoStack: [] } : {}) });
   }
 
   /**
@@ -923,11 +965,29 @@ export const useStore = create<Store>((set, get) => {
       applyMarks(list.map((index) => ({ index, after: { ...marksOf(s.photos[index]), rating: 0, color: "none" as Color } })));
     },
 
+    setFraming(index, framing) {
+      applyFraming([{ index, framing }]);
+    },
+
+    turnPhotos(how, targets) {
+      const s = get();
+      const by = { left: QUARTER_LEFT, right: QUARTER_RIGHT, across: MIRROR_ACROSS, down: MIRROR_DOWN }[how];
+      const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
+      applyFraming(list.map((index) => ({ index, framing: turned(s.photos[index], by) })));
+    },
+
+    resetFraming(targets) {
+      const s = get();
+      const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
+      applyFraming(list.map((index) => ({ index, framing: PLAIN })));
+    },
+
     undo() {
       const s = get();
       const edit = s.undoStack[s.undoStack.length - 1];
       if (!edit) return;
-      applyMarks(edit.map((e) => ({ index: e.index, after: e.before })), false);
+      applyMarks(edit.filter((e) => !e.framing).map((e) => ({ index: e.index, after: e.before })), false);
+      applyFraming(edit.flatMap((e) => (e.framing ? [{ index: e.index, framing: e.framing.before }] : [])), false);
       set({ undoStack: s.undoStack.slice(0, -1), redoStack: [...s.redoStack, edit], ...backTo(edit) });
     },
 
@@ -935,7 +995,8 @@ export const useStore = create<Store>((set, get) => {
       const s = get();
       const edit = s.redoStack[s.redoStack.length - 1];
       if (!edit) return;
-      applyMarks(edit.map((e) => ({ index: e.index, after: e.after })), false);
+      applyMarks(edit.filter((e) => !e.framing).map((e) => ({ index: e.index, after: e.after })), false);
+      applyFraming(edit.flatMap((e) => (e.framing ? [{ index: e.index, framing: e.framing.after }] : [])), false);
       set({ redoStack: s.redoStack.slice(0, -1), undoStack: [...s.undoStack, edit], ...backTo(edit) });
     },
 

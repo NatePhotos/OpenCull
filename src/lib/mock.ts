@@ -105,6 +105,7 @@ export const mock: Backend = {
   warmRemaining: () => later(0),
   setMarks: () => later(undefined),
   flushMarks: () => later(undefined),
+  setFraming: () => later(undefined),
   moveToTrash: () => later([]),
   transferPhotos: (items, _destination, moving) => later({ placed: items.map((i) => i.path), moved: moving ? items.map((i) => i.path) : [], skipped: 0, failed: [], sidecarFailed: [] }),
   shipConflicts: (items) => later(items.length > 3 ? 2 : 0),
@@ -217,6 +218,7 @@ export const mock: Backend = {
   ingestCancel: () => later(undefined),
   onQuitRefused: () => () => {},
   onJpegNotWritten: () => () => {},
+  onFramingNotSaved: () => () => {},
   histogram: (path) => {
     const seed = path.length;
     const bell = (centre: number) => Array.from({ length: 256 }, (_, x) => Math.round(900 * Math.exp(-((x - centre) ** 2) / 2600)));

@@ -113,8 +113,13 @@ pub fn run() {
             // A rating that could not be written into a JPEG is still in its
             // sidecar, but other programs will not see it, and that is said.
             let handle = app.handle().clone();
-            state.writer.on_failure(move |path, why| {
-                handle.emit("jpeg-not-written", (path.to_string_lossy().into_owned(), why.to_string())).ok();
+            state.writer.on_failure(move |path, why, what| {
+                let event = match what {
+                    xmp::Wrote::Jpeg => "jpeg-not-written",
+                    xmp::Wrote::Framing => "framing-not-saved",
+                    xmp::Wrote::JpegCrop => "crop-not-in-jpeg",
+                };
+                handle.emit(event, (path.to_string_lossy().into_owned(), why.to_string())).ok();
             });
             app.manage(state);
             Ok(())
@@ -144,6 +149,7 @@ pub fn run() {
             commands::warm_remaining,
             commands::set_marks,
             commands::flush_marks,
+            commands::set_framing,
             commands::move_to_trash,
             commands::histogram,
             commands::folder_cover,

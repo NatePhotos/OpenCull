@@ -7,7 +7,7 @@
 // out of the shipped bundle entirely.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AiEvent, Compared, FileKinds, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
+import type { AiEvent, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
 
 export interface AppInfo {
   platform: string;
@@ -125,6 +125,13 @@ export interface Backend {
   /** Records marks beside each photo, and inside each of the JPEGs named in `into`. */
   setMarks(changes: ({ path: string; into: string[] } & Marks)[]): Promise<void>;
   flushMarks(): Promise<void>;
+  /**
+   * Records how photos are cropped and turned, beside each photo in the
+   * fields editing programs read, and the crop inside each of the JPEGs named
+   * in `into`. `upright` is the size of the picture the framing was made on,
+   * and `seed` the photo's marks, for a sidecar that has to be made.
+   */
+  setFraming(changes: { path: string; into: string[]; framing: Framing; upright: [number, number]; seed: Marks }[]): Promise<void>;
   moveToTrash(items: { path: string; display: string }[]): Promise<string[]>;
   /** Copies or moves photos, with their JPEGs and ratings, to another folder. Never replaces anything there. */
   transferPhotos(items: { path: string; display: string }[], destination: string, moving: boolean): Promise<Shipped>;
@@ -170,6 +177,11 @@ export interface Backend {
   onQuitRefused(handler: () => void): () => void;
   /** Calls `handler` when marks could not be written into a JPEG: the file, and why. */
   onJpegNotWritten(handler: (path: string, why: string) => void): () => void;
+  /**
+   * Calls `handler` when a photo's framing could not be saved: the file, why,
+   * and whether it is saved nowhere (`lost`) or only missing from a JPEG.
+   */
+  onFramingNotSaved(handler: (path: string, why: string, lost: boolean) => void): () => void;
   histogram(path: string, version: string): Promise<Histogram>;
   folderCover(path: string): Promise<Scanned[]>;
   foldersExist(paths: string[]): Promise<boolean[]>;
@@ -204,6 +216,7 @@ const tauri: Backend = {
   warmRemaining: () => invoke("warm_remaining"),
   setMarks: (changes) => invoke("set_marks", { changes }),
   flushMarks: () => invoke("flush_marks"),
+  setFraming: (changes) => invoke("set_framing", { changes }),
   moveToTrash: (items) => invoke("move_to_trash", { items }),
   transferPhotos: (items, destination, moving) => invoke("transfer_photos", { items, destination, moving }),
   shipConflicts: (items, destination) => invoke("ship_conflicts", { items, destination }),
@@ -261,6 +274,22 @@ const tauri: Backend = {
     return () => {
       stopped = true;
       stop?.();
+    };
+  },
+  onFramingNotSaved: (handler) => {
+    const stops: (() => void)[] = [];
+    let stopped = false;
+    void import("@tauri-apps/api/event").then(({ listen }) => {
+      for (const [event, lost] of [["framing-not-saved", true], ["crop-not-in-jpeg", false]] as const) {
+        void listen<[string, string]>(event, (e) => handler(e.payload[0], e.payload[1], lost)).then((unlisten) => {
+          if (stopped) unlisten();
+          else stops.push(unlisten);
+        });
+      }
+    });
+    return () => {
+      stopped = true;
+      stops.forEach((stop) => stop());
     };
   },
   onQuitRefused: (handler) => {

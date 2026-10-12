@@ -32,6 +32,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::raw::io::FileSource;
 use crate::raw::jpeg;
+use crate::framing::Stored;
 use crate::xmp::{self, Marks};
 
 /// What writing into a file came to.
@@ -95,6 +96,35 @@ fn roomy(changed: &str) -> String {
 
 /// Writes `marks` into the JPEG at `path`.
 pub fn write(path: &Path, marks: Marks) -> io::Result<Outcome> {
+    rewrite(path, &|packet| Ok(Some(xmp::update(packet, marks))), &|| Ok((!marks.is_empty()).then(|| xmp::fresh(marks))))
+}
+
+/// Writes a crop into the JPEG at `path`, or takes one out, as Adobe's
+/// programs keep a JPEG's crop: in its packet, against the picture as it is
+/// stored. Which way up the JPEG is, is never touched: the file says that
+/// itself, and saying it a second time here is how two programs come to
+/// disagree about it.
+pub fn write_crop(path: &Path, crop: Option<&Stored>) -> io::Result<Outcome> {
+    rewrite(
+        path,
+        &|packet| {
+            // A picture that already has its settings in it is an exported
+            // one. A crop added to it would be a crop of a crop.
+            if crate::sidecar::read(packet).map_err(err)?.already_applied {
+                return Ok(None);
+            }
+            crate::sidecar::change(packet, crop, None).map(Some).map_err(err)
+        },
+        &|| match crop {
+            Some(crop) => crate::sidecar::change(&xmp::fresh(Marks::default()), Some(crop), None).map(Some).map_err(err),
+            None => Ok(None),
+        },
+    )
+}
+
+/// Changes the JPEG's packet with `change`, or — if it has none — gives it
+/// the one `fresh` makes. Either may say there is nothing to do.
+fn rewrite(path: &Path, change: &dyn Fn(&str) -> io::Result<Option<String>>, fresh: &dyn Fn() -> io::Result<Option<String>>) -> io::Result<Outcome> {
     let before = std::fs::metadata(path)?;
     let source = FileSource::open(path)?;
     let layout = jpeg::layout(&source).ok_or_else(|| err("not a JPEG"))?;
@@ -104,10 +134,9 @@ pub fn write(path: &Path, marks: Marks) -> io::Result<Outcome> {
         Some((segment_at, packet_at, len)) => {
             let bytes = source.read_at(packet_at, len).ok_or_else(|| err("the file ends inside its XMP packet"))?;
             let original = String::from_utf8(bytes).map_err(|_| err("its XMP packet is not text"))?;
-            let changed = xmp::update(&original, marks);
-            if changed == original {
+            let Some(changed) = change(&original)?.filter(|changed| *changed != original) else {
                 return Ok(Outcome::Unchanged);
-            }
+            };
             drop(source);
             match fitted(&original, &changed) {
                 Some(same_length) => {
@@ -130,11 +159,11 @@ pub fn write(path: &Path, marks: Marks) -> io::Result<Outcome> {
         None => {
             // Nothing marked and nothing there: an empty packet says nothing
             // and is not worth opening a photograph to write.
-            if marks.is_empty() {
+            let Some(new) = fresh()? else {
                 return Ok(Outcome::Unchanged);
-            }
+            };
             drop(source);
-            let packet = format!("{OPEN}{}\n{}{CLOSE}", xmp::fresh(marks), padding(ROOM));
+            let packet = format!("{OPEN}{new}\n{}{CLOSE}", padding(ROOM));
             let segment = jpeg::xmp_segment(packet.as_bytes()).ok_or_else(|| err("packet too large"))?;
             afresh(path, layout.insert_at, layout.insert_at, &segment)?;
             Outcome::Rewritten
@@ -329,6 +358,49 @@ mod tests {
         assert_eq!(write(&path, marks(2)).unwrap(), Outcome::InPlace);
         assert_eq!(std::fs::read(&path).unwrap().len(), after.len());
         assert_eq!(xmp::parse(&packet_of(&path).unwrap()).rating, 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_crop_goes_into_the_packet_beside_the_marks_and_comes_out_again() {
+        let crop = Stored { left: 0.1, top: 0.2, right: 0.9, bottom: 0.8, angle: -1.25 };
+        let crop_of = |path: &Path| crate::sidecar::read(&packet_of(path).unwrap()).unwrap().crop;
+
+        // A packet with room: written over, and the rating in it kept.
+        let (path, before) = photo("crop-inplace", &[xmp(&adobe(5, 4097))]);
+        assert_eq!(write_crop(&path, Some(&crop)).unwrap(), Outcome::InPlace);
+        assert_eq!(std::fs::read(&path).unwrap().len(), before.len());
+        assert_eq!(crop_of(&path), Some(crop));
+        assert_eq!(xmp::parse(&packet_of(&path).unwrap()).rating, 5);
+        assert!(!packet_of(&path).unwrap().contains("Orientation"), "which way up a JPEG is, is the file's to say");
+
+        assert_eq!(write_crop(&path, None).unwrap(), Outcome::InPlace);
+        assert_eq!(crop_of(&path), None);
+        // Taken out again, all that is left of it is the namespace it named.
+        let after = std::fs::read(&path).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert!(!packet_of(&path).unwrap().contains("Crop"));
+        let (_, at, len) = jpeg::layout(&before.as_slice()).unwrap().xmp.unwrap();
+        assert_eq!(after[at as usize + len..], before[at as usize + len..], "the picture untouched throughout");
+        std::fs::remove_file(path).ok();
+
+        // No packet at all: no crop to take out is nothing to do, and a crop
+        // to put in makes one.
+        let (path, before) = photo("crop-fresh", &[]);
+        assert_eq!(write_crop(&path, None).unwrap(), Outcome::Unchanged);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(write_crop(&path, Some(&crop)).unwrap(), Outcome::Rewritten);
+        assert_eq!(crop_of(&path), Some(crop));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_picture_with_its_settings_already_in_it_is_not_cropped_again() {
+        let exported = adobe(3, 2000).replace("xmp:Rating=", "xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:AlreadyApplied=\"True\" xmp:Rating=");
+        let (path, before) = photo("crop-applied", &[xmp(&exported)]);
+        let crop = Stored { left: 0.1, top: 0.2, right: 0.9, bottom: 0.8, angle: 0.0 };
+        assert_eq!(write_crop(&path, Some(&crop)).unwrap(), Outcome::Unchanged);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
         std::fs::remove_file(path).ok();
     }
 

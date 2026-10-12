@@ -14,6 +14,7 @@ import {
 import { api } from "@/lib/api";
 import { contextTargets, useStore } from "@/lib/store";
 import { COLORS } from "@/lib/types";
+import { isPlain } from "@/lib/framing";
 
 /**
  * The right-click menu for a photo, wherever it is drawn.
@@ -43,6 +44,8 @@ function Items({ index, fileBrowser }: { index: number; fileBrowser: string }) {
   const photo = s.photos[index];
   const many = targets.length > 1;
   const subject = many ? `${targets.length} Photos` : "Photo";
+  const framable = targets.some((i) => s.photos[i]?.framable);
+  const framed = targets.some((i) => s.photos[i] && !isPlain(s.photos[i].framing));
 
   return (
     <>
@@ -76,6 +79,18 @@ function Items({ index, fileBrowser }: { index: number; fileBrowser: string }) {
         </ContextMenuSubContent>
       </ContextMenuSub>
       <ContextMenuItem onSelect={() => s.clearRatingAndColor(targets)}>Clear Stars and Colour</ContextMenuItem>
+      <ContextMenuSeparator />
+      {framable ? (
+        <>
+          <ContextMenuItem onSelect={() => s.turnPhotos("left", targets)}>Rotate Left</ContextMenuItem>
+          <ContextMenuItem onSelect={() => s.turnPhotos("right", targets)}>Rotate Right</ContextMenuItem>
+          <ContextMenuItem onSelect={() => s.turnPhotos("across", targets)}>Flip Horizontal</ContextMenuItem>
+          <ContextMenuItem onSelect={() => s.turnPhotos("down", targets)}>Flip Vertical</ContextMenuItem>
+          {framed && <ContextMenuItem onSelect={() => s.resetFraming(targets)}>Reset Crop and Rotation</ContextMenuItem>}
+        </>
+      ) : (
+        <ContextMenuItem disabled>{many ? "These photos" : "This photo"} cannot be cropped or rotated here</ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void api.reveal(photo.path)}>Reveal in {fileBrowser}</ContextMenuItem>
       <ContextMenuSeparator />

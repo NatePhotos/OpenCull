@@ -296,14 +296,35 @@ pub struct Writer {
     shared: Arc<(Mutex<WriterState>, Condvar)>,
 }
 
-/// Told when marks could not be written into a JPEG: the file, and why.
-type Failed = Arc<dyn Fn(&Path, &str) + Send + Sync>;
+/// What could not be written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wrote {
+    /// Marks, into a JPEG. They are in the sidecar all the same.
+    Jpeg,
+    /// A crop or a turn, into the sidecar. It is saved nowhere.
+    Framing,
+    /// A crop, into a JPEG. It is in the sidecar all the same.
+    JpegCrop,
+}
+
+/// Told when something could not be written: the file, why, and what.
+type Failed = Arc<dyn Fn(&Path, &str, Wrote) + Send + Sync>;
+
+/// What is waiting to be written for one photo. Marks and framing are given
+/// separately and kept together, so a star pressed while a crop waits is
+/// written with it rather than over it.
+#[derive(Default)]
+struct Change {
+    marks: Option<Marks>,
+    framing: Option<crate::framing::Wanted>,
+    /// The JPEGs of the photo, which keep what is theirs inside themselves.
+    into: Vec<PathBuf>,
+}
 
 #[derive(Default)]
 struct WriterState {
-    /// For each photo, its latest marks and the JPEGs they are to be written
-    /// into as well as beside.
-    pending: HashMap<PathBuf, (Marks, Vec<PathBuf>)>,
+    /// For each photo, the latest of what is to be written for it.
+    pending: HashMap<PathBuf, Change>,
     writing: usize,
     started: bool,
     failed: Option<Failed>,
@@ -314,19 +335,33 @@ impl Writer {
         self.enqueue_with(image, marks, Vec::new());
     }
 
-    /// Has `report` called whenever marks cannot be written into a JPEG.
-    /// The sidecar is written all the same, so nothing is lost; what is lost
-    /// is other programs seeing it, and that should not pass in silence.
-    pub fn on_failure(&self, report: impl Fn(&Path, &str) + Send + Sync + 'static) {
+    /// Has `report` called whenever marks cannot be written into a JPEG, or
+    /// a photo's framing cannot be written at all. Marks are in the sidecar
+    /// all the same, so nothing of them is lost but other programs seeing
+    /// them; a framing that could not be written is lost, and neither should
+    /// pass in silence.
+    pub fn on_failure(&self, report: impl Fn(&Path, &str, Wrote) + Send + Sync + 'static) {
         self.shared.0.lock().unwrap().failed = Some(Arc::new(report));
     }
 
     /// Queues marks to be written beside `image`, and into each of `into` —
     /// the JPEGs of the photo, which keep their marks inside themselves.
     pub fn enqueue_with(&self, image: PathBuf, marks: Marks, into: Vec<PathBuf>) {
+        self.enqueue_change(image, into, |change| change.marks = Some(marks));
+    }
+
+    /// Queues a photo's framing to be written beside `image`, and its crop
+    /// into each of `into`.
+    pub fn enqueue_framing(&self, image: PathBuf, framing: crate::framing::Wanted, into: Vec<PathBuf>) {
+        self.enqueue_change(image, into, |change| change.framing = Some(framing));
+    }
+
+    fn enqueue_change(&self, image: PathBuf, into: Vec<PathBuf>, set: impl FnOnce(&mut Change)) {
         let (lock, wake) = &*self.shared;
         let mut state = lock.lock().unwrap();
-        state.pending.insert(image, (marks, into));
+        let change = state.pending.entry(image).or_default();
+        set(change);
+        change.into = into;
         if !state.started {
             state.started = true;
             let shared = self.shared.clone();
@@ -347,18 +382,48 @@ impl Writer {
                     state = wake.wait(state).unwrap();
                 }
                 let path = state.pending.keys().next().cloned().expect("not empty");
-                let (marks, into) = state.pending.remove(&path).expect("present");
+                let change = state.pending.remove(&path).expect("present");
                 state.writing += 1;
-                (path, marks, into, state.failed.clone())
+                (path, change, state.failed.clone())
             };
-            if let Err(e) = write(&job.0, job.1) {
-                eprintln!("sidecar write failed for {}: {e}", job.0.display());
-            }
-            for jpeg in &job.2 {
-                if let Err(e) = crate::embed::write(jpeg, job.1) {
-                    eprintln!("could not write marks into {}: {e}", jpeg.display());
-                    if let Some(report) = &job.3 {
-                        report(jpeg, &e.to_string());
+            let (path, change, failed) = job;
+            let report = |file: &Path, why: &str, what: Wrote| {
+                if let Some(report) = &failed {
+                    report(file, why, what);
+                }
+            };
+            // A framing takes any waiting marks into the sidecar with it, in
+            // one write. Marks alone go as they always have.
+            let stored = match (&change.framing, change.marks) {
+                (Some(framing), marks) => match crate::framing::write(&path, marks, framing) {
+                    Ok(stored) => Some(stored),
+                    Err(e) => {
+                        eprintln!("framing could not be written for {}: {e}", path.display());
+                        report(&path, &e.to_string(), Wrote::Framing);
+                        None
+                    }
+                },
+                (None, Some(marks)) => {
+                    if let Err(e) = write(&path, marks) {
+                        eprintln!("sidecar write failed for {}: {e}", path.display());
+                    }
+                    None
+                }
+                (None, None) => None,
+            };
+            for jpeg in &change.into {
+                if let Some(marks) = change.marks {
+                    if let Err(e) = crate::embed::write(jpeg, marks) {
+                        eprintln!("could not write marks into {}: {e}", jpeg.display());
+                        report(jpeg, &e.to_string(), Wrote::Jpeg);
+                    }
+                }
+                // Only a crop that reached the sidecar goes into the JPEG:
+                // the two must never disagree.
+                if let Some(stored) = &stored {
+                    if let Err(e) = crate::embed::write_crop(jpeg, stored.as_ref()) {
+                        eprintln!("could not write a crop into {}: {e}", jpeg.display());
+                        report(jpeg, &e.to_string(), Wrote::JpegCrop);
                     }
                 }
             }
@@ -533,7 +598,7 @@ mod tests {
         let told = Arc::new(Mutex::new(Vec::new()));
         let writer = Writer::default();
         let heard = told.clone();
-        writer.on_failure(move |path, why| heard.lock().unwrap().push((path.to_path_buf(), why.to_string())));
+        writer.on_failure(move |path, why, _| heard.lock().unwrap().push((path.to_path_buf(), why.to_string())));
         writer.enqueue_with(raw.clone(), Marks { rating: 2, ..Default::default() }, vec![not_a_jpeg.clone()]);
         writer.flush();
 

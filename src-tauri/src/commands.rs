@@ -489,6 +489,30 @@ pub fn set_marks(app: AppState, changes: Vec<MarkChange>) {
     }
 }
 
+/// A photo's framing, as the interface has changed it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FramingChange {
+    path: String,
+    #[serde(default)]
+    into: Vec<String>,
+    framing: framing::Framing,
+    /// The size of the upright picture the framing was made on.
+    upright: (u32, u32),
+    /// The photo's marks as they stand, for a sidecar that has to be made.
+    seed: Marks,
+}
+
+/// Records how photos are cropped and turned. Returns at once; the sidecars
+/// are written behind it, in the fields Adobe's programs read.
+#[tauri::command]
+pub fn set_framing(app: AppState, changes: Vec<FramingChange>) {
+    for change in changes {
+        let wanted = framing::Wanted { framing: change.framing, upright: change.upright, seed: change.seed };
+        app.writer.enqueue_framing(PathBuf::from(change.path), wanted, change.into.into_iter().map(PathBuf::from).collect());
+    }
+}
+
 /// Waits for every pending sidecar to reach the disk.
 #[tauri::command]
 pub async fn flush_marks(app: AppState<'_>) -> Result<(), String> {

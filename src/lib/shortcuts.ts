@@ -12,7 +12,8 @@ export type Action =
   | "tagRed" | "tagYellow" | "tagGreen" | "tagBlue" | "tagPurple" | "tagNone"
   | "zoomToggle" | "zoomCentre" | "zoomIn" | "zoomOut"
   | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull"
-  | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo";
+  | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo"
+  | "rotateLeft" | "rotateRight";
 
 /** A key, by its position on the keyboard, and the modifiers held with it. */
 export interface Combo {
@@ -89,6 +90,13 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
       ["ship", "Ship"],
     ],
   },
+  {
+    title: "Frame",
+    actions: [
+      ["rotateLeft", "Rotate left"],
+      ["rotateRight", "Rotate right"],
+    ],
+  },
 ];
 
 /**
@@ -135,6 +143,8 @@ export const DEFAULTS: Record<Action, Combo> = {
   selectAll: { code: "KeyA", mod: true },
   undo: { code: "KeyZ", mod: true },
   redo: { code: "KeyZ", mod: true, shift: true },
+  rotateLeft: { code: "BracketLeft", mod: true },
+  rotateRight: { code: "BracketRight", mod: true },
 };
 
 export const isMac = /Mac/.test(navigator.userAgent);
@@ -214,6 +224,8 @@ export function perform(action: Action): void {
     case "moveToTrash": return s.requestTrash();
     case "selectAll": return s.selectAll();
     case "undo": return s.undo();
+    case "rotateLeft": return s.turnPhotos("left");
+    case "rotateRight": return s.turnPhotos("right");
     case "redo": return s.redo();
   }
 }

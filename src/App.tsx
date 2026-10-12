@@ -81,6 +81,32 @@ export default function App() {
     });
   }, []);
 
+  // A crop or a turn that could not be saved. Said once for each folder, as
+  // above, and for the worse of the two if both happen: not saved at all
+  // outranks not written into a JPEG.
+  useEffect(() => {
+    let told: { folder: number; lost: boolean } | null = null;
+    return api.onFramingNotSaved((path, why, lost) => {
+      const s = useStore.getState();
+      const folder = s.session?.id ?? -1;
+      if (told?.folder === folder && (told.lost || !lost)) return;
+      told = { folder, lost };
+      const name = path.split(/[\\/]/).pop();
+      s.set(
+        "notice",
+        lost
+          ? {
+              title: "A crop could not be saved",
+              body: `${name}: ${why}.\n\nThe photo shows as you framed it for now, but that was not saved, so it will be as it was when the folder is next opened. Check that the folder can be written to: a card's lock switch, a full disk, a drive that has gone away. This is only said once for each folder.`,
+            }
+          : {
+              title: "A crop could not be written into the JPEG",
+              body: `${name}: ${why}.\n\nThe crop is still saved beside the photo, so OpenCull has it, but other programs will not see it on the JPEG. This is only said once for each folder.`,
+            },
+      );
+    });
+  }, []);
+
   // Quitting is refused while photos are coming off a card. Say why, or it
   // looks as though the app has stopped listening.
   useEffect(

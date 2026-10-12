@@ -19,7 +19,12 @@
 //!
 //! All conversion between them is in this file.
 
+use std::io;
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
+
+use crate::xmp::{self, Marks};
 
 /// A crop in VIEW: a rectangle by its middle and its size, in pixels of the
 /// full-size picture, turned `angle` degrees clockwise about its middle.
@@ -276,6 +281,85 @@ pub fn seen(sidecar: Option<&str>, packet: Option<&str>, shown: &Shown) -> Seen 
     Seen { framing: Framing { turn: turn(shown.file, said), crop }, framable: true }
 }
 
+/// A framing to be written for one photo, with what is needed to write it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Wanted {
+    pub framing: Framing,
+    /// The size of the upright picture the framing was made on.
+    pub upright: (u32, u32),
+    /// The photo's marks as they stand. A sidecar made to hold a crop is
+    /// given them too: a sidecar is read in place of whatever the camera
+    /// wrote into the file, so one that said nothing of a rating the camera
+    /// gave would make it disappear.
+    pub seed: Marks,
+}
+
+fn refused(why: String) -> io::Error {
+    io::Error::other(why)
+}
+
+/// Writes a photo's framing to its sidecar — and its marks in the same
+/// stroke, if they are waiting to be written too. Gives back the crop as it
+/// was stored, which is the same for every file of the photo.
+///
+/// The crop goes in Adobe's fields, against the picture as it is stored, so
+/// Lightroom and Camera Raw open the photo cropped the same way. A turn is
+/// stated as which way up the photo is. Nothing else in the sidecar changes.
+pub fn write(image: &Path, marks: Option<Marks>, wanted: &Wanted) -> io::Result<Option<Stored>> {
+    let path = xmp::sidecar_path(image);
+    // Only a sidecar that is not there may be made afresh. One that is there
+    // and cannot be read holds someone's work, and is left alone.
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let probe = crate::raw::probe(image).ok();
+    let file = known(probe.as_ref().map_or(1, |p| p.orientation));
+    let said = stated(file, wanted.framing.turn);
+    let (width, height) = sensor_size(file, wanted.upright.0 as f64, wanted.upright.1 as f64);
+    let stored = match wanted.framing.crop {
+        Some(_) if width <= 0.0 || height <= 0.0 => return Err(refused("the size of the photo is not known".into())),
+        Some(crop) => Some(to_stored(&crop, said, width, height)),
+        None => None,
+    };
+
+    let text = match existing {
+        Some(text) => match marks {
+            Some(marks) => xmp::update(&text, marks),
+            None => text,
+        },
+        None => {
+            // Nothing to say and nowhere it is said: no sidecar is made —
+            // unless the file itself holds a crop, which only a sidecar
+            // saying otherwise can take off.
+            let inside = || probe.as_ref().and_then(|p| p.xmp.as_deref()).and_then(|x| crate::sidecar::read(x).ok()).is_some_and(|f| f.crop.is_some());
+            let seed = marks.unwrap_or(wanted.seed);
+            if wanted.framing.is_plain() && seed.is_empty() && !inside() {
+                return Ok(None);
+            }
+            xmp::fresh(seed)
+        }
+    };
+
+    // Which way up it is, is said only when it must be: when the photo has
+    // been turned, or when the sidecar already says and must be kept right.
+    let before = crate::sidecar::read(&text).map_err(refused)?;
+    let orientation = (before.orientation.is_some() || said != file).then_some(said);
+    let changed = crate::sidecar::change(&text, stored.as_ref(), orientation).map_err(refused)?;
+
+    // Beside the sidecar and renamed over it, so a crash or a pulled drive
+    // leaves the old one rather than half of a new one.
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(".opencull-tmp");
+    let temp = PathBuf::from(temp);
+    std::fs::write(&temp, changed)?;
+    std::fs::rename(&temp, &path).inspect_err(|_| {
+        std::fs::remove_file(&temp).ok();
+    })?;
+    Ok(stored)
+}
+
 /// The sensor frame behind an upright picture `width` by `height`, for a file
 /// that says it is stored `file` way up.
 pub fn sensor_size(file: u8, width: f64, height: f64) -> (f64, f64) {
@@ -448,6 +532,134 @@ mod tests {
         assert!(!seen(None, None, &split).framable);
         // Nothing yet known of its size.
         assert!(!seen(None, None, &level((0, 0))).framable);
+    }
+
+    /// A folder of its own for one test, removed when the test is done.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("opencull-framing-{}-{name}", std::process::id()));
+            std::fs::remove_dir_all(&dir).ok();
+            std::fs::create_dir_all(&dir).unwrap();
+            Folder(dir)
+        }
+
+        /// A photo: not one that can be read, so it is taken to be stored level.
+        fn photo(&self) -> PathBuf {
+            let path = self.0.join("A7V00001.ARW");
+            std::fs::write(&path, b"a photograph").unwrap();
+            path
+        }
+
+        fn sidecar(&self) -> Option<String> {
+            std::fs::read_to_string(self.0.join("A7V00001.xmp")).ok()
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    const TIGHT: Crop = Crop { cx: 3000.0, cy: 2000.0, w: 3000.0, h: 2000.0, angle: 5.0 };
+
+    fn wanted(framing: Framing, rating: u8) -> Wanted {
+        Wanted { framing, upright: (6000, 4000), seed: Marks { rating, ..Marks::default() } }
+    }
+
+    fn read_back(folder: &Folder) -> Seen {
+        seen(folder.sidecar().as_deref(), None, &level((6000, 4000)))
+    }
+
+    #[test]
+    fn a_crop_is_written_to_a_new_sidecar_with_the_photos_marks_and_reads_back() {
+        let folder = Folder::new("new");
+        let framing = Framing { turn: 1, crop: Some(TIGHT) };
+        let stored = write(&folder.photo(), None, &wanted(framing, 4)).unwrap().unwrap();
+        // The middle half of the frame, tilted: its corners as Adobe has them.
+        assert!(close(stored.left, 0.265477, 1e-6) && close(stored.top, 0.218268, 1e-6) && close(stored.right, 0.734523, 1e-6) && close(stored.bottom, 0.781732, 1e-6), "{stored:?}");
+
+        let text = folder.sidecar().unwrap();
+        assert!(text.contains("crs:HasCrop=\"True\"") && text.contains("crs:CropAngle=\"5.00\""));
+        assert!(text.contains("xmp:Rating=\"4\""), "the rating it had is not hidden by the sidecar that now exists");
+        assert!(!text.contains("Orientation"), "nothing was turned, so which way up is left to the file");
+        let back = read_back(&folder).framing.crop.unwrap();
+        for (a, b) in [(back.cx, TIGHT.cx), (back.cy, TIGHT.cy), (back.w, TIGHT.w), (back.h, TIGHT.h), (back.angle, TIGHT.angle)] {
+            assert!(close(a, b, 0.02), "{back:?}");
+        }
+    }
+
+    #[test]
+    fn a_turn_is_stated_and_stays_stated_once_it_has_been() {
+        let folder = Folder::new("turn");
+        let photo = folder.photo();
+        write(&photo, None, &wanted(Framing { turn: 6, crop: None }, 0)).unwrap();
+        assert!(folder.sidecar().unwrap().contains("tiff:Orientation=\"6\""));
+        assert_eq!(read_back(&folder).framing, Framing { turn: 6, crop: None });
+
+        // Turned back: the sidecar says so, rather than going quiet and
+        // leaving a reader with what it last heard.
+        write(&photo, None, &wanted(Framing::default(), 0)).unwrap();
+        assert!(folder.sidecar().unwrap().contains("tiff:Orientation=\"1\""));
+        assert_eq!(read_back(&folder).framing, Framing::default());
+    }
+
+    #[test]
+    fn a_crop_made_on_a_turned_photo_is_stored_against_the_sensor() {
+        let folder = Folder::new("turned");
+        // Turned a quarter clockwise, the view is 4000 across and 6000 down.
+        let crop = Crop { cx: 3000.0, cy: 750.0, w: 2000.0, h: 1500.0, angle: 0.0 };
+        let mut asked = wanted(Framing { turn: 6, crop: Some(crop) }, 0);
+        asked.upright = (6000, 4000);
+        let stored = write(&folder.photo(), None, &asked).unwrap().unwrap();
+        assert!(close(stored.left, 0.0, 1e-9) && close(stored.top, 0.0, 1e-9) && close(stored.right, 0.25, 1e-9) && close(stored.bottom, 0.5, 1e-9), "{stored:?}");
+        assert_eq!(read_back(&folder).framing.crop, Some(crop));
+    }
+
+    #[test]
+    fn marks_waiting_go_into_the_sidecar_with_the_framing() {
+        let folder = Folder::new("both");
+        let photo = folder.photo();
+        std::fs::write(folder.0.join("A7V00001.xmp"), WITH.replace("crs:HasCrop", "crs:Exposure2012=\"+0.35\" crs:HasCrop")).unwrap();
+        let marks = Marks { rating: 5, ..Marks::default() };
+        write(&photo, Some(marks), &wanted(Framing { turn: 6, crop: Some(TIGHT) }, 0)).unwrap();
+        let text = folder.sidecar().unwrap();
+        assert!(text.contains("xmp:Rating=\"5\"") && text.contains("crs:Exposure2012=\"+0.35\""), "{text}");
+        assert_eq!(xmp::parse(&text).rating, 5);
+        assert!(read_back(&folder).framing.crop.is_some());
+    }
+
+    #[test]
+    fn nothing_to_say_makes_no_sidecar_and_a_sidecar_that_cannot_be_read_is_left() {
+        let folder = Folder::new("none");
+        let photo = folder.photo();
+        assert_eq!(write(&photo, None, &wanted(Framing::default(), 0)).unwrap(), None);
+        assert_eq!(folder.sidecar(), None);
+
+        let sidecar = folder.0.join("A7V00001.xmp");
+        std::fs::write(&sidecar, [0xFFu8, 0xFE, 0x00, 0x41]).unwrap();
+        assert!(write(&photo, None, &wanted(Framing { turn: 1, crop: Some(TIGHT) }, 3)).is_err());
+        assert_eq!(std::fs::read(&sidecar).unwrap(), [0xFF, 0xFE, 0x00, 0x41], "not a byte of it changed");
+
+        std::fs::write(&sidecar, "<x:xmpmeta><rdf:RDF").unwrap();
+        assert!(write(&photo, None, &wanted(Framing { turn: 1, crop: Some(TIGHT) }, 3)).is_err());
+        assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), "<x:xmpmeta><rdf:RDF");
+    }
+
+    #[test]
+    fn the_writer_keeps_a_star_and_a_crop_for_one_photo_together() {
+        let folder = Folder::new("writer");
+        let photo = folder.photo();
+        let writer = xmp::Writer::default();
+        writer.enqueue(photo.clone(), Marks { rating: 2, ..Marks::default() });
+        writer.enqueue_framing(photo.clone(), wanted(Framing { turn: 1, crop: Some(TIGHT) }, 0), Vec::new());
+        writer.enqueue(photo.clone(), Marks { rating: 3, ..Marks::default() });
+        writer.flush();
+        let text = folder.sidecar().unwrap();
+        assert_eq!(xmp::parse(&text).rating, 3, "the last star given");
+        assert!(read_back(&folder).framing.crop.is_some(), "and the crop, not lost beneath it");
     }
 
     #[test]
