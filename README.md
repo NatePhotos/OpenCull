@@ -192,6 +192,7 @@ through the shoot from the keyboard:
 | `Caps Lock` | Speed cull: move on to the next photo after each mark |
 | `R` | Crop and straighten. Inside it: `Enter` keeps the crop, `Esc` leaves the photo as it was, `X` swaps tall and wide, `A` holds or frees the shape, `O` steps through the guides |
 | `⌘[` `⌘]` / `Ctrl+[` `Ctrl+]` | Rotate left and right |
+| `\` | Show photos as they are cropped and turned, or whole as the camera left them |
 | `⌘E` / `Ctrl+E` | Ship: open the keepers in your editor, or copy or move them |
 | `⌘Z` / `Ctrl+Z` | Undo |
 

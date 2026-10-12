@@ -13,7 +13,7 @@ export type Action =
   | "rate0" | "rate1" | "rate2" | "rate3" | "rate4" | "rate5" | "clearRating"
   | "tagRed" | "tagYellow" | "tagGreen" | "tagBlue" | "tagPurple" | "tagNone"
   | "zoomToggle" | "zoomCentre" | "zoomIn" | "zoomOut"
-  | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull"
+  | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleFraming" | "toggleSpeedCull"
   | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo"
   | "crop" | "rotateLeft" | "rotateRight";
 
@@ -79,6 +79,7 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
       ["toggleFaces", "Face panel"],
       ["toggleHistogram", "Histogram and EXIF"],
       ["toggleInfo", "Info overlay"],
+      ["toggleFraming", "Crops and rotation, or the whole photo"],
       ["toggleSpeedCull", "Speed cull"],
     ],
   },
@@ -140,6 +141,7 @@ export const DEFAULTS: Record<Action, Combo> = {
   toggleFaces: { code: "Period" },
   toggleHistogram: { code: "KeyH" },
   toggleInfo: { code: "KeyI" },
+  toggleFraming: { code: "Backslash" },
   toggleSpeedCull: { code: CAPS_LOCK },
   ship: { code: "KeyE", mod: true },
   moveToTrash: { code: "Backspace" },
@@ -223,6 +225,7 @@ export function perform(action: Action): void {
     case "toggleFaces": return s.toggle("showFaces");
     case "toggleHistogram": return s.toggle("showExif");
     case "toggleInfo": return s.toggle("showInfo");
+    case "toggleFraming": return s.toggle("showFraming");
     case "toggleSpeedCull": return s.set("speedCullAlways", !s.speedCullAlways);
     case "ship": return s.openShip();
     case "moveToTrash": return s.requestTrash();

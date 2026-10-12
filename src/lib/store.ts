@@ -68,6 +68,12 @@ interface State {
   showFilmstrip: boolean;
   showInfo: boolean;
   showRatingBar: boolean;
+  /**
+   * Show photos as they are cropped and turned. Off, every photo is shown
+   * whole and as the camera left it. Only what is shown changes: the crops
+   * and turns themselves are where they were, in the sidecars.
+   */
+  showFraming: boolean;
   showFilterBar: boolean;
   filmstripHeight: number;
   /** The strip's edge is being dragged, and its height is changing every frame. */
@@ -201,7 +207,7 @@ interface Actions {
   setSort(key: SortKey, ascending: boolean): void;
 
   set<K extends keyof State>(key: K, value: State[K]): void;
-  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces"): void;
+  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces" | "showFraming"): void;
   /** Compares every analysed photo afresh, after a change to what counts as a group. */
   regroup(): void;
   /** Takes in a batch of analysed photos, and compares the frames of any pose they complete. */
@@ -316,6 +322,16 @@ export function problemOf(result: AiResult | undefined, compared?: Compared): Pr
 }
 
 /** Whether marking a photo should move on to the next one. */
+/**
+ * A photo as it is to be drawn: framed as it is, or — with crops and turns
+ * switched off — whole and unturned. For drawing only; the photo itself is
+ * not changed, and nothing that saves a framing ever reads this.
+ */
+export function useSeen(photo: Photo): Photo {
+  const show = useStore((s) => s.showFraming);
+  return show || isPlain(photo.framing) ? photo : { ...photo, framing: PLAIN };
+}
+
 export const speedCulling = (s: Pick<State, "speedCull" | "speedCullAlways">) => s.speedCull || s.speedCullAlways;
 
 /** Settings written back to storage whenever they change. */
@@ -328,6 +344,7 @@ const PERSISTED = [
   "showFilmstrip",
   "showInfo",
   "showRatingBar",
+  "showFraming",
   "showFilterBar",
   "filmstripHeight",
   "includeSubfolders",
@@ -662,6 +679,7 @@ export const useStore = create<Store>((set, get) => {
     showFilmstrip: load("showFilmstrip", true),
     showInfo: load("showInfo", false),
     showRatingBar: load("showRatingBar", true),
+    showFraming: load("showFraming", true),
     showFilterBar: load("showFilterBar", false),
     filmstripHeight: load("filmstripHeight", 120),
     stripResizing: false,
@@ -984,6 +1002,9 @@ export const useStore = create<Store>((set, get) => {
       const by = { left: QUARTER_LEFT, right: QUARTER_RIGHT, across: MIRROR_ACROSS, down: MIRROR_DOWN }[how];
       const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
       applyFraming(list.map((index) => ({ index, framing: turned(s.photos[index], by) })));
+      // A photo turned out of sight would be a photo changed without a
+      // sign of it, so turning one brings crops and turns back into view.
+      if (!s.showFraming) set({ showFraming: true });
     },
 
     resetFraming(targets) {
@@ -1117,8 +1138,9 @@ export const useStore = create<Store>((set, get) => {
         });
         return;
       }
-      // Cropping is done on the big photo, so that is where it goes.
-      set({ cropOpen: true, ...(s.viewMode === "grid" ? { viewMode: "loupe" as ViewMode } : {}), ...(at !== s.current ? { current: at, anchor: at, selected: new Set<number>() } : {}) });
+      // Cropping is done on the big photo, so that is where it goes; and a
+      // crop is to be seen, even if crops had been switched off.
+      set({ cropOpen: true, showFraming: true, ...(s.viewMode === "grid" ? { viewMode: "loupe" as ViewMode } : {}), ...(at !== s.current ? { current: at, anchor: at, selected: new Set<number>() } : {}) });
     },
 
     acceptCrop() {

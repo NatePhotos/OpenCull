@@ -261,7 +261,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     }
   };
 
-  const toggle = (key: "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates") => (
+  const toggle = (key: "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates" | "showFraming") => (
     <Switch checked={s[key]} onCheckedChange={(on) => set(key, on)} />
   );
   const boxKey = isMac ? "⌘ Command" : "Ctrl";
@@ -284,6 +284,11 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             title="Speed cull"
             detail="Moves straight on to the next photo after you pick, reject or rate one. Its key — Caps Lock unless you change it — also turns it on, whatever is set here."
             control={toggle("speedCullAlways")}
+          />
+          <Setting
+            title="Show crops and rotation"
+            detail="Shows each photo cropped, straightened and turned as it has been, here or in Lightroom. Turn off to see every photo whole, as the camera left it. Only what you see changes: the crops themselves stay saved exactly as they are. The \\ key switches this as you go."
+            control={toggle("showFraming")}
           />
           <Setting
             title="Rating bar"

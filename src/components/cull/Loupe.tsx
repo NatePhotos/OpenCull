@@ -7,7 +7,7 @@ import { framingKey, magnified, placement, shownSize, uprightToShown } from "@/l
 import { hold, holdFull, isHeld } from "@/lib/held";
 import { load, save } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
-import { useStore } from "@/lib/store";
+import { useSeen, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
@@ -192,8 +192,10 @@ function Canvas({ photo }: { photo: Photo }) {
   // what a crop leaves of it, the way up it has been turned. Everything
   // below — the fit, the zoom, where a click lands — is measured on that,
   // and so needs to know nothing of framing.
-  const natural = known ? shownSize(photo) : learnt ? { w: learnt.w, h: learnt.h } : { w: 3, h: 2 };
-  const placed = known ? placement(photo) : undefined;
+  // The photo as it is to be drawn: framed, or whole if crops are switched off.
+  const shownAs = useSeen(photo);
+  const natural = known ? shownSize(shownAs) : learnt ? { w: learnt.w, h: learnt.h } : { w: 3, h: 2 };
+  const placed = known ? placement(shownAs) : undefined;
   const fit = box.w > 0 ? Math.min(box.w / natural.w, box.h / natural.h) : 0;
   const shown = { w: natural.w * fit, h: natural.h * fit };
 
@@ -204,7 +206,7 @@ function Canvas({ photo }: { photo: Photo }) {
   // Moving to another photo. Done while rendering, not after, so the new
   // photo is never drawn at the old one's zoom for a frame.
   const [zoomedFor, setZoomedFor] = useState(photo.index);
-  const framed = framingKey(photo.framing);
+  const framed = framingKey(shownAs.framing);
   const [framedFor, setFramedFor] = useState(framed);
   const shownBefore = useRef(shown);
   if (zoomedFor === photo.index && framedFor !== framed) {
@@ -416,7 +418,7 @@ function Canvas({ photo }: { photo: Photo }) {
     seenFace.current = faceZoom.nonce;
     // A face is found on the upright picture; it is zoomed to where the
     // photo's framing has put it, or to the nearest edge if cropped away.
-    const at = uprightToShown(photo, faceZoom);
+    const at = uprightToShown(shownAs, faceZoom);
     const point = { x: (Math.min(1, Math.max(0, at.x)) - 0.5) * shown.w, y: (Math.min(1, Math.max(0, at.y)) - 0.5) * shown.h };
     const z = now.current;
     if (z.scale > 1.001) glideTo(tight({ scale: z.scale, x: -point.x * z.scale, y: -point.y * z.scale }), GLIDE.in);
@@ -566,7 +568,7 @@ function Canvas({ photo }: { photo: Photo }) {
   // A tight crop fills the frame from a small part of the picture, further
   // than the window-sized rendering was made to go. The full-size picture is
   // the file's own, so drawing from it makes nothing.
-  const wantFull = zoomed || (known && magnified(photo) > WORTH_FULL);
+  const wantFull = zoomed || (known && magnified(shownAs) > WORTH_FULL);
 
   // A self-test times these pictures arriving cold, so nothing is held for it.
   const holding = !useStore((s) => s.selfTest);
