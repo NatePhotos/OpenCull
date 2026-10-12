@@ -218,6 +218,7 @@ export const mock: Backend = {
   ingestCancel: () => later(undefined),
   onQuitRefused: () => () => {},
   onJpegNotWritten: () => () => {},
+  onMarksNotSaved: () => () => {},
   onFramingNotSaved: () => () => {},
   histogram: (path) => {
     const seed = path.length;

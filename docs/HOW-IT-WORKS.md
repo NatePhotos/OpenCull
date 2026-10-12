@@ -227,6 +227,11 @@ JPEG's own packet, which is the only place Lightroom reads a JPEG's crop
 from. Which way up a JPEG is, is never written there: the file says that
 itself.
 
+A crop can be copied from one photo and pasted onto others. It is carried as
+a share of the photo — where its middle is and how much it takes, across and
+down — so it lands on the same part of a photo of any size, and is kept on
+the picture if a tilt would take it off.
+
 Not done, and worth knowing:
 
 - Face analysis is not run again for a photo that has been turned, and faces

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { followedBy, inside, isWhole, largest, magnified, MIRROR_ACROSS, MIRROR_DOWN, placement, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shownSize, shrunkToFit, slidOn, turned, uprightToShown, viewSize, wholeOf } from "./framing";
+import { cropFromShare, followedBy, inside, isWhole, largest, magnified, MIRROR_ACROSS, MIRROR_DOWN, placement, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, shownSize, shrunkToFit, slidOn, turned, uprightToShown, viewSize, wholeOf } from "./framing";
 import type { Framing } from "./types";
 
 const photo = (framing: Framing, fullWidth = 6000, fullHeight = 4000) => ({ fullWidth, fullHeight, framing });
@@ -127,5 +127,28 @@ describe("keeping a crop on the picture", () => {
     const on = slidOn(off, view);
     expect(inside(on, view)).toBe(true);
     expect([on.cx, on.cy, on.w]).toEqual([600, 3600, 1200]);
+  });
+});
+
+describe("a crop copied from one photo to another", () => {
+  const crop = { cx: 4000, cy: 1500, w: 3000, h: 2000, angle: 2 };
+
+  it("is the same crop on a photo of the same size", () => {
+    const share = shareOf(crop, { w: 6000, h: 4000 });
+    const pasted = cropFromShare(share, { w: 6000, h: 4000 })!;
+    expect(sameFraming({ turn: 1, crop: pasted }, { turn: 1, crop })).toBe(true);
+  });
+
+  it("takes the same share of a smaller photo, and of a tall one", () => {
+    const share = shareOf({ ...crop, angle: 0 }, { w: 6000, h: 4000 });
+    expect(cropFromShare(share, { w: 3000, h: 2000 })).toEqual({ cx: 2000, cy: 750, w: 1500, h: 1000, angle: 0 });
+    const tall = cropFromShare(share, { w: 4000, h: 6000 })!;
+    expect([tall.cx, tall.cy, tall.w, tall.h]).toEqual([4000 * (4000 / 6000), 6000 * (1500 / 4000), 2000, 3000]);
+  });
+
+  it("is kept on the picture, and is no crop at all when it comes to the whole of it", () => {
+    const tilted = shareOf({ cx: 3000, cy: 2000, w: 4200, h: 2800, angle: 20 }, { w: 6000, h: 4000 });
+    expect(inside(cropFromShare(tilted, { w: 4000, h: 6000 })!, { w: 4000, h: 6000 })).toBe(true);
+    expect(cropFromShare(shareOf(wholeOf({ w: 6000, h: 4000 }), { w: 6000, h: 4000 }), { w: 4000, h: 6000 })).toBeNull();
   });
 });

@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import { api, type UpdateFound } from "./api";
 import { useCrop } from "./crop";
-import { isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, turned } from "./framing";
+import { cropFromShare, isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, turned, viewSize, type Share } from "./framing";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
@@ -153,6 +153,8 @@ interface State {
   shipOpen: boolean;
   /** A photo is being cropped in the big view. */
   cropOpen: boolean;
+  /** A crop copied from one photo, to be put on others. */
+  copiedCrop: Share | null;
   ingestOpen: boolean;
   /** A card to go straight to when ingest opens: the one just plugged in. */
   ingestFrom: string | null;
@@ -191,6 +193,10 @@ interface Actions {
   turnPhotos(how: "left" | "right" | "across" | "down", targets?: number[]): void;
   /** Takes the crop and any turn off photos. */
   resetFraming(targets?: number[]): void;
+  /** Copies a photo's crop: the one given, or the one being looked at. */
+  copyCrop(index?: number): void;
+  /** Puts the copied crop on photos: those given, the selection, or the one being looked at. */
+  pasteCrop(targets?: number[]): void;
   undo(): void;
   redo(): void;
 
@@ -704,6 +710,7 @@ export const useStore = create<Store>((set, get) => {
     settingsOpen: false,
     shipOpen: false,
     cropOpen: false,
+    copiedCrop: null,
     ingestOpen: false,
     ingestFrom: null,
     notice: null,
@@ -990,6 +997,30 @@ export const useStore = create<Store>((set, get) => {
       const s = get();
       const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
       applyFraming(list.map((index) => ({ index, framing: PLAIN })));
+    },
+
+    copyCrop(index) {
+      const s = get();
+      // While a crop is being made, it is the crop as it stands that is copied.
+      const making = useCrop.getState();
+      if (s.cropOpen && making.index !== null && (index === undefined || index === making.index)) {
+        const made = making.result().crop;
+        set({ copiedCrop: made ? shareOf(made, making.view) : null });
+        return;
+      }
+      const photo = s.photos[index ?? s.current];
+      // A photo with no crop has none to copy, and leaves nothing behind to
+      // be pasted by mistake.
+      set({ copiedCrop: photo?.framing.crop ? shareOf(photo.framing.crop, viewSize(photo)) : null });
+    },
+
+    pasteCrop(targets) {
+      const s = get();
+      const share = s.copiedCrop;
+      if (!share) return;
+      const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
+      // The same share of each photo, whichever way up it has been turned.
+      applyFraming(list.flatMap((index) => (s.photos[index] ? [{ index, framing: { turn: s.photos[index].framing.turn, crop: cropFromShare(share, viewSize(s.photos[index])) } }] : [])));
     },
 
     undo() {

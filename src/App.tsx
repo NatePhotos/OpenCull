@@ -81,6 +81,22 @@ export default function App() {
     });
   }, []);
 
+  // A rating, flag or colour that could not be saved anywhere. Said once
+  // for each folder, as above: on a locked card it is true of every photo.
+  useEffect(() => {
+    let told: number | null = null;
+    return api.onMarksNotSaved((path, why) => {
+      const s = useStore.getState();
+      const folder = s.session?.id ?? -1;
+      if (told === folder) return;
+      told = folder;
+      s.set("notice", {
+        title: "A rating could not be saved",
+        body: `${path.split(/[\\/]/).pop()}: ${why}.\n\nThe mark shows here for now, but it was not saved, so it will be gone when the folder is next opened. Check that the folder can be written to: a card's lock switch, a full disk, a drive that has gone away. If the photo has a sidecar file that cannot be read, it is left untouched so nothing in it is lost. This is only said once for each folder.`,
+      });
+    });
+  }, []);
+
   // A crop or a turn that could not be saved. Said once for each folder, as
   // above, and for the worse of the two if both happen: not saved at all
   // outranks not written into a JPEG.

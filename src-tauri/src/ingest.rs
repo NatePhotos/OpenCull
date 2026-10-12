@@ -355,10 +355,81 @@ impl Names {
         (1..=10_000).map(|n| preferred.with_file_name(format!("{stem}_{n}{ext}"))).find(|c| free(c))
     }
 
-    /// Claims an exact path, for when the name is not open to change.
-    fn claim(&self, path: &Path) {
-        self.claimed.lock().unwrap().insert(Self::key(path));
+    /// Decides where the photo at `source` goes, wanting the name `preferred`.
+    ///
+    /// A name already taken is not always taken by the same photo. A camera
+    /// starts its numbering again in every card folder and every ten thousand
+    /// frames, so the file called DSC00196 at the destination — put there by
+    /// an earlier ingest, or a moment ago by this one — may be another
+    /// photograph altogether. Skipping "what is already there" must skip
+    /// only what IS already there, and overwriting must never write over a
+    /// photo this same ingest has just copied. Either would lose a photo
+    /// off a card that is about to be formatted.
+    ///
+    /// So each name is looked at in turn, `name`, `name_1`, `name_2`…:
+    /// one handed out to another photo of this ingest is passed over; one
+    /// that is free is taken; one holding this very photo is skipped or
+    /// written over as asked; and one holding a different photo is passed
+    /// over, except that Overwrite replaces whatever has the photo's own
+    /// name, which is what it was asked to do.
+    fn settle(&self, preferred: &Path, source: &Path, policy: Policy) -> Option<Spot> {
+        let mut claimed = self.claimed.lock().unwrap();
+        let stem = preferred.file_stem()?.to_string_lossy().into_owned();
+        let ext = preferred.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        for n in 0..=10_000 {
+            let candidate = if n == 0 { preferred.to_path_buf() } else { preferred.with_file_name(format!("{stem}_{n}{ext}")) };
+            let key = Self::key(&candidate);
+            if claimed.contains(&key) {
+                continue;
+            }
+            if !candidate.exists() {
+                claimed.insert(key);
+                return Some(Spot::Free(candidate));
+            }
+            let spot = match policy {
+                Policy::Skip if same_photo(source, &candidate) => Spot::Skip,
+                Policy::Overwrite if n == 0 || same_photo(source, &candidate) => Spot::Over(candidate),
+                _ => continue,
+            };
+            claimed.insert(key);
+            return Some(spot);
+        }
+        None
     }
+}
+
+/// Where a photo is to go.
+enum Spot {
+    /// Under this name, which nothing has.
+    Free(PathBuf),
+    /// Under this name, over what has it.
+    Over(PathBuf),
+    /// Nowhere: it is at the destination already.
+    Skip,
+}
+
+/// How much of the start of two files is compared to tell whether they are
+/// one photo. A photo's own details — when it was taken, to the hundredth of
+/// a second, and which frame of the camera's life it is — are all inside
+/// this much of any RAW or JPEG.
+const TELLING: usize = 64 * 1024;
+
+/// Whether two files are the same photograph: the same length, and the same
+/// from the start for as far as a photo's own details go. Not a comparison
+/// of every byte, which would read a whole card twice to skip it once; and
+/// not the name, which cameras reuse, nor the date, which not every drive
+/// keeps.
+fn same_photo(a: &Path, b: &Path) -> bool {
+    let (Ok(meta_a), Ok(meta_b)) = (std::fs::metadata(a), std::fs::metadata(b)) else { return false };
+    if meta_a.len() != meta_b.len() {
+        return false;
+    }
+    let head = |path: &Path| -> io::Result<Vec<u8>> {
+        let mut buf = Vec::with_capacity(TELLING);
+        std::fs::File::open(path)?.take(TELLING as u64).read_to_end(&mut buf)?;
+        Ok(buf)
+    };
+    matches!((head(a), head(b)), (Ok(x), Ok(y)) if x == y)
 }
 
 static STAGED: AtomicU64 = AtomicU64::new(0);
@@ -432,25 +503,19 @@ enum Placed {
 fn place(item: &Item, destination: &Path, policy: Policy, names: &Names, on_bytes: &mut dyn FnMut(u64)) -> Placed {
     let name = file_name(&item.path);
     let preferred = destination.join(&name);
-    let exists = preferred.exists();
 
-    let target = match (exists, policy) {
-        (true, Policy::Skip) => return Placed::Skipped,
-        (true, Policy::Overwrite) => {
-            names.claim(&preferred);
-            preferred
-        }
-        // Free on disk is not free: another copy running right now may be
-        // about to write the same name — two folders of one card both hold
-        // DSC00196. Reserving turns that race into an ordinary rename.
-        _ => match names.unique(&preferred) {
-            Some(target) => target,
-            None => return Placed::Failed(format!("{name}: could not find a free name")),
-        },
+    // Free on disk is not free: another copy running right now may be about
+    // to write the same name — two folders of one card both hold DSC00196.
+    // Settling names in one place turns that race into an ordinary rename.
+    let (target, replacing) = match names.settle(&preferred, &item.path, policy) {
+        Some(Spot::Skip) => return Placed::Skipped,
+        Some(Spot::Over(target)) => (target, true),
+        Some(Spot::Free(target)) => (target, false),
+        None => return Placed::Failed(format!("{name}: could not find a free name")),
     };
     let failed = |e: io::Error| Placed::Failed(format!("Failed to copy {name}: {e}"));
 
-    if let Err(e) = verified_copy(&item.path, &target, exists && policy == Policy::Overwrite, on_bytes) {
+    if let Err(e) = verified_copy(&item.path, &target, replacing, on_bytes) {
         return failed(e);
     }
 
@@ -794,7 +859,7 @@ mod tests {
     fn skipping_leaves_the_destination_alone_and_still_counts_as_settled() {
         let w = World::new("skip");
         std::fs::write(w.dest.join("A.ARW"), b"already here").unwrap();
-        let taken = w.file("A.ARW", b"new and longer");
+        let taken = w.file("A.ARW", b"already here");
         let free = w.file("B.ARW", b"bee");
 
         let (outcome, reports) = w.run(&[alone(&taken), alone(&free)], Policy::Skip, 1);
@@ -806,6 +871,58 @@ mod tests {
         assert_eq!(last.done, 2);
         assert_eq!(last.bytes_settled, last.bytes_total, "a skipped photo is finished with, so the time left must shrink");
         assert_eq!(last.bytes_copied, 3, "but it was not written, so it must not count towards the speed");
+    }
+
+    #[test]
+    fn skipping_never_skips_a_different_photo_that_has_the_same_name() {
+        // An earlier shoot's frame of this name is at the destination, and
+        // the card holds two photos of that name in two of its folders. All
+        // three are different photographs, and "skip what is already there"
+        // is no reason to leave either of the card's behind.
+        let w = World::new("skip-other");
+        std::fs::write(w.dest.join("A.ARW"), b"last month's").unwrap();
+        let first = w.file("100/A.ARW", b"this morning's");
+        let second = w.file("101/A.ARW", b"this evening's, a different length");
+
+        let (outcome, _) = w.run(&[alone(&first), alone(&second)], Policy::Skip, 1);
+
+        assert_eq!(outcome, Outcome::Success);
+        assert_eq!(w.landed(), ["A.ARW", "A_1.ARW", "A_2.ARW"]);
+        assert_eq!(w.read("A.ARW"), b"last month's");
+        assert_eq!(w.read("A_1.ARW"), b"this morning's");
+        assert_eq!(w.read("A_2.ARW"), b"this evening's, a different length");
+
+        // Ingested a second time, both are there already and neither is copied again.
+        let (outcome, _) = w.run(&[alone(&first), alone(&second)], Policy::Skip, 1);
+        assert_eq!(outcome, Outcome::Success);
+        assert_eq!(w.landed(), ["A.ARW", "A_1.ARW", "A_2.ARW"]);
+    }
+
+    #[test]
+    fn two_photos_of_one_length_and_name_are_told_apart_by_what_is_in_them() {
+        let w = World::new("skip-same-length");
+        let first = w.file("100/A.ARW", b"frame 0196 of the day");
+        let second = w.file("101/A.ARW", b"frame 0196 at night..");
+        assert_eq!(std::fs::metadata(&first).unwrap().len(), std::fs::metadata(&second).unwrap().len());
+
+        let (outcome, _) = w.run(&[alone(&first), alone(&second)], Policy::Skip, 1);
+        assert_eq!(outcome, Outcome::Success);
+        assert_eq!(w.landed(), ["A.ARW", "A_1.ARW"], "both kept, though only the name and the length are the same");
+    }
+
+    #[test]
+    fn overwriting_never_writes_over_a_photo_this_ingest_has_just_copied() {
+        let w = World::new("overwrite-run");
+        std::fs::write(w.dest.join("A.ARW"), b"old").unwrap();
+        let first = w.file("100/A.ARW", b"one");
+        let second = w.file("101/A.ARW", b"another");
+
+        let (outcome, _) = w.run(&[alone(&first), alone(&second)], Policy::Overwrite, 1);
+
+        assert_eq!(outcome, Outcome::Success);
+        assert_eq!(w.landed(), ["A.ARW", "A_1.ARW"]);
+        assert_eq!(w.read("A.ARW"), b"one", "what was there before is replaced, as asked");
+        assert_eq!(w.read("A_1.ARW"), b"another", "and the second photo goes beside it, not over the first");
     }
 
     #[test]

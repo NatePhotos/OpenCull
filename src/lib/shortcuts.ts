@@ -15,7 +15,7 @@ export type Action =
   | "zoomToggle" | "zoomCentre" | "zoomIn" | "zoomOut"
   | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull"
   | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo"
-  | "crop" | "rotateLeft" | "rotateRight";
+  | "crop" | "rotateLeft" | "rotateRight" | "copyCrop" | "pasteCrop";
 
 /** A key, by its position on the keyboard, and the modifiers held with it. */
 export interface Combo {
@@ -98,6 +98,8 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
       ["crop", "Crop"],
       ["rotateLeft", "Rotate left"],
       ["rotateRight", "Rotate right"],
+      ["copyCrop", "Copy crop"],
+      ["pasteCrop", "Paste crop"],
     ],
   },
 ];
@@ -149,6 +151,8 @@ export const DEFAULTS: Record<Action, Combo> = {
   crop: { code: "KeyR" },
   rotateLeft: { code: "BracketLeft", mod: true },
   rotateRight: { code: "BracketRight", mod: true },
+  copyCrop: { code: "KeyC", mod: true },
+  pasteCrop: { code: "KeyV", mod: true },
 };
 
 export const isMac = /Mac/.test(navigator.userAgent);
@@ -231,6 +235,8 @@ export function perform(action: Action): void {
     case "crop": return s.openCrop();
     case "rotateLeft": return s.turnPhotos("left");
     case "rotateRight": return s.turnPhotos("right");
+    case "copyCrop": return s.copyCrop();
+    case "pasteCrop": return s.pasteCrop();
     case "redo": return s.redo();
   }
 }
@@ -264,6 +270,8 @@ function cropKey(e: KeyboardEvent, table: Record<Action, Combo>) {
       return perform(step);
     }
   }
+  if (is("copyCrop")) return s.copyCrop();
+  if (is("pasteCrop")) return crop.paste(s.copiedCrop);
   if (is("rotateLeft")) return crop.turnBy(QUARTER_LEFT);
   if (is("rotateRight")) return crop.turnBy(QUARTER_RIGHT);
   if (pressed.mod && pressed.alt && e.code === "KeyR") return crop.reset();

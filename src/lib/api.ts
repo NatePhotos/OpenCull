@@ -177,6 +177,8 @@ export interface Backend {
   onQuitRefused(handler: () => void): () => void;
   /** Calls `handler` when marks could not be written into a JPEG: the file, and why. */
   onJpegNotWritten(handler: (path: string, why: string) => void): () => void;
+  /** Calls `handler` when marks could not be saved at all: the photo, and why. */
+  onMarksNotSaved(handler: (path: string, why: string) => void): () => void;
   /**
    * Calls `handler` when a photo's framing could not be saved: the file, why,
    * and whether it is saved nowhere (`lost`) or only missing from a JPEG.
@@ -267,6 +269,20 @@ const tauri: Backend = {
     let stopped = false;
     void import("@tauri-apps/api/event").then(({ listen }) =>
       listen<[string, string]>("jpeg-not-written", (event) => handler(event.payload[0], event.payload[1])).then((unlisten) => {
+        if (stopped) unlisten();
+        else stop = unlisten;
+      }),
+    );
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  },
+  onMarksNotSaved: (handler) => {
+    let stop: (() => void) | undefined;
+    let stopped = false;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<[string, string]>("marks-not-saved", (event) => handler(event.payload[0], event.payload[1])).then((unlisten) => {
         if (stopped) unlisten();
         else stop = unlisten;
       }),

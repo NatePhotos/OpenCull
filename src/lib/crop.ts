@@ -8,7 +8,7 @@
 
 import { create } from "zustand";
 
-import { followedBy, inside, isWhole, shrunkToFit, sideways, slidOn, turned, wholeOf } from "./framing";
+import { cropFromShare, followedBy, inside, isWhole, shrunkToFit, sideways, slidOn, turned, wholeOf, type Share } from "./framing";
 import { load, save } from "./prefs";
 import type { Crop, Framing } from "./types";
 
@@ -102,6 +102,8 @@ interface State {
   tiltDone(): void;
   turnBy(by: number): void;
   reset(): void;
+  /** Puts a copied crop on the photo being cropped. */
+  paste(share: Share | null): void;
   cycleOverlay(): void;
   turnOverlay(): void;
   setOverlay(overlay: Overlay): void;
@@ -303,6 +305,15 @@ export const useCrop = create<State>((set, get) => ({
     const s = get();
     const aspect = s.view.w / s.view.h;
     set({ crop: wholeOf(s.view), aspect, shape: SHAPES[0].name, tiltFrom: null, untilted: null, lining: false });
+  },
+
+  paste(share) {
+    if (!share) return;
+    get().mark();
+    const s = get();
+    const crop = cropFromShare(share, s.view) ?? wholeOf(s.view);
+    const aspect = crop.w / crop.h;
+    set({ crop, aspect, shape: shapeOf(aspect, s.view), tiltFrom: null, untilted: null });
   },
 
   cycleOverlay() {

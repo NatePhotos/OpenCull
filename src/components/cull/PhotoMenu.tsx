@@ -87,6 +87,8 @@ function Items({ index, fileBrowser }: { index: number; fileBrowser: string }) {
           <ContextMenuItem onSelect={() => s.turnPhotos("right", targets)}>Rotate Right</ContextMenuItem>
           <ContextMenuItem onSelect={() => s.turnPhotos("across", targets)}>Flip Horizontal</ContextMenuItem>
           <ContextMenuItem onSelect={() => s.turnPhotos("down", targets)}>Flip Vertical</ContextMenuItem>
+          {!many && photo.framing.crop && <ContextMenuItem onSelect={() => s.copyCrop(index)}>Copy Crop</ContextMenuItem>}
+          {s.copiedCrop && <ContextMenuItem onSelect={() => s.pasteCrop(targets)}>{many ? `Paste Crop onto ${targets.length} Photos` : "Paste Crop"}</ContextMenuItem>}
           {framed && <ContextMenuItem onSelect={() => s.resetFraming(targets)}>Reset Crop and Rotation</ContextMenuItem>}
         </>
       ) : (

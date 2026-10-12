@@ -206,6 +206,26 @@ export function slidOn(crop: Crop, view: Size): Crop {
   return { ...crop, cx: within(crop.cx, r.x, view.w - r.x), cy: within(crop.cy, r.y, view.h - r.y) };
 }
 
+/**
+ * A crop as a share of its photo: where its middle is and how much of the
+ * photo it takes, across and down, each from 0 to 1. A crop in this form can
+ * be put on a photo of any size.
+ */
+export type Share = { cx: number; cy: number; w: number; h: number; angle: number };
+
+export const shareOf = (crop: Crop, view: Size): Share => ({ cx: crop.cx / view.w, cy: crop.cy / view.h, w: crop.w / view.w, h: crop.h / view.h, angle: crop.angle });
+
+/**
+ * A crop copied from one photo, on another: the same share of it, in the
+ * same place. Kept on the picture, which a tilt copied to a photo of
+ * another shape might otherwise leave; and `null` if that comes to the
+ * whole photo.
+ */
+export function cropFromShare(share: Share, view: Size): Crop | null {
+  const crop = shrunkToFit(slidOn({ cx: share.cx * view.w, cy: share.cy * view.h, w: share.w * view.w, h: share.h * view.h, angle: share.angle }, view), view);
+  return isWhole(crop, view) ? null : crop;
+}
+
 /** A crop that is the whole of its view and level is no crop. */
 export function isWhole(crop: Crop, view: Size): boolean {
   const near = (a: number, b: number) => Math.abs(a - b) < 0.5;

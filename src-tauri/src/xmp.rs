@@ -266,9 +266,18 @@ pub(crate) fn update(xml: &str, marks: Marks) -> String {
 /// A photo with nothing marked and no sidecar gets none. An empty sidecar is
 /// not harmless: a reader prefers a sidecar and stops at it, so one that says
 /// nothing overrides a rating the camera embedded in the file.
+///
+/// A sidecar that is there and cannot be read is an error, never "no
+/// sidecar". It holds someone's work — every adjustment an editing program
+/// made to the photo — and a fresh one written over it would throw all of
+/// that away to save one star.
 pub fn write(image: &Path, marks: Marks) -> std::io::Result<()> {
     let path = sidecar_path(image);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
     if existing.is_empty() && marks.is_empty() {
         return Ok(());
     }
@@ -299,6 +308,8 @@ pub struct Writer {
 /// What could not be written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wrote {
+    /// Marks, into the sidecar. They are saved nowhere.
+    Marks,
     /// Marks, into a JPEG. They are in the sidecar all the same.
     Jpeg,
     /// A crop or a turn, into the sidecar. It is saved nowhere.
@@ -406,6 +417,7 @@ impl Writer {
                 (None, Some(marks)) => {
                     if let Err(e) = write(&path, marks) {
                         eprintln!("sidecar write failed for {}: {e}", path.display());
+                        report(&path, &e.to_string(), Wrote::Marks);
                     }
                     None
                 }
@@ -513,6 +525,28 @@ mod tests {
         assert!(text.contains(r#"crs:PickStatus="1""#));
         assert!(!text.contains("xmp:Label"), "a cleared label is removed, not left stale");
         assert_eq!(text.matches("xmp:Rating").count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_sidecar_that_cannot_be_read_is_never_written_over() {
+        let dir = scratch("unreadable");
+        let image = dir.join("A7V00009.ARW");
+        let sidecar = dir.join("A7V00009.xmp");
+        // Not text at all: whatever it is, it is not ours to replace.
+        std::fs::write(&sidecar, [0xFFu8, 0xFE, 0x00, 0xD8, 0x00]).unwrap();
+
+        assert!(write(&image, Marks { rating: 4, ..Marks::default() }).is_err());
+        assert_eq!(std::fs::read(&sidecar).unwrap(), [0xFF, 0xFE, 0x00, 0xD8, 0x00], "not a byte of it changed");
+
+        // And the photographer is told, since the star they gave is saved nowhere.
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let writer = Writer::default();
+        let listening = heard.clone();
+        writer.on_failure(move |path, _, what| listening.lock().unwrap().push((path.to_path_buf(), what)));
+        writer.enqueue(image.clone(), Marks { rating: 4, ..Marks::default() });
+        writer.flush();
+        assert_eq!(*heard.lock().unwrap(), [(image, Wrote::Marks)]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -115,6 +115,7 @@ pub fn run() {
             let handle = app.handle().clone();
             state.writer.on_failure(move |path, why, what| {
                 let event = match what {
+                    xmp::Wrote::Marks => "marks-not-saved",
                     xmp::Wrote::Jpeg => "jpeg-not-written",
                     xmp::Wrote::Framing => "framing-not-saved",
                     xmp::Wrote::JpegCrop => "crop-not-in-jpeg",
