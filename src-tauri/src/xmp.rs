@@ -152,13 +152,22 @@ pub fn parse(xml: &str) -> Marks {
 /// A sidecar wins outright, even an empty one. It is the newer statement, and
 /// merging the two would bring back a rating the photographer had cleared.
 pub fn read(image: &Path, probe: Option<&Probe>) -> Marks {
+    read_from(sidecar_text(image).as_deref(), probe)
+}
+
+/// What a photo's sidecar holds, under either of its names, if it has one
+/// that can be read. Read once and handed to everything that wants it.
+pub fn sidecar_text(image: &Path) -> Option<String> {
     let standard = image.with_extension("xmp");
     let mut with_ext = image.as_os_str().to_owned();
     with_ext.push(".xmp");
-    for candidate in [standard, PathBuf::from(with_ext)] {
-        if let Ok(xml) = std::fs::read_to_string(&candidate) {
-            return parse(&xml);
-        }
+    [standard, PathBuf::from(with_ext)].iter().find_map(|candidate| std::fs::read_to_string(candidate).ok())
+}
+
+/// `read`, given the sidecar's text.
+pub fn read_from(sidecar: Option<&str>, probe: Option<&Probe>) -> Marks {
+    if let Some(xml) = sidecar {
+        return parse(xml);
     }
 
     let Some(probe) = probe else { return Marks::default() };

@@ -21,6 +21,7 @@ use crate::xmp::{self, Marks};
 use crate::ai;
 use crate::burst;
 use crate::editors;
+use crate::framing;
 use crate::ingest;
 use crate::transfer;
 
@@ -293,6 +294,10 @@ pub struct Meta {
     /// work out what "100%" means — without waiting.
     full_width: u32,
     full_height: u32,
+    /// How the photo is turned and cropped, in the view.
+    framing: framing::Framing,
+    /// Whether it can be turned and cropped here.
+    framable: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -305,7 +310,8 @@ pub enum MetaEvent {
 
 fn read_meta(index: usize, image: &Scanned) -> Meta {
     let owner = raw::probe(&image.path).ok();
-    let marks = xmp::read(&image.path, owner.as_ref());
+    let sidecar = xmp::sidecar_text(&image.path);
+    let marks = xmp::read_from(sidecar.as_deref(), owner.as_ref());
 
     // For a RAW drawn through its JPEG, the picture's size and facing are the
     // JPEG's; everything else describes the RAW.
@@ -319,7 +325,18 @@ fn read_meta(index: usize, image: &Scanned) -> Meta {
         std::mem::swap(&mut full_width, &mut full_height);
     }
 
-    Meta { index, marks, exif: owner.map(|p| p.exif).unwrap_or_default(), full_width, full_height }
+    let seen = framing::seen(
+        sidecar.as_deref(),
+        owner.as_ref().and_then(|p| p.xmp.as_deref()),
+        &framing::Shown {
+            file: owner.as_ref().map_or(1, |p| p.orientation),
+            drawn: shown.as_ref().map_or(1, |p| p.orientation),
+            upright: (full_width, full_height),
+            stated: owner.as_ref().and_then(|p| p.exif.width.zip(p.exif.height)),
+        },
+    );
+
+    Meta { index, marks, exif: owner.map(|p| p.exif).unwrap_or_default(), full_width, full_height, framing: seen.framing, framable: seen.framable }
 }
 
 /// How many photos are read between reports. Small enough that the first
