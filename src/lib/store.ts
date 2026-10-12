@@ -207,7 +207,7 @@ interface Actions {
   setSort(key: SortKey, ascending: boolean): void;
 
   set<K extends keyof State>(key: K, value: State[K]): void;
-  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces" | "showFraming"): void;
+  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces"): void;
   /** Compares every analysed photo afresh, after a change to what counts as a group. */
   regroup(): void;
   /** Takes in a batch of analysed photos, and compares the frames of any pose they complete. */

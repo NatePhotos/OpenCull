@@ -287,7 +287,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
           <Setting
             title="Show crops and rotation"
-            detail="Shows each photo cropped, straightened and turned as it has been, here or in Lightroom. Turn off to see every photo whole, as the camera left it. Only what you see changes: the crops themselves stay saved exactly as they are. The \\ key switches this as you go."
+            detail="Shows each photo cropped, straightened and turned as it has been, here or in Lightroom. Turn off to see every photo whole, as the camera left it. Only what you see changes: the crops themselves stay saved exactly as they are."
             control={toggle("showFraming")}
           />
           <Setting
