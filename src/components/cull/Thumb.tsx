@@ -3,7 +3,7 @@ import { Crop, Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { placement, shownSize } from "@/lib/framing";
-import { PROBLEM_LABEL, problemOf, useSeen, useStore } from "@/lib/store";
+import { PROBLEM_LABEL, problemOf, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
 
@@ -69,11 +69,10 @@ export function ThumbImage({ photo, size, className, style }: { photo: Pick<Phot
  * window the shape of what is left of it: no other picture is asked for.
  */
 export function FramedThumb({ photo, size, box, inset = 0, cover = false, className }: { photo: Photo; size: number; box: { w: number; h: number }; inset?: number; cover?: boolean; className: string }) {
-  const seen = useSeen(photo);
-  const placed = placement(seen);
+  const placed = placement(photo);
   if (!placed) return <ThumbImage photo={photo} size={size} className={className} />;
 
-  const shown = shownSize(seen);
+  const shown = shownSize(photo);
   const by = cover ? Math.max(box.w / shown.w, box.h / shown.h) : Math.min(box.w / shown.w, box.h / shown.h);
   const [w, h] = [shown.w * by, shown.h * by];
   return (
@@ -81,7 +80,7 @@ export function FramedThumb({ photo, size, box, inset = 0, cover = false, classN
       <span className="absolute overflow-hidden" style={{ width: w, height: h, left: inset + (box.w - w) / 2, top: inset + (box.h - h) / 2 }}>
         <ThumbImage photo={photo} size={size} style={placed} />
       </span>
-      {seen.framing.crop && (
+      {photo.framing.crop && (
         <span className="absolute left-1 top-1 rounded-[3px] bg-black/55 p-[2px]" title="Cropped">
           <Crop className="size-2.5 text-white/85" strokeWidth={2.5} />
         </span>

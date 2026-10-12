@@ -227,10 +227,6 @@ JPEG's own packet, which is the only place Lightroom reads a JPEG's crop
 from. Which way up a JPEG is, is never written there: the file says that
 itself.
 
-Crops and turns can be switched out of sight in Settings, to look at every
-photo whole as the camera left it. That changes what is
-drawn and nothing else: no sidecar is read again or written for it.
-
 Not done, and worth knowing:
 
 - Face analysis is not run again for a photo that has been turned, and faces

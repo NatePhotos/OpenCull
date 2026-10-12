@@ -4,7 +4,7 @@ import { Focus, ScanFace } from "lucide-react";
 import { api } from "@/lib/api";
 import { sideways, turnTransform } from "@/lib/framing";
 import { isFullHeld, isHeld, watchFull } from "@/lib/held";
-import { BLINK, useSeen, useStore } from "@/lib/store";
+import { BLINK, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { AiFace, Photo } from "@/lib/types";
 
@@ -214,9 +214,8 @@ function Cut({ region, fill, closer = false, photo, width, height, softSrc, shar
   // A photo the photographer has turned is cut as it lies, in a box on its
   // side, and the box then turned with it — so the face is the way up it is
   // in the photo, from the same picture.
-  const seen = useSeen(photo);
-  const turn = turnTransform(seen.framing.turn);
-  const [across, down] = sideways(seen.framing.turn) ? [height, width] : [width, height];
+  const turn = turnTransform(photo.framing.turn);
+  const [across, down] = sideways(photo.framing.turn) ? [height, width] : [width, height];
   const { imgW, imgH, left, top, scale } = cutOf(region, fill, closer, photo, across, down);
   const style = { width: imgW * scale, height: imgH * scale, left: -left * scale, top: -top * scale };
 
