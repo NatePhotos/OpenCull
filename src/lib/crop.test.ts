@@ -1,0 +1,111 @@
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { dragged, reshaped, useCrop } from "./crop";
+import { inside, MIRROR_ACROSS, QUARTER_RIGHT } from "./framing";
+import type { Crop } from "./types";
+
+const view = { w: 6000, h: 4000 };
+const middle: Crop = { cx: 3000, cy: 2000, w: 3000, h: 2000, angle: 0 };
+
+describe("dragging a handle", () => {
+  it("moves that side and holds the one opposite", () => {
+    const wider = dragged(middle, { x: 1, y: 0 }, { x: 400, y: 0 }, null, view);
+    expect([wider.w, wider.h, wider.cx, wider.cy]).toEqual([3400, 2000, 3200, 2000]);
+    // The left side has not moved.
+    expect(wider.cx - wider.w / 2).toBe(middle.cx - middle.w / 2);
+
+    // The top dragged up: taller, and the bottom where it was.
+    const taller = dragged(middle, { x: 0, y: -1 }, { x: 0, y: -300 }, null, view);
+    expect([taller.h, taller.cy + taller.h / 2]).toEqual([2300, 3000]);
+  });
+
+  it("keeps the shape when the shape is held", () => {
+    const corner = dragged(middle, { x: 1, y: 1 }, { x: 600, y: 100 }, 1.5, view);
+    expect(corner.w / corner.h).toBeCloseTo(1.5);
+    expect(corner.w).toBe(3600);
+    const side = dragged(middle, { x: 1, y: 0 }, { x: -600, y: 0 }, 1.5, view);
+    expect([side.w, side.h]).toEqual([2400, 1600]);
+  });
+
+  it("stops at the edge of the picture", () => {
+    const far = dragged(middle, { x: 1, y: 0 }, { x: 5000, y: 0 }, null, view);
+    expect(inside(far, view)).toBe(true);
+    expect(far.cx + far.w / 2).toBeCloseTo(6000, 0);
+    const held = dragged(middle, { x: 1, y: 1 }, { x: 5000, y: 5000 }, 1.5, view);
+    expect(inside(held, view)).toBe(true);
+    expect(held.w / held.h).toBeCloseTo(1.5);
+  });
+
+  it("stays on the picture when the crop is tilted, and is never dragged to nothing", () => {
+    const tilted = { ...middle, w: 2000, h: 1400, angle: 12 };
+    const far = dragged(tilted, { x: 1, y: 1 }, { x: 9000, y: 9000 }, null, view);
+    expect(inside(far, view)).toBe(true);
+    expect(far.w).toBeGreaterThan(tilted.w);
+    const tiny = dragged(middle, { x: 1, y: 1 }, { x: -9000, y: -9000 }, null, view);
+    expect(tiny.w).toBeGreaterThan(50);
+    expect(tiny.h).toBeGreaterThan(50);
+  });
+});
+
+describe("a crop given another shape", () => {
+  it("keeps its middle and, where it fits, its size", () => {
+    const square = reshaped(middle, 1, view);
+    expect([square.cx, square.cy]).toEqual([3000, 2000]);
+    expect(square.w).toBeCloseTo(square.h);
+    expect(square.w * square.h).toBeCloseTo(middle.w * middle.h, -2);
+  });
+
+  it("is made smaller when the picture cannot hold it", () => {
+    const whole: Crop = { cx: 3000, cy: 2000, w: 6000, h: 4000, angle: 0 };
+    const square = reshaped(whole, 1, view);
+    expect(square.w).toBeCloseTo(4000);
+    expect(square.h).toBeCloseTo(4000);
+  });
+});
+
+describe("a crop in the making", () => {
+  beforeEach(() => useCrop.getState().begin(0, { fullWidth: 6000, fullHeight: 4000, framing: { turn: 1, crop: null } }));
+
+  it("begins as the whole photo, which is no crop at all", () => {
+    expect(useCrop.getState().result()).toEqual({ turn: 1, crop: null });
+    expect(useCrop.getState().shape).toBe("Original");
+  });
+
+  it("is shrunk by a tilt and given back its size when the tilt is undone in the same go", () => {
+    const c = useCrop.getState();
+    c.tilt(10);
+    const tilted = useCrop.getState().crop;
+    expect(tilted.w).toBeLessThan(6000);
+    expect(inside(tilted, view)).toBe(true);
+    expect(tilted.w / tilted.h).toBeCloseTo(1.5);
+    c.tilt(0);
+    expect(useCrop.getState().crop.w).toBe(6000);
+    c.tilt(60);
+    expect(useCrop.getState().crop.angle).toBe(45);
+  });
+
+  it("turns with the photo, shape and all", () => {
+    const c = useCrop.getState();
+    c.setShape("16 × 9");
+    expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(16 / 9);
+    c.turnBy(QUARTER_RIGHT);
+    const s = useCrop.getState();
+    expect(s.view).toEqual({ w: 4000, h: 6000 });
+    expect(s.crop.h / s.crop.w).toBeCloseTo(16 / 9);
+    expect(s.aspect).toBeCloseTo(9 / 16);
+    expect(s.result().turn).toBe(6);
+    c.turnBy(MIRROR_ACROSS);
+    expect(useCrop.getState().result().turn).toBe(5);
+  });
+
+  it("swaps wide for tall and back", () => {
+    const c = useCrop.getState();
+    c.setShape("1 × 1");
+    c.setShape("4 × 5 / 8 × 10");
+    expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(5 / 4);
+    c.swap();
+    expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(4 / 5);
+    c.reset();
+    expect(useCrop.getState().result().crop).toBeNull();
+  });
+});

@@ -11,6 +11,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
+import { CropView } from "./Crop";
 import { PhotoMenu } from "./PhotoMenu";
 
 /** Zoom and pan: how many times larger than fit, and how far off centre. */
@@ -114,10 +115,19 @@ export function Loupe() {
   const folder = useStore((s) => s.session?.name ?? "folder");
   const showInfo = useStore((s) => s.showInfo);
   const showRatingBar = useStore((s) => s.showRatingBar);
+  // Cropping takes the place of the photo itself, and of what floats over it.
+  const cropping = useStore((s) => s.cropOpen) && photo !== undefined && photo.framable && photo.fullWidth > 0;
+  // Stepped onto a photo that cannot be cropped, cropping is over.
+  const cropOpen = useStore((s) => s.cropOpen);
+  useEffect(() => {
+    if (cropOpen && photo && !cropping) useStore.getState().closeCrop(false);
+  }, [cropOpen, cropping, photo?.index]);
 
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
-      {photo ? (
+      {photo && cropping ? (
+        <CropView photo={photo} />
+      ) : photo ? (
         <Canvas photo={photo} />
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-2 text-sm text-[#666]">
@@ -125,8 +135,8 @@ export function Loupe() {
           {loading ? `Opening ${folder}…` : "No image selected"}
         </div>
       )}
-      {photo && showInfo && <InfoOverlay photo={photo} />}
-      {photo && showRatingBar && <RatingBar photo={photo} />}
+      {photo && showInfo && !cropping && <InfoOverlay photo={photo} />}
+      {photo && showRatingBar && !cropping && <RatingBar photo={photo} />}
     </div>
   );
 }

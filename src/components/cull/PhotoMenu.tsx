@@ -82,6 +82,7 @@ function Items({ index, fileBrowser }: { index: number; fileBrowser: string }) {
       <ContextMenuSeparator />
       {framable ? (
         <>
+          {!many && <ContextMenuItem onSelect={() => s.openCrop(index)}>Crop and Straighten…</ContextMenuItem>}
           <ContextMenuItem onSelect={() => s.turnPhotos("left", targets)}>Rotate Left</ContextMenuItem>
           <ContextMenuItem onSelect={() => s.turnPhotos("right", targets)}>Rotate Right</ContextMenuItem>
           <ContextMenuItem onSelect={() => s.turnPhotos("across", targets)}>Flip Horizontal</ContextMenuItem>

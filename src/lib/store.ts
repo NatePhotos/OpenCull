@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import { api, type UpdateFound } from "./api";
+import { useCrop } from "./crop";
 import { isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, turned } from "./framing";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
@@ -150,6 +151,8 @@ interface State {
   shortcutsOpen: boolean;
   settingsOpen: boolean;
   shipOpen: boolean;
+  /** A photo is being cropped in the big view. */
+  cropOpen: boolean;
   ingestOpen: boolean;
   /** A card to go straight to when ingest opens: the one just plugged in. */
   ingestFrom: string | null;
@@ -213,6 +216,12 @@ interface Actions {
   transfer(targets: number[], moving: boolean): Promise<void>;
   /** Opens Ship — on these photos, if any are given. */
   openShip(targets?: number[]): void;
+  /** Begins cropping a photo: the one given, or the one being looked at. */
+  openCrop(index?: number): void;
+  /** Keeps the crop as it stands, and carries on cropping. */
+  acceptCrop(): void;
+  /** Ends cropping, keeping what was made or leaving the photo as it was. */
+  closeCrop(accept: boolean): void;
   /** Takes photos that have left the folder out of what is shown. */
   forget(paths: string[]): void;
 
@@ -694,6 +703,7 @@ export const useStore = create<Store>((set, get) => {
     shortcutsOpen: false,
     settingsOpen: false,
     shipOpen: false,
+    cropOpen: false,
     ingestOpen: false,
     ingestFrom: null,
     notice: null,
@@ -861,7 +871,7 @@ export const useStore = create<Store>((set, get) => {
       if (!session) return;
       rememberPosition();
       if (session.id >= 0) void api.closeFolder(session.id);
-      set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
+      set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
     },
 
     reloadForSubfolders() {
@@ -1090,6 +1100,36 @@ export const useStore = create<Store>((set, get) => {
         const more = problems.length > 5 ? `\n…and ${problems.length - 5} more.` : "";
         set({ notice: { title: moving ? "Some photos were not moved" : "Some photos were not copied", body: `${shown}${more}\n\nNothing at the destination was replaced.` } });
       }
+    },
+
+    openCrop(index) {
+      const s = get();
+      if (!s.session) return;
+      const at = index ?? s.current;
+      const photo = s.photos[at];
+      if (!photo) return;
+      if (!photo.framable || photo.fullWidth <= 0) {
+        set({
+          notice: {
+            title: "This photo cannot be cropped here",
+            body: "Either its sidecar file could not be read with certainty, or the picture shown for it is not the whole of the photo, as when a camera is set to a different shape from its sensor.\n\nRather than risk a crop landing in the wrong place, or anything in the sidecar being lost, the photo is left exactly as it is.",
+          },
+        });
+        return;
+      }
+      // Cropping is done on the big photo, so that is where it goes.
+      set({ cropOpen: true, ...(s.viewMode === "grid" ? { viewMode: "loupe" as ViewMode } : {}), ...(at !== s.current ? { current: at, anchor: at, selected: new Set<number>() } : {}) });
+    },
+
+    acceptCrop() {
+      const crop = useCrop.getState();
+      if (get().cropOpen && crop.index !== null) applyFraming([{ index: crop.index, framing: crop.result() }]);
+    },
+
+    closeCrop(accept) {
+      if (accept) get().acceptCrop();
+      useCrop.getState().end();
+      set({ cropOpen: false });
     },
 
     openShip(targets) {

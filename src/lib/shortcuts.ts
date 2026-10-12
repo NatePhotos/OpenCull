@@ -1,6 +1,8 @@
 // Keyboard shortcuts: what can be bound, what each is bound to out of the
 // box, and how a key press is matched to one.
 
+import { useCrop } from "./crop";
+import { QUARTER_LEFT, QUARTER_RIGHT } from "./framing";
 import { load, save } from "./prefs";
 import { useStore } from "./store";
 import type { Color } from "./types";
@@ -13,7 +15,7 @@ export type Action =
   | "zoomToggle" | "zoomCentre" | "zoomIn" | "zoomOut"
   | "viewGrid" | "toggleFilmstrip" | "toggleFaces" | "toggleHistogram" | "toggleInfo" | "toggleSpeedCull"
   | "ship" | "moveToTrash" | "selectAll" | "undo" | "redo"
-  | "rotateLeft" | "rotateRight";
+  | "crop" | "rotateLeft" | "rotateRight";
 
 /** A key, by its position on the keyboard, and the modifiers held with it. */
 export interface Combo {
@@ -93,6 +95,7 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
   {
     title: "Frame",
     actions: [
+      ["crop", "Crop"],
       ["rotateLeft", "Rotate left"],
       ["rotateRight", "Rotate right"],
     ],
@@ -143,6 +146,7 @@ export const DEFAULTS: Record<Action, Combo> = {
   selectAll: { code: "KeyA", mod: true },
   undo: { code: "KeyZ", mod: true },
   redo: { code: "KeyZ", mod: true, shift: true },
+  crop: { code: "KeyR" },
   rotateLeft: { code: "BracketLeft", mod: true },
   rotateRight: { code: "BracketRight", mod: true },
 };
@@ -224,10 +228,44 @@ export function perform(action: Action): void {
     case "moveToTrash": return s.requestTrash();
     case "selectAll": return s.selectAll();
     case "undo": return s.undo();
+    case "crop": return s.openCrop();
     case "rotateLeft": return s.turnPhotos("left");
     case "rotateRight": return s.turnPhotos("right");
     case "redo": return s.redo();
   }
+}
+
+/**
+ * A key pressed while a photo is being cropped. The keys are Lightroom's:
+ * Enter keeps the crop and Escape leaves the photo as it was; X swaps tall
+ * for wide, A holds or frees the shape, O steps through the guides and
+ * Shift+O turns them. Moving to another photo keeps the crop and carries on
+ * cropping there. Everything else does nothing, rather than what it does to
+ * a photo that is not being cropped.
+ */
+function cropKey(e: KeyboardEvent, table: Record<Action, Combo>) {
+  const s = useStore.getState();
+  const crop = useCrop.getState();
+  const pressed = comboOf(e);
+  const is = (action: Action) => sameCombo(table[action], pressed);
+  const plain = !pressed.mod && !pressed.alt;
+  e.preventDefault();
+  if (e.repeat) return;
+
+  if (e.code === "Enter" || e.code === "NumpadEnter" || is("crop")) return s.closeCrop(true);
+  if (e.code === "Escape") return crop.lining ? crop.setLining(false) : s.closeCrop(false);
+  for (const step of ["nextImage", "previousImage", "nextGroup", "previousGroup"] as const) {
+    if (is(step)) {
+      s.acceptCrop();
+      return perform(step);
+    }
+  }
+  if (is("rotateLeft")) return crop.turnBy(QUARTER_LEFT);
+  if (is("rotateRight")) return crop.turnBy(QUARTER_RIGHT);
+  if (pressed.mod && pressed.alt && e.code === "KeyR") return crop.reset();
+  if (plain && e.code === "KeyX") return crop.swap();
+  if (plain && e.code === "KeyA") return crop.toggleLock();
+  if (plain && e.code === "KeyO") return pressed.shift ? crop.turnOverlay() : crop.cycleOverlay();
 }
 
 /**
@@ -260,6 +298,14 @@ export function installShortcuts(bindings: () => Record<Action, Combo>, recordin
     // A menu is open. Letters typed into one jump to the item starting with
     // them, and "P" must not both find "Pick" and pick the photo behind it.
     if (document.querySelector('[role="menu"]')) return;
+
+    // A photo is being cropped. Every key is the crop's until it is done:
+    // X swaps the shape here and must not reject the photo beneath, nor
+    // Delete bin it.
+    if (s.cropOpen) {
+      cropKey(e, bindings());
+      return;
+    }
 
     const pressed = comboOf(e);
     const table = bindings();

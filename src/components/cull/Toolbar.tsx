@@ -3,12 +3,13 @@ import {
   ArrowUpDown,
   ChevronLeft,
   CircleCheck,
+  Crop,
   Folder,
   Funnel,
   Info,
   Keyboard,
-  LayoutGrid,
   Layers,
+  LayoutGrid,
   Loader2,
   PanelBottom,
   PanelLeft,
@@ -86,6 +87,7 @@ export function Toolbar() {
   const showExif = useStore((s) => s.showExif);
   const showFilmstrip = useStore((s) => s.showFilmstrip);
   const showInfo = useStore((s) => s.showInfo);
+  const cropOpen = useStore((s) => s.cropOpen);
   const showFaces = useStore((s) => s.showFaces);
   const speedCull = useStore(speedCulling);
   const s = useStore.getState();
@@ -156,6 +158,9 @@ export function Toolbar() {
       </Tool>
       <Tool label="Info Overlay (I)" active={showInfo} onClick={() => s.toggle("showInfo")}>
         <Info />
+      </Tool>
+      <Tool label="Crop and Straighten (R)" active={cropOpen} onClick={() => (cropOpen ? s.closeCrop(true) : s.openCrop())}>
+        <Crop />
       </Tool>
 
       <Tooltip>
