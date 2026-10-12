@@ -1,6 +1,6 @@
 [package]
 name = "opencull"
-version = "0.2.3"
+version = "0.2.4"
 description = "OpenCull — photo culling for macOS, Windows and Linux"
 authors = ["The OpenCull authors"]
 license = "GPL-3.0-or-later"
