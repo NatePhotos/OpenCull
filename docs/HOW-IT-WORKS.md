@@ -88,7 +88,7 @@ capture time; EXIF panel and histogram; undo; move to trash; copying and moving
 photos to another folder; Ship; rebindable shortcuts; recent folders; the Mac
 app's settings, less the ones that belong to features not here.
 
-With **Write ratings into JPEGs** turned on in Settings — it is off unless
+With **Write ratings and crops into JPEGs** turned on in Settings — it is off unless
 asked for — a JPEG's marks are also written into the JPEG itself, in its XMP
 packet, because that is where Lightroom, Bridge and others keep a JPEG's rating and
 the only place they look for it; a sidecar is still written, so the app's own
@@ -185,6 +185,62 @@ Not here yet:
 
 Lens names are read from standard EXIF. Nikon and older Canon bodies keep
 theirs somewhere private, so those show as unknown.
+
+
+## Cropping and turning
+
+A crop is an instruction, not a picture. Nothing is rendered from it: the
+previews stay the whole frame, and a cropped or turned photo is shown by
+placing that frame behind a window, in CSS. So framing a photo makes no
+preview, and a photo with no framing is drawn by exactly the code that drew
+it before.
+
+It is saved in the photo's sidecar in the fields Adobe's programs use, so
+Lightroom and Camera Raw open the photo cropped the same way and can still
+change it: `crs:CropTop`, `CropLeft`, `CropBottom`, `CropRight`, `CropAngle`,
+`CropConstrainToWarp` and `HasCrop`, and `tiff:Orientation` for a quarter
+turn or a mirror. A crop made in those programs is read the same way and
+shown here.
+
+Three frames are kept apart (`framing.rs`, `src/lib/framing.ts`). Adobe
+stores a crop against the picture as it is stored, turned no way at all — the
+top-left and bottom-right corners of the turned rectangle, as fractions, and
+the turn in degrees. MEASURED on four sidecars Adobe wrote, one for a photo
+stored on its side: read that way each comes out at exactly the 3:2 it was
+locked to, and read any other way none does. The previews are that picture
+turned the way the file says; the view is that, turned further by the
+photographer. The interface only ever deals in the view, and the conversion
+is in one place, at the sidecar.
+
+A sidecar an editing program has worked on holds saved snapshots, looks and
+presets, each with its own copy of the same fields. MEASURED on about 15,000
+sidecars from real shoots: none could not be followed; 1,252 of the first
+3,000 held more than one block, and 206 held crop numbers only inside
+snapshots. So the sidecar is walked as a document (`sidecar.rs`), and only
+the fields on the photo's own description are read or changed. Every change
+was made in memory to each of those sidecars and read back: none touched a
+byte outside the photo's own fields. A sidecar that cannot be followed with
+certainty is left alone, and that photo cannot be cropped here.
+
+With **Write ratings and crops into JPEGs** on, a crop also goes into a
+JPEG's own packet, which is the only place Lightroom reads a JPEG's crop
+from. Which way up a JPEG is, is never written there: the file says that
+itself.
+
+Not done, and worth knowing:
+
+- Face analysis is not run again for a photo that has been turned, and faces
+  a crop leaves out are still listed.
+- The histogram and the dimensions in the EXIF panel are of the whole frame.
+- Lightroom reads a DNG's settings from inside the DNG, so a crop saved
+  beside one shows here and not there.
+- A camera set to shoot a shape other than its sensor's (16:9, square) saves
+  a JPEG and a preview of that shape beside a RAW of the whole sensor. A crop
+  drawn on one would not be the same crop on the other, so such photos are
+  not cropped here.
+- That Lightroom opens a crop made here as it was drawn is by the arithmetic
+  above and has not yet been looked at in Lightroom itself; nor has a crop
+  on a mirrored photo, of which there was no real example to measure.
 
 
 ## Updates
@@ -303,6 +359,8 @@ src-tauri/src/
   xmp.rs       sidecar ratings, read and written
   burst.rs     which frames came from one press of the shutter
   update.rs    finding a newer version and putting it in place
+  framing.rs   how a photo is turned and cropped, between sensor and view
+  sidecar.rs   reading and changing a photo's own fields in a sidecar
   commands.rs  what the interface can ask for
 src/
   lib/         state, shortcuts, the bridge to the backend

@@ -73,9 +73,15 @@ deciding what to keep. OpenCull is built to make that fast.
   Or choose to see only the RAWs, or only the JPEGs.
 * **Marks you can take anywhere.** Stars, flags and colour labels are written
   as standard sidecar files that Lightroom, Capture One and the rest read.
-  Turn on **Write ratings into JPEGs** in Settings to also write a JPEG's
-  stars and colour label into the file itself, where those programs look for
-  them. It is off by default.
+  Turn on **Write ratings and crops into JPEGs** in Settings to also write a
+  JPEG's stars, colour label and crop into the file itself, where those
+  programs look for them. It is off by default.
+* **Crop and straighten, for your editor to pick up.** Crop with a locked or
+  free shape, straighten with a slider or by drawing a line along the
+  horizon, rotate and flip. Nothing is done to the photo: the crop is saved
+  beside it the way Lightroom and Camera Raw save theirs, so they open it
+  already cropped and you can still change it there. A photo cropped in
+  those programs shows cropped here too.
 * **Looks at the faces for you.** It finds the faces in every photo and shows
   whose eyes are shut, who is looking away and how sharp each one is.
 * **Compares a person with themselves.** It follows each person through a
@@ -184,6 +190,8 @@ through the shoot from the keyboard:
 | `.` | Face panel |
 | `F` `H` `I` | Filmstrip, histogram and EXIF, info overlay |
 | `Caps Lock` | Speed cull: move on to the next photo after each mark |
+| `R` | Crop and straighten. Inside it: `Enter` keeps the crop, `Esc` leaves the photo as it was, `X` swaps tall and wide, `A` holds or frees the shape, `O` steps through the guides |
+| `⌘[` `⌘]` / `Ctrl+[` `Ctrl+]` | Rotate left and right |
 | `⌘E` / `Ctrl+E` | Ship: open the keepers in your editor, or copy or move them |
 | `⌘Z` / `Ctrl+Z` | Undo |
 

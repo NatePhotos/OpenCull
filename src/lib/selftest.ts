@@ -243,6 +243,24 @@ export async function runSelfTest(folder: string): Promise<void> {
     if (!paired) throw new Error("ship left a RAW's JPEG behind");
     if (taken !== pair.length || skipped.skipped !== pair.length || skipped.placed.join() !== originals.join()) throw new Error("ship did not notice the names already taken");
     if (!renamed || beside.failed.length > 0) throw new Error("a copy onto a taken name did not go alongside under a new one");
+    // Framing: a crop and a turn saved for one of the copies just made in
+    // the temporary folder — never for a photo of the photographer's — to
+    // show the whole route from here to the sidecar holds.
+    const copy = sent.placed[0];
+    const made = pair[0];
+    if (made.fullWidth > 0 && made.framable) {
+      const sidecar = copy.replace(/\.[^.\\/]+$/, ".xmp");
+      const [had] = await api.pathsExist([sidecar]);
+      const middle = { cx: made.fullHeight / 2, cy: made.fullWidth / 2, w: made.fullHeight / 2, h: made.fullWidth / 2, angle: 3 };
+      await api.setFraming([{ path: copy, into: [], framing: { turn: 6, crop: middle }, upright: [made.fullWidth, made.fullHeight], seed: { rating: 0, flag: "none", color: "none" } }]);
+      await api.flushMarks();
+      const [has] = await api.pathsExist([sidecar]);
+      say(`framing: a crop and a quarter turn saved beside a copy${had ? " that already had a sidecar" : ""}; its sidecar is ${has ? "there" : "MISSING"}`);
+      if (!has) throw new Error("a crop was saved and no sidecar was written for it");
+    } else {
+      say("framing: the first photo here cannot be framed, so saving a crop was not tried");
+    }
+
     say(`editing programs found here: ${(await api.editingApps()).filter((a) => a.installed).map((a) => a.name).join(", ")}`);
 
     {
