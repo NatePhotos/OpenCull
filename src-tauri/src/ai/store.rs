@@ -15,7 +15,7 @@ use super::{focus, Analysis};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-1|mark-2|key-1";
+pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-2|states-2|mark-2|key-1";
 
 /// One face, as it is remembered and as the interface is told of it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -38,6 +38,13 @@ pub struct FaceRecord {
     /// Whether that was seen well enough to be set beside the same person's
     /// eyes in another frame.
     pub eyes_read: bool,
+    /// The state it is in, in words: "Looking Down", "Smiling · Eyes Open".
+    #[serde(default)]
+    pub state: Option<String>,
+    /// How much there is to worry about in that: 0 nothing, 1 worth a look,
+    /// 2 probably a fault, 3 a fault.
+    #[serde(default)]
+    pub concern: u8,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -79,6 +86,8 @@ impl From<&Analysis> for Record {
                 sharpness: f.focus_log.map(|log| focus::score(10f64.powf(log)) as f32),
                 eye: f.verdict.ear,
                 eyes_read: f.eyes_read,
+                state: f.state.map(|s| s.name().to_string()),
+                concern: f.state.map_or(0, |s| s.concern()),
             })
             .collect();
         let key = a.key.map(|k| KeyRecord { x: k.x as f32, y: k.y as f32, w: k.w as f32, h: k.h as f32 });
@@ -147,7 +156,7 @@ mod tests {
     use super::*;
 
     fn record(score: f32) -> Record {
-        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true };
+        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0 };
         Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
     }
 
@@ -198,6 +207,8 @@ mod tests {
             eyes_shut: false,
             looking_away: false,
             eyes_away: None,
+            state: Some(crate::ai::state::State::LookingDown),
+            blink: Some(0.01),
             eyes_read: true,
         };
         let r = Record::from(&Analysis { faces: vec![face], score: Some(50.0), parts: None, key: None });

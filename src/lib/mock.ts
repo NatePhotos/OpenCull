@@ -147,6 +147,9 @@ export const mock: Backend = {
             // Now and then someone is caught half way through a blink.
             eye: (index + f) % 6 === 2 ? 0.15 : 0.28 + ((index + f) % 3) * 0.01,
             eyesRead: f !== 3,
+            // A spread of the states a face can be in.
+            state: f === 3 ? null : ["Smiling · Eyes Open", "Looking Down", "Eyes Fully Open", "Laughing · Eyes Closed", "Eyes Barely Open", "Facing Away", "Eyes Closed"][(index + f * 3) % 7],
+            concern: f === 3 ? 0 : [0, 0, 0, 0, 2, 0, 3][(index + f * 3) % 7],
           }));
           // Nobody in it: what it is about instead, somewhere off centre.
           const key = n === 0 ? { x: 0.2 + (index % 3) * 0.1, y: 0.15 + (index % 2) * 0.2, w: 0.4, h: 0.4 } : null;

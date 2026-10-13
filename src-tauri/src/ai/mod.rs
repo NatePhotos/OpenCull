@@ -12,6 +12,7 @@ pub mod onnx;
 pub mod queue;
 pub mod score;
 pub mod series;
+pub mod state;
 pub mod store;
 pub mod subject;
 
@@ -43,6 +44,11 @@ pub struct Face {
     /// to be off the camera. `None` for a face too small to be accused, or
     /// with an eye at the edge of the frame.
     pub eyes_away: Option<f32>,
+    /// The state it is in — eyes, expression, where it is turned — and how
+    /// likely it is to be a blink. `None` for a face too small to say, or
+    /// with an eye at the edge of the frame.
+    pub state: Option<state::State>,
+    pub blink: Option<f32>,
     /// Whether its eyes were seen well enough for how open they are to be
     /// set beside the same person's eyes in another frame.
     pub eyes_read: bool,
@@ -107,10 +113,10 @@ const EYES_AWAY: f32 = 0.7;
 /// with it.
 ///
 /// MEASURED against the score believed outright: on the 185 graded by hand,
-/// 1 of 73 looking at the camera accused where 5 were, for 72% of those
-/// looking away caught where 75% were; in the shoots held out whole, 8 of
+/// 2 of 73 looking at the camera accused where 5 were, for 70% of those
+/// looking away caught where 75% were; in the shoots held out whole, 7 of
 /// 190 accused where 9 were and 81% caught where 83% were; on 646 faces in
-/// posed groups, 3 accused where 5 were. And of five faces a photographer
+/// posed groups, 4 accused where 5 were. And of five faces a photographer
 /// picked out of 80 flagged photos as plainly looking at the camera, four
 /// were accused by the score alone and are let go by this.
 const EYES_AGREE: f32 = 0.2;
@@ -204,9 +210,19 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
             eyes::Look { eyes: [point(found[i].eyes[0]), point(found[i].eyes[1])], box_wide: found[i].w as f64 * up, head_yaw: verdicts[i].head_yaw }
         })
         .collect();
+    // One look at each eye pair says where the eyes point and how the lids
+    // are; the lower half of the face gives the expression; together with
+    // the judge's reading they make the state the face is in.
+    let seen = eyes::read(rgb, width, height, &looks)?;
+    let mouths = state::mouths(rgb, width, height, &looked.iter().map(|&i| places[i]).collect::<Vec<_>>())?;
     let mut eyes_away: Vec<Option<f32>> = vec![None; found.len()];
-    for (i, said) in looked.iter().zip(eyes::away(rgb, width, height, &looks)?) {
-        eyes_away[*i] = said;
+    let mut states: Vec<Option<(state::State, f32)>> = vec![None; found.len()];
+    for ((i, seen), mouth) in looked.iter().zip(&seen).zip(mouths) {
+        if let Some(seen) = seen {
+            eyes_away[*i] = Some(seen.away);
+            let read = state::Read::new(seen.into(), mouth, &verdicts[*i], places[*i].h);
+            states[*i] = Some((state::of(&read), state::blink(&read) as f32));
+        }
     }
 
     let faces: Vec<Face> = (0..found.len())
@@ -223,6 +239,8 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
                 eyes_shut: wide >= SHUT_MIN_WIDTH && v.eyes[2] >= SHUT,
                 looking_away: wide >= AWAY_MIN_WIDTH && is_away(&v, eyes_away[i]),
                 eyes_away: eyes_away[i],
+                state: states[i].map(|s| s.0),
+                blink: states[i].map(|s| s.1),
                 eyes_read: wide >= SHUT_MIN_WIDTH && v.eyes[3] < HIDDEN && v.head_yaw.abs() < READ_MAX_TURN,
             }
         })

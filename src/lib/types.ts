@@ -122,6 +122,10 @@ export interface AiFace {
   eye: number;
   /** Whether that can be set beside the same person's eyes in another frame. */
   eyesRead: boolean;
+  /** The state it is in, in words — "Looking Down", "Smiling · Eyes Open" — or null where it could not be said. */
+  state: string | null;
+  /** How much there is to worry about in that: 0 nothing, 1 worth a look, 2 probably a fault, 3 a fault. */
+  concern: number;
 }
 
 /** What the analysis found in one photo. */

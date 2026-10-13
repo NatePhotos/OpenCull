@@ -1,4 +1,5 @@
-//! A closer look at the eyes: whether they are on the camera.
+//! A closer look at the eyes: whether they are on the camera, how far the
+//! lids are open, and whether they are cast down.
 //!
 //! The judge is shown one band across a face and has to find the eyes in it
 //! before it can say where the pupils sit; what it ends up reading is mostly
@@ -8,6 +9,10 @@
 //! told how far the judge finds the head turned — eyes swung back to the
 //! lens from a turned head sit to one side of their sockets and are looking
 //! at the camera all the same.
+//!
+//! One network gives all three answers from one look. It was taught to give
+//! what six gave between them — three for where the eyes point, three for
+//! the lids — and keeps to them closely for a sixth of the work.
 
 use std::cell::RefCell;
 
@@ -62,28 +67,65 @@ pub fn pair(rgb: &[u8], width: u32, height: u32, look: &Look) -> Option<Vec<u8>>
     Some(out)
 }
 
-/// How likely each face's eyes are to be off the camera, 0 to 1, in the
-/// order given. `None` for a face whose eyes could not be cut out.
-pub fn away(rgb: &[u8], width: u32, height: u32, looks: &[Look]) -> Result<Vec<Option<f32>>, String> {
-    let pairs: Vec<Option<Vec<u8>>> = looks.iter().map(|look| pair(rgb, width, height, look)).collect();
-    let n = pairs.iter().flatten().count();
-    if n == 0 {
-        return Ok(vec![None; looks.len()]);
-    }
+/// What the look at one face's eyes makes of them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Seen {
+    /// How likely the eyes are to be off the camera, 0 to 1.
+    pub away: f32,
+    /// How far the lids are open: fully, mostly, partly, barely, closed,
+    /// cannot be seen.
+    pub open: [f32; 6],
+    /// How likely the eyes are cast down.
+    pub down: f32,
+}
+
+/// Looks at each face's eyes, in the order given. `None` for a face whose
+/// eyes could not be cut out.
+pub fn read(rgb: &[u8], width: u32, height: u32, looks: &[Look]) -> Result<Vec<Option<Seen>>, String> {
+    read_of(&pairs(rgb, width, height, looks), looks)
+}
+
+/// Every face's eye pair, cut once: more than one network looks at them.
+pub fn pairs(rgb: &[u8], width: u32, height: u32, looks: &[Look]) -> Vec<Option<Vec<u8>>> {
+    looks.iter().map(|look| pair(rgb, width, height, look)).collect()
+}
+
+/// Lays eye pairs out the way a network takes them — all the red, then all
+/// the green, then all the blue — with the turn of each head beside it.
+/// Faces without a pair are left out.
+pub fn laid_out(pairs: &[Option<Vec<u8>>], looks: &[Look]) -> (usize, Vec<f32>, Vec<f32>) {
     let (w, h) = (EYE.0 as usize * 2, EYE.1 as usize);
+    let n = pairs.iter().flatten().count();
     let mut pair_in = Vec::with_capacity(n * 3 * w * h);
     let mut turn_in = Vec::with_capacity(n);
     for (picture, look) in pairs.iter().zip(looks) {
         if let Some(picture) = picture {
-            // All the red, then all the green, then all the blue.
             for channel in 0..3 {
                 pair_in.extend((0..w * h).map(|i| picture[i * 3 + channel] as f32));
             }
             turn_in.push(look.head_yaw);
         }
     }
+    (n, pair_in, turn_in)
+}
+
+/// As `read`, on pairs already cut.
+pub fn read_of(pairs: &[Option<Vec<u8>>], looks: &[Look]) -> Result<Vec<Option<Seen>>, String> {
+    let (n, pair_in, turn_in) = laid_out(pairs, looks);
+    if n == 0 {
+        return Ok(vec![None; looks.len()]);
+    }
+    let (w, h) = (EYE.0 as usize * 2, EYE.1 as usize);
     let inputs = vec![("pair", vec![n, 3, h, w], pair_in), ("turn", vec![n, 1], turn_in)];
-    let said: Vec<f32> = onnx::run(&SESSION, MODEL, inputs, &["away"], |out| out[0].1.to_vec())?;
+    let said: Vec<Seen> = onnx::run(&SESSION, MODEL, inputs, &["away", "open", "down"], |out| {
+        (0..n)
+            .map(|i| {
+                let mut open = [0.0; 6];
+                open.copy_from_slice(&out[1].1[i * 6..(i + 1) * 6]);
+                Seen { away: out[0].1[i], open, down: out[2].1[i] }
+            })
+            .collect()
+    })?;
     let mut said = said.into_iter();
     Ok(pairs.iter().map(|p| p.as_ref().and_then(|_| said.next())).collect())
 }
@@ -124,7 +166,7 @@ mod tests {
         let rgb = picture(400, 300);
         let look = Look { eyes: [(5.0, 150.0), (105.0, 150.0)], box_wide: 200.0, head_yaw: 0.0 };
         assert!(pair(&rgb, 400, 300, &look).is_none());
-        assert_eq!(away(&rgb, 400, 300, &[look]).unwrap(), vec![None]);
+        assert_eq!(read(&rgb, 400, 300, &[look]).unwrap(), vec![None]);
     }
 
     #[test]
@@ -133,11 +175,11 @@ mod tests {
         let a = Look { eyes: [(200.0, 200.0), (280.0, 204.0)], box_wide: 180.0, head_yaw: 0.1 };
         let b = Look { eyes: [(420.0, 300.0), (470.0, 298.0)], box_wide: 110.0, head_yaw: -0.4 };
         let edge = Look { eyes: [(2.0, 2.0), (60.0, 2.0)], box_wide: 110.0, head_yaw: 0.0 };
-        let together = away(&rgb, 640, 480, &[a, edge, b]).unwrap();
+        let together = read(&rgb, 640, 480, &[a, edge, b]).unwrap();
         assert_eq!(together.len(), 3);
         assert!(together[1].is_none());
-        let alone = away(&rgb, 640, 480, &[b]).unwrap()[0].unwrap();
-        assert!((together[2].unwrap() - alone).abs() < 1e-4);
-        assert!(together.iter().flatten().all(|v| (0.0..=1.0).contains(v)));
+        let alone = read(&rgb, 640, 480, &[b]).unwrap()[0].unwrap();
+        assert!((together[2].unwrap().away - alone.away).abs() < 1e-4 && (together[2].unwrap().down - alone.down).abs() < 1e-4);
+        assert!(together.iter().flatten().all(|v| (0.0..=1.0).contains(&v.away) && (v.open.iter().sum::<f32>() - 1.0).abs() < 1e-3));
     }
 }

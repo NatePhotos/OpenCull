@@ -17,6 +17,11 @@ pub const STRIP: (u32, u32) = (224, 64);
 const CONTEXT: f64 = 0.8;
 /// The band of the box the eyes are in, from its top.
 const EYES: (f64, f64) = (0.20, 0.55);
+/// The band across the box where the mouth is: its lower half, and a little
+/// below its foot, since a laugh drops the chin out of the box.
+const MOUTH: (f64, f64) = (0.50, 1.02);
+/// The picture of that band the expression network is shown.
+pub const MOUTH_BAND: (u32, u32) = (128, 64);
 
 /// A face's place in a photograph: its middle and its size, as fractions of
 /// the frame, with `mid_y` measured **up from the bottom** — the Mac app's
@@ -58,6 +63,13 @@ impl FaceBox {
         let (x0, y0, x1, y1) = self.box_rect(width, height);
         let tall = (y1 - y0) as f64;
         (x0, y0 + (EYES.0 * tall) as u32, x1, y0 + (EYES.1 * tall) as u32)
+    }
+
+    /// The band across the lower half of the box, where the mouth is.
+    pub fn mouth_rect(&self, width: u32, height: u32) -> Rect {
+        let (x0, y0, x1, y1) = self.box_rect(width, height);
+        let tall = (y1 - y0) as f64;
+        (x0, y0 + (MOUTH.0 * tall) as u32, x1, (y0 + (MOUTH.1 * tall) as u32).min(height))
     }
 }
 

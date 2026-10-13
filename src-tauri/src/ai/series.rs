@@ -260,7 +260,7 @@ mod tests {
     use super::*;
 
     fn face(x: f32, eye: f32) -> FaceRecord {
-        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, sharpness: Some(80.0), eye, eyes_read: true }
+        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, sharpness: Some(80.0), eye, eyes_read: true, state: None, concern: 0 }
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {

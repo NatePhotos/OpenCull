@@ -115,10 +115,10 @@ cards on Windows and Linux is written and has never been run.
 Face analysis finds the faces in each photo and judges them — eyes shut,
 looking away, how sharp, subject or background — then marks the photo and
 ranks the frames of each burst. It uses no part of the system it runs on:
-three model files, run through ONNX Runtime, give the same answers on every
+four model files, run through ONNX Runtime, give the same answers on every
 platform. One finds faces; one judges each face, and says when what was
-found is not a face at all — a hand, a plate of food, the back of a head; the
-third takes a closer look at the eyes alone.
+found is not a face at all — a hand, a plate of food, the back of a head; one
+takes a closer look at the eyes alone, and one at the mouth.
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
@@ -142,10 +142,10 @@ says whether they are on the camera. A face is looking away if that closer
 look is sure of it, or if the score says so and the closer look goes some
 way along with it. MEASURED with the whole app on faces none of it learned
 from, against the score alone: of 101 looking away in 25 shoots held out
-whole, 81% caught where 74% were, with 4.2% of 190 looking at the camera
+whole, 81% caught where 74% were, with 3.7% of 190 looking at the camera
 accused where 2.6% were; on 185 graded by hand, each counted for as many as
-its kind is common, 72% caught where 60% were, and 0.3% accused where 1.3%
-were; on 646 faces in posed groups, 3 accused. It adds nothing that can be
+its kind is common, 70% caught where 60% were, and 0.5% accused where 1.3%
+were; on 646 faces in posed groups, 4 accused. It adds nothing that can be
 measured to the time a photo takes.
 
 What looking away costs a photo depends on who else is in it. Where nobody
@@ -159,6 +159,33 @@ the 30 where someone else was looking; and on 734 photos rated by hand, the
 mark tells the good from the bad 81% of the time this way, where counting
 every look away in full it told 77%. Bursts are still split by the clock
 alone.
+
+Each face is also given a state, in the words a photographer would use: Eyes
+Fully Open, Eyes Mostly Open, Smiling or Laughing with the eyes open or
+closed, Looking Down, Facing Away, Very Close, Eyes Partially Open, Eyes
+Obscured, Eyes Barely Open, Eyes Closed — and Mid-Blink where the same
+person's eyes are plainly wider in another frame of the pose. The face panel
+shows it, coloured by how much there is to worry about. It comes from three
+readings put together: the eye pair looked at for how far the lids are open
+and whether the eyes are cast down, the lower half of the face looked at
+for its expression, and the judge's reading of the whole face for both and
+for a head turned right away. Eyes that are not open are named a fault only
+where nothing explains them, or where everything about the face says a
+blink whatever else is true of it. MEASURED with the whole app on 406
+faces in 26 shoots none of it learned from, against answers given by eye:
+how open the eyes are, within one step of five in 97%; barely open or
+closed told from the rest 0.98 where the eye ratio tells them 0.83 (1.00 is
+perfect, 0.50 a coin); looking down 0.98; smiling or laughing against not,
+0.96. Of the 12 blinks among them, all 12 are given a state that says
+"probably a fault" or worse, and so are 23 of the 379 faces that were not
+blinks; the "eyes shut" answer it stands in for was given to 7 and to 51.
+The closer looks were first made as nine small networks, three to an
+answer; one network for the eyes and one for the mouth were then taught to
+give what the nine gave between them, on some twenty thousand faces, and do
+it rather better for a fifth of the work. The state is for the eye of
+whoever is choosing; the photo's mark does not use it yet, and is charged on
+the eyes as before. It adds nothing that can be measured to the time a
+photo takes.
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a
 venue — is marked on how sharp its subject is, and the face panel shows that

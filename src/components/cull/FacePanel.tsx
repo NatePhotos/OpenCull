@@ -314,10 +314,26 @@ function opennessAlone(ratio: number): number {
   return 100;
 }
 
+/** States in which eyes that are not open are explained, and nobody is blinking. */
+const EXPLAINED = ["Looking Down", "Facing Away", "Eyes Obscured"];
+
 /** What the eye square says: its colour, its picture and its words. */
 function eyeVerdict(face: AiFace, eyes: number | null): { colour: string; glyph: "open" | "shut" | "aside"; text: string } {
   // Against the same person's best in the pose, where that is known.
   const share = eyes === null ? "" : ` · ${Math.round(eyes * 100)}%`;
+  if (face.state) {
+    // The face's own state, as the closer looks at its eyes and mouth give
+    // it. Two things are told before it: eyes less open than the same
+    // person's in another frame of the pose are a blink caught half way,
+    // unless the state already says why they are not open; and eyes that
+    // are open but off the camera are looking away.
+    if (eyes !== null && eyes < BLINK && !EXPLAINED.includes(face.state)) return { colour: RED, glyph: "shut", text: `Mid-Blink${share}` };
+    const turned = face.state === "Looking Down" || face.state === "Facing Away";
+    if (face.concern === 0 && face.lookingAway && !turned) return { colour: YELLOW, glyph: "aside", text: "Looking Away" };
+    const colour = [GREEN, YELLOW, ORANGE, RED][Math.min(face.concern, 3)];
+    const shut = face.concern >= 2 || face.state.endsWith("Eyes Closed");
+    return { colour, glyph: turned ? "aside" : shut ? "shut" : "open", text: face.state + (turned ? "" : share) };
+  }
   // A blink is told before a glance: a shut eye is neither looking at the
   // camera nor away from it.
   if (face.eyesShut) return { colour: RED, glyph: "shut", text: "Blink / Closed" };

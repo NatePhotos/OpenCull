@@ -34,6 +34,14 @@ pub struct Verdict {
     pub eye_offset: f32,
     /// How far the head is turned, by the same measure. Nought is square on.
     pub head_yaw: f32,
+    /// Neutral, smiling, laughing, mid-word, something else: read from the
+    /// whole face. The closer look at the mouth is set beside it.
+    pub expression: [f32; 5],
+    /// How likely the head is turned right away, so the face is seen from
+    /// the side.
+    pub profile: f32,
+    /// How likely the person is looking down, from the set of the head.
+    pub down: f32,
 }
 
 /// Lays a picture out the way the model takes it: all the red, then all the
@@ -64,7 +72,7 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
     }
 
     let inputs = vec![("face", vec![n, 3, side, side], face_in), ("eyes", vec![n, 3, strip_h, strip_w], eyes_in)];
-    onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw"], |out| {
+    onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw", "expression", "profile", "down"], |out| {
         (0..n)
             .map(|i| {
                 let take = |which: usize, len: usize| &out[which].1[i * len..(i + 1) * len];
@@ -77,6 +85,9 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
                 v.away = take(5, 1)[0];
                 v.eye_offset = take(6, 1)[0];
                 v.head_yaw = take(7, 1)[0];
+                v.expression.copy_from_slice(take(8, 5));
+                v.profile = take(9, 1)[0];
+                v.down = take(10, 1)[0];
                 v
             })
             .collect()
@@ -98,6 +109,8 @@ mod tests {
             assert!((v.validity.iter().sum::<f32>() - 1.0).abs() < 1e-3);
             assert!((v.eyes.iter().sum::<f32>() - 1.0).abs() < 1e-3);
             assert!((v.gaze.iter().sum::<f32>() - 1.0).abs() < 1e-3);
+            assert!((v.expression.iter().sum::<f32>() - 1.0).abs() < 1e-3);
+            assert!((0.0..=1.0).contains(&v.profile) && (0.0..=1.0).contains(&v.down));
             assert!((0.0..=0.41).contains(&v.ear) && (0.0..=1.0).contains(&v.quality) && (0.0..=1.0).contains(&v.away));
         }
     }
