@@ -127,7 +127,7 @@ export const mock: Backend = {
   lightroomCatalogs: () => later(["/Users/sample/Pictures/Lightroom/Weddings 2026.lrcat", "/Users/sample/Pictures/Lightroom/Personal.lrcat"], 600),
   openInEditor: () => later(undefined),
   pathsExist: (paths) => later(paths.map(() => true)),
-  aiScan: async (_session, order, onEvent) => {
+  aiScan: async (_session, order, advanced, onEvent) => {
     for (let at = 0; at < order.length; at += 12) {
       await later(null, 120);
       onEvent({
@@ -148,8 +148,9 @@ export const mock: Backend = {
             eye: (index + f) % 6 === 2 ? 0.15 : 0.28 + ((index + f) % 3) * 0.01,
             eyesRead: f !== 3,
             // A spread of the states a face can be in.
-            state: f === 3 ? null : ["Smiling · Eyes Open", "Looking Down", "Eyes Fully Open", "Laughing · Eyes Closed", "Eyes Barely Open", "Facing Away", "Eyes Closed"][(index + f * 3) % 7],
-            concern: f === 3 ? 0 : [0, 0, 0, 0, 2, 0, 3][(index + f * 3) % 7],
+            state: f === 3 || !advanced ? null : ["Smiling · Eyes Open", "Looking Down", "Eyes Fully Open", "Laughing · Eyes Closed", "Eyes Barely Open", "Facing Away", "Eyes Closed"][(index + f * 3) % 7],
+            concern: f === 3 || !advanced ? 0 : [0, 0, 0, 0, 2, 0, 3][(index + f * 3) % 7],
+            excused: f === 3 || !advanced ? 0 : [0, 0.85, 0, 0.85, 0, 0.85, 0][(index + f * 3) % 7],
           }));
           // Nobody in it: what it is about instead, somewhere off centre.
           const key = n === 0 ? { x: 0.2 + (index % 3) * 0.1, y: 0.15 + (index % 2) * 0.2, w: 0.4, h: 0.4 } : null;

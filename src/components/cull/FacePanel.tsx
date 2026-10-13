@@ -4,7 +4,7 @@ import { Focus, ScanFace } from "lucide-react";
 import { api } from "@/lib/api";
 import { sideways, turnTransform } from "@/lib/framing";
 import { isFullHeld, isHeld, watchFull } from "@/lib/held";
-import { BLINK, useStore } from "@/lib/store";
+import { BLINK, blinked, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { AiFace, Photo } from "@/lib/types";
 
@@ -314,9 +314,6 @@ function opennessAlone(ratio: number): number {
   return 100;
 }
 
-/** States in which eyes that are not open are explained, and nobody is blinking. */
-const EXPLAINED = ["Looking Down", "Facing Away", "Eyes Obscured"];
-
 /** What the eye square says: its colour, its picture and its words. */
 function eyeVerdict(face: AiFace, eyes: number | null): { colour: string; glyph: "open" | "shut" | "aside"; text: string } {
   // Against the same person's best in the pose, where that is known.
@@ -325,9 +322,9 @@ function eyeVerdict(face: AiFace, eyes: number | null): { colour: string; glyph:
     // The face's own state, as the closer looks at its eyes and mouth give
     // it. Two things are told before it: eyes less open than the same
     // person's in another frame of the pose are a blink caught half way,
-    // unless the state already says why they are not open; and eyes that
+    // unless the state says why they are not open or they cannot be seen; and eyes that
     // are open but off the camera are looking away.
-    if (eyes !== null && eyes < BLINK && !EXPLAINED.includes(face.state)) return { colour: RED, glyph: "shut", text: `Mid-Blink${share}` };
+    if (blinked(face, eyes) && face.state !== "Eyes Obscured") return { colour: RED, glyph: "shut", text: `Mid-Blink${share}` };
     const turned = face.state === "Looking Down" || face.state === "Facing Away";
     if (face.concern === 0 && face.lookingAway && !turned) return { colour: YELLOW, glyph: "aside", text: "Looking Away" };
     const colour = [GREEN, YELLOW, ORANGE, RED][Math.min(face.concern, 3)];

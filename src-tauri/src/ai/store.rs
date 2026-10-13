@@ -11,11 +11,23 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_128;
 
-use super::{focus, Analysis};
+use super::{focus, Analysis, Rules};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-2|states-2|mark-2|key-1";
+const ADVANCED: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-2|states-3|mark-3|key-1";
+/// The basic rules are those of release 0.3 and are remembered under its
+/// name, so a folder analysed by that release is not analysed again.
+const BASIC: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";
+
+/// What each set of rules is remembered under. What one found is never
+/// shown as the other's: each has its own record of a folder.
+pub fn version(rules: Rules) -> &'static str {
+    match rules {
+        Rules::Basic => BASIC,
+        Rules::Advanced => ADVANCED,
+    }
+}
 
 /// One face, as it is remembered and as the interface is told of it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -45,6 +57,10 @@ pub struct FaceRecord {
     /// 2 probably a fault, 3 a fault.
     #[serde(default)]
     pub concern: u8,
+    /// The least its eyes may count for in the photo's mark, 0 to 1: how
+    /// far that state excuses eyes that measure narrow.
+    #[serde(default)]
+    pub excused: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -87,7 +103,8 @@ impl From<&Analysis> for Record {
                 eye: f.verdict.ear,
                 eyes_read: f.eyes_read,
                 state: f.state.map(|s| s.name().to_string()),
-                concern: f.state.map_or(0, |s| s.concern()),
+                concern: f.state.map_or(0, |s| s.concern(f.facing)),
+                excused: f.state.map_or(0.0, |s| s.excused(f.facing)) as f32,
             })
             .collect();
         let key = a.key.map(|k| KeyRecord { x: k.x as f32, y: k.y as f32, w: k.w as f32, h: k.h as f32 });
@@ -109,20 +126,20 @@ impl Store {
         Self { dir }
     }
 
-    fn file_for(&self, folder: &Path) -> PathBuf {
-        let key = format!("{VERSION}\0{}", folder.to_string_lossy());
+    fn file_for(&self, folder: &Path, rules: Rules) -> PathBuf {
+        let key = format!("{}\0{}", version(rules), folder.to_string_lossy());
         self.dir.join(format!("{:032x}.json", xxh3_128(key.as_bytes())))
     }
 
     /// What is remembered about a folder's photos, by path. Empty for a
     /// folder never analysed, or one whose record cannot be read.
-    pub fn load(&self, folder: &Path) -> HashMap<String, Entry> {
-        std::fs::read(self.file_for(folder)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    pub fn load(&self, folder: &Path, rules: Rules) -> HashMap<String, Entry> {
+        std::fs::read(self.file_for(folder, rules)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
     }
 
-    pub fn save(&self, folder: &Path, known: &HashMap<String, Entry>) {
+    pub fn save(&self, folder: &Path, rules: Rules, known: &HashMap<String, Entry>) {
         let Ok(bytes) = serde_json::to_vec(known) else { return };
-        let path = self.file_for(folder);
+        let path = self.file_for(folder, rules);
         let temp = path.with_extension(format!("tmp{}", std::process::id()));
         if std::fs::write(&temp, bytes).is_ok() && std::fs::rename(&temp, &path).is_err() {
             std::fs::remove_file(&temp).ok();
@@ -156,7 +173,7 @@ mod tests {
     use super::*;
 
     fn record(score: f32) -> Record {
-        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0 };
+        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0, excused: 0.85 };
         Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
     }
 
@@ -165,21 +182,22 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("opencull-ai-store-{}", std::process::id()));
         let store = Store::new(dir.clone());
         let folder = Path::new("/shoots/wedding");
-        assert!(store.load(folder).is_empty(), "nothing is remembered of a folder never analysed");
+        assert!(store.load(folder, Rules::Advanced).is_empty(), "nothing is remembered of a folder never analysed");
 
         let mut known = HashMap::new();
         known.insert("/shoots/wedding/A.ARW".to_string(), ("v1".to_string(), record(72.5)));
-        store.save(folder, &known);
+        store.save(folder, Rules::Advanced, &known);
 
-        let back = store.load(folder);
+        let back = store.load(folder, Rules::Advanced);
         assert_eq!(remembered(&back, Path::new("/shoots/wedding/A.ARW"), "v1"), Some(record(72.5)));
         assert_eq!(remembered(&back, Path::new("/shoots/wedding/A.ARW"), "v2"), None, "the file has changed since");
         assert_eq!(remembered(&back, Path::new("/shoots/wedding/B.ARW"), "v1"), None);
-        assert!(store.load(Path::new("/shoots/other")).is_empty(), "another folder's record is its own");
+        assert!(store.load(Path::new("/shoots/other"), Rules::Advanced).is_empty(), "another folder's record is its own");
+        assert!(store.load(folder, Rules::Basic).is_empty(), "and so is what the other rules found in this one");
 
         assert_eq!(store.usage().1, 1);
         store.clear();
-        assert!(store.load(folder).is_empty());
+        assert!(store.load(folder, Rules::Advanced).is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -188,8 +206,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("opencull-ai-store-bad-{}", std::process::id()));
         let store = Store::new(dir.clone());
         let folder = Path::new("/shoots/wedding");
-        std::fs::write(store.file_for(folder), b"{ not json").unwrap();
-        assert!(store.load(folder).is_empty());
+        std::fs::write(store.file_for(folder, Rules::Advanced), b"{ not json").unwrap();
+        assert!(store.load(folder, Rules::Advanced).is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -206,6 +224,7 @@ mod tests {
             reason: Reason::Small,
             eyes_shut: false,
             looking_away: false,
+            facing: false,
             eyes_away: None,
             state: Some(crate::ai::state::State::LookingDown),
             blink: Some(0.01),

@@ -243,10 +243,16 @@ pub fn compare(frames: &[&Record]) -> Vec<Compared> {
                 .iter()
                 .zip(&eyes)
                 .filter(|(face, _)| face.subject || !any_subject)
-                .map(|(face, share)| match share {
-                    Some(_) if face.eyes_shut => 0.0,
-                    Some(share) => score::eye_in_burst(*share as f64),
-                    None => score::eye_alone(Some(face.eye as f64)),
+                .map(|(face, share)| {
+                    let eye = match share {
+                        Some(_) if face.eyes_shut => 0.0,
+                        Some(share) => score::eye_in_burst(*share as f64),
+                        None => score::eye_alone(Some(face.eye as f64)),
+                    };
+                    // Eyes lowered or narrowed for a reason the face's
+                    // state gives are not a blink, however far short of
+                    // the same person's best they fall.
+                    eye.max(face.excused as f64)
                 })
                 .min_by(f64::total_cmp);
             let score = eye.map(|eye| score::Parts { eye, focus: focus as f64, gaze: gaze as f64 }.total() as f32);
@@ -260,7 +266,7 @@ mod tests {
     use super::*;
 
     fn face(x: f32, eye: f32) -> FaceRecord {
-        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, sharpness: Some(80.0), eye, eyes_read: true, state: None, concern: 0 }
+        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, sharpness: Some(80.0), eye, eyes_read: true, state: None, concern: 0, excused: 0.0 }
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {
@@ -344,6 +350,16 @@ mod tests {
         let got = marks(&[frame(vec![shut.clone()]), frame(vec![shut])]);
         assert_eq!(got[0].eyes, [None]);
         assert!(got[0].score.unwrap() < 60.0, "marked as a photo on its own would be: {:?}", got[0].score);
+    }
+
+    #[test]
+    fn eyes_lowered_for_a_reason_are_not_marked_as_a_blink_beside_the_same_person_looking_up() {
+        let mut looking_down = face(0.2, 0.12);
+        looking_down.excused = 0.85;
+        let got = marks(&[frame(vec![face(0.2, 0.30)]), frame(vec![looking_down]), frame(vec![face(0.2, 0.12)])]);
+        assert!((got[1].eyes[0].unwrap() - 0.4).abs() < 1e-6, "still seen to be far less open than their best");
+        assert!((got[1].score.unwrap() - 93.25).abs() < 1e-4, "and nearly nothing taken off for it: {:?}", got[1].score);
+        assert_eq!(got[2].score, Some(55.0), "where the same eyes with no reason given cost all the eye marks");
     }
 
     #[test]

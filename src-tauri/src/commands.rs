@@ -675,7 +675,8 @@ const AI_SAVE_EVERY: usize = 150;
 /// through on spare time: whenever the photographer is being served, the
 /// scan waits. Asking again, or closing the folder, stops this one.
 #[tauri::command]
-pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events: Channel<AiEvent>) -> Result<(), String> {
+pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, events: Channel<AiEvent>) -> Result<(), String> {
+    let rules = if advanced { ai::Rules::Advanced } else { ai::Rules::Basic };
     let Some(session) = app.sessions.lock().unwrap().get(&session).cloned() else {
         return Err("that folder is no longer open".into());
     };
@@ -687,7 +688,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
 
     tauri::async_runtime::spawn_blocking(move || {
         let wanted = || !session.closed.load(Ordering::SeqCst) && app.ai_scan.load(Ordering::SeqCst) == mine;
-        let known = Mutex::new(app.faces.load(&session.folder));
+        let known = Mutex::new(app.faces.load(&session.folder, rules));
 
         // What is already known goes out at once.
         let mut todo = Vec::new();
@@ -730,7 +731,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                         let image = &session.images[index];
                         // A photo that cannot be analysed is remembered as
                         // having no faces, so it is not tried on every open.
-                        let record = ai::analyze(&image.display).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
+                        let record = ai::analyze(&image.display, rules).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
                         known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
                         if tx.send(Analysed { index, record }).is_err() {
                             return;
@@ -757,7 +758,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                     last = Instant::now();
                 }
                 if unsaved >= AI_SAVE_EVERY {
-                    app.faces.save(&session.folder, &known.lock().unwrap());
+                    app.faces.save(&session.folder, rules, &known.lock().unwrap());
                     unsaved = 0;
                 }
             }
@@ -765,7 +766,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, events:
                 events.send(AiEvent::Batch { items: batch }).ok();
             }
             if unsaved > 0 {
-                app.faces.save(&session.folder, &known.lock().unwrap());
+                app.faces.save(&session.folder, rules, &known.lock().unwrap());
             }
         });
         events.send(AiEvent::Done { finished: queue.exhausted() && wanted() }).ok();

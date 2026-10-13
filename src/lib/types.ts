@@ -126,6 +126,8 @@ export interface AiFace {
   state: string | null;
   /** How much there is to worry about in that: 0 nothing, 1 worth a look, 2 probably a fault, 3 a fault. */
   concern: number;
+  /** How far that state excuses eyes that are not open, 0 to 1: nought where it gives no reason for them. */
+  excused: number;
 }
 
 /** What the analysis found in one photo. */

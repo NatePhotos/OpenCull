@@ -30,6 +30,7 @@ export function useFaceScan(): void {
   const enabled = useStore((s) => s.aiEnabled && !s.selfTest);
   const session = useStore((s) => (s.session !== null && s.metaProgress >= 1 ? s.session.id : null));
   const pause = useStore((s) => s.aiPause);
+  const advanced = useStore((s) => s.aiAdvanced);
 
   useEffect(() => void api.aiSetYield(pause).catch(() => {}), [pause]);
 
@@ -72,6 +73,16 @@ export function useFaceScan(): void {
     };
   }, [enabled, session]);
 
+  // Judged by other rules, nothing found so far stands: it is put away and
+  // the folder gone through again. What the other rules found is kept in
+  // its own memory, so switching back costs nothing.
+  const judged = useRef(advanced);
+  useEffect(() => {
+    if (judged.current === advanced) return;
+    judged.current = advanced;
+    useStore.setState({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0 });
+  }, [advanced]);
+
   useEffect(() => {
     if (!enabled || session === null) return;
     const { order, current, photos } = useStore.getState();
@@ -80,18 +91,22 @@ export function useFaceScan(): void {
     const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index);
 
     useStore.setState({ aiRunning: true });
+    // A scan that has been stopped may still have answers on their way.
+    // Judged by other rules, they must not be taken for this scan's.
+    let live = true;
     void api
-      .aiScan(session, nearest, (event) => {
+      .aiScan(session, nearest, advanced, (event) => {
         const s = useStore.getState();
-        if (s.session?.id !== session) return; // a folder since closed
+        if (!live || s.session?.id !== session) return; // stopped, or a folder since closed
         if (event.type === "batch") s.addAnalysis(event.items);
         else s.set("aiRunning", false);
       })
       .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
 
     return () => {
+      live = false;
       void api.aiStop().catch(() => {});
       if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
     };
-  }, [enabled, session]);
+  }, [enabled, session, advanced]);
 }

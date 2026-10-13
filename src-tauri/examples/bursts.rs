@@ -15,7 +15,10 @@ use opencull_lib::{burst, raw};
 use rayon::prelude::*;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--basic` anywhere judges by the rules of release 0.3.
+    let rules = if args.iter().any(|a| a == "--basic") { ai::Rules::Basic } else { ai::Rules::Advanced };
+    args.retain(|a| a != "--basic");
     let [list, out] = args.as_slice() else {
         eprintln!("usage: bursts <list.csv> <out.csv>");
         std::process::exit(2);
@@ -27,7 +30,7 @@ fn main() {
         .par_iter()
         .map(|(_, path)| {
             let path = Path::new(path);
-            (raw::capture_time(path), ai::analyze(path).map(|a| Record::from(&a)).unwrap_or_default())
+            (raw::capture_time(path), ai::analyze(path, rules).map(|a| Record::from(&a)).unwrap_or_default())
         })
         .collect();
     let groups = burst::group(&found.iter().map(|f| f.0).collect::<Vec<_>>());

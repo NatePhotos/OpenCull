@@ -47,6 +47,12 @@ pub enum Reason {
     Soft,
     Aside,
     Indistinct,
+    /// Given only by the rules of release 0.3: small, and away from anyone
+    /// kept.
+    Apart,
+    /// Given only by the rules of release 0.3: far larger than the rest and
+    /// far less distinct.
+    Poster,
 }
 
 impl Reason {
@@ -57,6 +63,8 @@ impl Reason {
             Reason::Soft => Some("Background — out of focus beside the others"),
             Reason::Aside => Some("Background — at the side of the frame"),
             Reason::Indistinct => Some("Background — face too indistinct to be a subject"),
+            Reason::Apart => Some("Background — small and away from the group"),
+            Reason::Poster => Some("Background — reads as a print or sign"),
             Reason::OnlyFace | Reason::Subject | Reason::Rescued => None,
         }
     }

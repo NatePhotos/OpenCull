@@ -3,6 +3,7 @@
 //! No part of this comes from the system it runs on: the same two model
 //! files give the same answers on a Mac, on Windows and on Linux.
 
+pub mod basic;
 pub mod eyes;
 pub mod finder;
 pub mod focus;
@@ -24,6 +25,17 @@ use crate::preview;
 pub use judge::Verdict;
 pub use subject::Reason;
 
+/// Which rules the faces of a photograph are judged by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rules {
+    /// Those of release 0.3, as they were: see `basic`.
+    Basic,
+    /// The closer looks at each face's eyes and mouth, the state they put
+    /// it in, and what follows from that for who is looking away and what a
+    /// photograph is marked down for. Still being worked on.
+    Advanced,
+}
+
 /// One face in a photograph, and everything decided about it.
 #[derive(Clone, Copy, Debug)]
 pub struct Face {
@@ -40,6 +52,8 @@ pub struct Face {
     pub reason: Reason,
     pub eyes_shut: bool,
     pub looking_away: bool,
+    /// Whether the judge takes it to be turned to the camera.
+    pub facing: bool,
     /// What the closer look at the eyes makes of them: how likely they are
     /// to be off the camera. `None` for a face too small to be accused, or
     /// with an eye at the edge of the frame.
@@ -145,7 +159,7 @@ const NOT_A_FACE_IF_UNSURE: f32 = 0.5;
 const EYE_PATCH: (f64, f64) = (0.28, 0.18);
 
 /// Finds and judges the faces in an upright picture at full size.
-pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, String> {
+pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Result<Analysis, String> {
     // The finder is shown a smaller copy; everything after it looks at the
     // photograph itself, where the detail is.
     let k = (finder::LONG_EDGE as f64 / width.max(height) as f64).min(1.0);
@@ -190,19 +204,28 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
         })
         .collect();
 
-    let signals: Vec<subject::Signals> = (0..found.len())
-        .map(|i| subject::Signals {
-            place: places[i],
-            quality: verdicts[i].quality as f64,
-            sure: found[i].sure as f64,
-            background: verdicts[i].validity[1] as f64,
-            focus_log: focus_logs[i],
-        })
-        .collect();
-    let decisions = subject::classify(&signals);
+    let decisions = match rules {
+        Rules::Advanced => {
+            let signals: Vec<subject::Signals> = (0..found.len())
+                .map(|i| subject::Signals {
+                    place: places[i],
+                    quality: verdicts[i].quality as f64,
+                    sure: found[i].sure as f64,
+                    background: verdicts[i].validity[1] as f64,
+                    focus_log: focus_logs[i],
+                })
+                .collect();
+            subject::classify(&signals)
+        }
+        Rules::Basic => {
+            let signals: Vec<basic::Signals> = places.iter().zip(&verdicts).map(|(place, v)| basic::Signals { place: *place, quality: Some(v.quality as f64), likely_subject: v.validity[0] as f64 }).collect();
+            basic::classify(&signals)
+        }
+    };
 
     // The closer look at the eyes, for faces large enough to be accused.
-    let looked: Vec<usize> = (0..found.len()).filter(|&i| places[i].w * sw as f64 >= AWAY_MIN_WIDTH).collect();
+    // The basic rules take no closer look at anything.
+    let looked: Vec<usize> = (0..found.len()).filter(|&i| rules == Rules::Advanced && places[i].w * sw as f64 >= AWAY_MIN_WIDTH).collect();
     let looks: Vec<eyes::Look> = looked
         .iter()
         .map(|&i| {
@@ -229,6 +252,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
         .map(|i| {
             let v = verdicts[i];
             let wide = places[i].w * sw as f64;
+            let facing = v.gaze[0] >= state::FACING;
             Face {
                 place: places[i],
                 sure: found[i].sure,
@@ -236,8 +260,18 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
                 focus_log: focus_logs[i],
                 subject: decisions[i].subject,
                 reason: decisions[i].reason,
-                eyes_shut: wide >= SHUT_MIN_WIDTH && v.eyes[2] >= SHUT,
-                looking_away: wide >= AWAY_MIN_WIDTH && is_away(&v, eyes_away[i]),
+                // The state says it where there is one; the judge's own
+                // answer only where the eyes could not be looked at closer.
+                eyes_shut: match states[i] {
+                    Some((state, _)) => state.shut(facing),
+                    None => wide >= SHUT_MIN_WIDTH && v.eyes[2] >= SHUT,
+                },
+                looking_away: wide >= AWAY_MIN_WIDTH
+                    && match rules {
+                        Rules::Advanced => is_away(&v, eyes_away[i]),
+                        Rules::Basic => basic::is_away(&v, wide),
+                    },
+                facing,
                 eyes_away: eyes_away[i],
                 state: states[i].map(|s| s.0),
                 blink: states[i].map(|s| s.1),
@@ -249,15 +283,20 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
     let readings: Vec<score::Reading> = faces
         .iter()
         .map(|f| {
-            // The mark follows what was decided of the face: one found to be
-            // looking away counts as well up the scale however narrowly it
-            // was found so, and one let go counts as looking, whatever the
-            // score alone made of it.
-            let away = if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away.min(score::LOOKING as f32) };
-            score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away as f64) }
+            let excused = f.state.map_or(0.0, |s| s.excused(f.facing));
+            let away = match rules {
+                Rules::Advanced => counted_away(f.looking_away, f.verdict.away),
+                // A face caught glancing aside is marked as looking away,
+                // even where the score alone would have let it pass.
+                Rules::Basic => (if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away }) as f64,
+            };
+            score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away), excused }
         })
         .collect();
-    let parts = score::parts(&readings, false);
+    let parts = match rules {
+        Rules::Advanced => score::parts(&readings, false),
+        Rules::Basic => basic::parts(&readings, false),
+    };
     Ok(Analysis { faces, score: parts.map(|p| p.total()), parts, key: None })
 }
 
@@ -275,6 +314,18 @@ fn is_junk(sure: f32, v: &Verdict) -> bool {
     (sure < FINDER_CERTAIN && v.validity[2] >= NOT_A_FACE) || (sure < FINDER_UNSURE && v.validity[2] >= NOT_A_FACE_IF_UNSURE)
 }
 
+/// What a face's looking away counts as when the photo is marked. The mark
+/// follows what was decided of the face: one found to be looking away
+/// counts as well up the scale however narrowly it was found so, and one
+/// let go counts as looking, whatever the score alone made of it.
+fn counted_away(looking_away: bool, score: f32) -> f64 {
+    if looking_away {
+        score.max(AWAY_MARK) as f64
+    } else {
+        (score as f64).min(score::LOOKING)
+    }
+}
+
 /// Whether a face is looking somewhere other than the camera. `eyes` is
 /// what the closer look at its eyes made of them, where they could be
 /// looked at.
@@ -286,9 +337,9 @@ fn is_away(v: &Verdict, eyes: Option<f32>) -> bool {
 }
 
 /// Finds and judges the faces in a photo file.
-pub fn analyze(path: &Path) -> Result<Analysis, String> {
+pub fn analyze(path: &Path, rules: Rules) -> Result<Analysis, String> {
     let picture = preview::decode_upright(path, u32::MAX)?;
-    analyze_pixels(&picture.rgb, picture.width, picture.height)
+    analyze_pixels(&picture.rgb, picture.width, picture.height, rules)
 }
 
 #[cfg(test)]
@@ -311,6 +362,13 @@ mod tests {
         assert!(is_junk(0.62, &verdict(0.77, 0.0, 0.0, 0.0)), "the balloon: neither was sure it was a face");
         assert!(!is_junk(0.75, &verdict(0.77, 0.0, 0.0, 0.0)), "the finder was surer, and the judge short of certain");
         assert!(!is_junk(0.62, &verdict(0.45, 0.0, 0.0, 0.0)), "the judge leans towards a face");
+    }
+
+    #[test]
+    fn a_face_let_go_counts_as_looking_when_the_photo_is_marked() {
+        assert!(counted_away(false, 0.97) <= score::LOOKING, "the score said away and the eyes did not go along with it");
+        assert!((counted_away(false, 0.10) - 0.10).abs() < 1e-6);
+        assert!((counted_away(true, 0.55) - AWAY_MARK as f64).abs() < 1e-6, "found looking away, however narrowly");
     }
 
     #[test]

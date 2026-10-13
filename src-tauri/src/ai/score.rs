@@ -15,6 +15,20 @@
 //! in 3 of the 30 where someone else was looking. And on 734 photos that
 //! were rated by hand, the mark tells the good from the bad 81% of the time
 //! this way, where counting every look away in full it told 77%.
+//!
+//! Eyes that measure narrow are the other exception. Looking down, turned
+//! away, narrowed by a smile, or shut on a face turned from the camera,
+//! they are mostly not a fault, and the state the face is in says which
+//! (see `state`): such a face's eyes count for no less than its state
+//! excuses.
+//! MEASURED on 100 faces whose eyes were not open, each called a fault or
+//! not by a photographer: charged by how they measure alone, the eye part
+//! averaged 0.29 on the faults and 0.45 on the faces that were fine, and
+//! was under half for 26 of those 36; with the state's excuse, 0.45 and
+//! 0.73, and under half for 6. On 734 photos rated by hand the mark tells
+//! the good from the bad a little less often this way, 78.5% against
+//! 80.3% — most of the low-rated photos it lifts are out of focus, which
+//! is another part's business.
 
 /// What the mark is made from, for one face.
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +40,9 @@ pub struct Reading {
     pub focus_log: Option<f64>,
     /// The looking-away score, 0 to 1.
     pub away: Option<f64>,
+    /// The least its eyes may count for, 0 to 1: how far the state it is
+    /// in excuses eyes that measure narrow. Nought where nothing does.
+    pub excused: f64,
 }
 
 const EYE_WEIGHT: f64 = 0.45;
@@ -40,7 +57,7 @@ const ODD_ONE_OUT: f64 = 0.25;
 /// Where `value` falls between `low` and `high`, 0 to 1. A reading a photo
 /// does not supply falls back to a neutral figure, never to nought: a
 /// missing measurement must not pass for a fault.
-fn between(value: Option<f64>, low: f64, high: f64, missing: f64) -> f64 {
+pub(super) fn between(value: Option<f64>, low: f64, high: f64, missing: f64) -> f64 {
     value.map_or(missing, |v| ((v - low) / (high - low)).clamp(0.0, 1.0))
 }
 
@@ -101,7 +118,11 @@ pub fn parts(faces: &[Reading], with_background: bool) -> Option<Parts> {
         1.0
     };
 
-    Some(Parts { eye: eye_alone(least(|f| f.eye)), focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze })
+    // Each face's eyes count for how open they measure, or for what its
+    // state excuses if that is more; the photograph, for its worst.
+    let eye = marked.iter().filter_map(|f| f.eye.map(|ratio| eye_alone(Some(ratio)).max(f.excused))).min_by(f64::total_cmp).unwrap_or(eye_alone(None));
+
+    Some(Parts { eye, focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze })
 }
 
 /// The photograph's mark out of 100. `None` for a photograph with no faces.
@@ -126,7 +147,7 @@ mod tests {
     use super::*;
 
     fn face(eye: f64, focus: f64, away: f64) -> Reading {
-        Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away) }
+        Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away), excused: 0.0 }
     }
 
     #[test]
@@ -173,8 +194,22 @@ mod tests {
     }
 
     #[test]
+    fn eyes_a_state_excuses_count_for_no_less_than_it_excuses() {
+        let narrow = face(0.10, 0.7, 0.1);
+        let looking_down = Reading { excused: 0.85, ..narrow };
+        let charged = photo(&[narrow], false).unwrap();
+        let excused = photo(&[looking_down], false).unwrap();
+        assert!((charged - 64.0).abs() < 1e-9 && (excused - 93.25).abs() < 1e-9);
+        // Eyes that measure wide are not marked down to the excuse.
+        assert!((photo(&[Reading { excused: 0.85, ..face(0.32, 0.7, 0.1) }], false).unwrap() - 100.0).abs() < 1e-9);
+        // And one person's excuse is not another's: the blink beside them still counts.
+        let beside_a_blink = photo(&[looking_down, face(0.05, 0.7, 0.1)], false).unwrap();
+        assert!((beside_a_blink - 55.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn a_missing_reading_is_neutral_not_a_fault() {
-        let unread = Reading { subject: true, eye: None, focus_log: None, away: None };
+        let unread = Reading { subject: true, eye: None, focus_log: None, away: None, excused: 0.0 };
         let got = photo(&[unread], false).unwrap();
         assert!((got - (0.45 * 0.75 + 0.15 * 0.75 + 0.40 * 0.75) * 100.0).abs() < 1e-9);
     }

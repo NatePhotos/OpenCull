@@ -302,14 +302,19 @@ export async function runSelfTest(folder: string): Promise<void> {
       const some = s().order.slice(0, 24);
       const seen = new Map<number, { faces: number; score: number | null }>();
       const whole = new Map<number, AiResult>();
+      const basic = new Map<number, AiResult>();
       let bad = "";
-      const scan = () =>
+      const scan = (advanced = true) =>
         new Promise<number>((resolve, reject) => {
           const began = performance.now();
           api
-            .aiScan(s().session!.id, some, (e) => {
+            .aiScan(s().session!.id, some, advanced, (e) => {
               if (e.type === "done") return resolve(performance.now() - began);
               for (const item of e.items) {
+                if (!advanced) {
+                  basic.set(item.index, item);
+                  continue;
+                }
                 seen.set(item.index, { faces: item.faces.length, score: item.score });
                 whole.set(item.index, item);
                 for (const f of item.faces) {
@@ -329,6 +334,19 @@ export async function runSelfTest(folder: string): Promise<void> {
       if (found.length !== some.length) throw new Error(`face analysis returned ${found.length} of ${some.length} photos`);
       if (bad) throw new Error(bad);
       if (again > first / 3 && again > 300) throw new Error("a second analysis was not served from memory");
+      // The same photos by the rules of the last release: found in the same
+      // places, kept in a memory of their own, and no face given a state.
+      const byBasic = await scan(false);
+      if (basic.size !== some.length) throw new Error(`the basic rules returned ${basic.size} of ${some.length} photos`);
+      const told = [...basic.values()].flatMap((r) => r.faces).filter((f) => f.state !== null).length;
+      if (told > 0) throw new Error(`the basic rules gave ${told} faces a state`);
+      const sameFaces = [...basic].every(([index, r]) => r.faces.length === whole.get(index)!.faces.length);
+      if (!sameFaces) throw new Error("the basic rules found different faces from the advanced ones");
+      const moved = [...basic].filter(([index, r]) => Math.abs((r.score ?? 0) - (whole.get(index)!.score ?? 0)) >= 1).length;
+      const named = [...whole.values()].flatMap((r) => r.faces).filter((f) => f.state !== null).length;
+      say(`faces, by the basic rules: the same ${some.length} photos in ${(byBasic / 1000).toFixed(1)} s; ${moved} of them marked differently; the advanced rules name the state of ${named} faces, the basic of none`);
+      const kept = await scan();
+      if (kept > first / 3 && kept > 300) throw new Error("what the advanced rules found was lost by running the basic ones");
       // Pointing the scan at the photo being looked at: only that the
       // route is there. What it does with it is tested where it lives.
       await api.aiLookAt(some.slice(0, 3));

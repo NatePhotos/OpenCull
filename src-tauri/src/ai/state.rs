@@ -104,14 +104,39 @@ impl State {
     }
 
     /// How much there is to worry about: 0 nothing, 1 worth a look, 2
-    /// probably a fault, 3 a fault.
-    pub fn concern(self) -> u8 {
+    /// probably a fault, 3 a fault. `facing` is whether the face is turned
+    /// to the camera: eyes shut on one that is not are only worth a look.
+    pub fn concern(self, facing: bool) -> u8 {
         match self {
             State::EyesPartiallyOpen | State::EyesObscured => 1,
+            State::EyesBarelyOpen | State::EyesClosed if !facing => 1,
             State::EyesBarelyOpen => 2,
             State::EyesClosed => 3,
             _ => 0,
         }
+    }
+
+    /// The least the eye part of a photograph's mark may be for a face in
+    /// this state, 0 to 1: how far the state excuses eyes that measure
+    /// narrow. Nought where it excuses nothing.
+    pub fn excused(self, facing: bool) -> f64 {
+        match self {
+            State::LookingDown | State::FacingAway | State::SmilingEyesClosed | State::LaughingEyesClosed => EXCUSED,
+            State::EyesBarelyOpen | State::EyesClosed if !facing => TURNED,
+            _ => 0.0,
+        }
+    }
+
+    /// Whether the eyes are shut where they were wanted open: closed, on a
+    /// face turned to the camera.
+    ///
+    /// MEASURED on the same 100 faces as `FACING`: 18 of the 44 called a
+    /// fault and none of the 36 called fine, where the judge's own "eyes
+    /// shut" answer gave 16 and 12. And on 406 faces in 26 shoots nothing
+    /// here learned from: 6 of 12 blinks and 2 of the 394 others, where
+    /// that answer gave 7 and 51.
+    pub fn shut(self, facing: bool) -> bool {
+        self == State::EyesClosed && facing
     }
 }
 
@@ -160,6 +185,29 @@ pub const BLINK: f64 = 0.066;
 /// smile or a laugh, or the head is turned away, for that to explain eyes
 /// that are not open.
 const EXPLAINS: f32 = 0.5;
+/// A face the judge is at least this sure is on the camera is taken to be
+/// turned to it, and eyes shut on it for a fault. Shut on a face turned
+/// elsewhere, they are as likely meant: a hug, a kiss, a head bowed.
+///
+/// MEASURED: a photographer was shown 100 faces whose eyes were not open,
+/// one at a time, and asked of each whether that was a fault in the photo.
+/// Of the faces called closed or barely open here, those turned to the
+/// camera were a fault in 23 and fine in 3; those not, a fault in 15 and
+/// fine in 12. Those 100 were picked to hold many blinks. Among some 1,650
+/// faces graded by eye as they came, 30 in 84 such faces turned to the
+/// camera are blinks, and 13 in 100 of those turned from it.
+pub const FACING: f32 = 0.5;
+/// The least the eye part of the mark may be where the state says why the
+/// eyes are not open: looking down, facing away, a smile or a laugh.
+///
+/// MEASURED on the same 100 faces: of the 36 given one of those states, 3
+/// were called a fault, 18 fine and 15 could not be said — so nearly all
+/// of what narrow eyes would cost is let off, and not quite all. Among the
+/// 1,650, 5 of 466 faces in those states are blinks.
+const EXCUSED: f64 = 0.85;
+/// The same, for eyes closed or barely open on a face turned from the
+/// camera. Lower, because more of them are faults; see `FACING`.
+const TURNED: f64 = 0.7;
 /// A face this tall in the frame is a close-up: its eyes fill the picture
 /// and are read as they are, with no state of their own to report.
 const VERY_CLOSE: f64 = 0.5;
@@ -235,14 +283,15 @@ mod tests {
         assert_eq!(of(&read(OPEN, 0.05, NEUTRAL, 0.0)), State::EyesFullyOpen);
         assert_eq!(of(&read(OPEN, 0.05, SMILING, 0.0)), State::SmilingEyesOpen);
         assert_eq!(of(&read(OPEN, 0.05, LAUGHING, 0.0)), State::LaughingEyesOpen);
-        assert_eq!(of(&read(OPEN, 0.05, SMILING, 0.0)).concern(), 0);
+        assert_eq!(of(&read(OPEN, 0.05, SMILING, 0.0)).concern(true), 0);
     }
 
     #[test]
     fn eyes_cast_down_are_looking_down_and_nothing_to_worry_about() {
         let got = of(&read(PARTLY, 0.95, NEUTRAL, 0.0));
         assert_eq!(got, State::LookingDown);
-        assert_eq!(got.concern(), 0);
+        assert_eq!(got.concern(true), 0);
+        assert!(got.excused(true) > 0.8, "and nearly nothing is taken off the photo for them");
     }
 
     #[test]
@@ -254,7 +303,20 @@ mod tests {
     fn eyes_shut_with_nothing_to_explain_them_are_a_fault() {
         let got = of(&read(CLOSED, 0.02, NEUTRAL, 0.0));
         assert_eq!(got, State::EyesClosed);
-        assert_eq!(got.concern(), 3);
+        assert_eq!(got.concern(true), 3);
+        assert_eq!(got.excused(true), 0.0);
+        assert!(got.shut(true));
+    }
+
+    #[test]
+    fn eyes_shut_on_a_face_turned_from_the_camera_are_only_worth_a_look() {
+        // A hug, a kiss: the same closed eyes, and nobody blinked.
+        let got = of(&read(CLOSED, 0.02, NEUTRAL, 0.0));
+        assert_eq!(got.concern(false), 1);
+        assert!(!got.shut(false));
+        assert!(got.excused(false) > 0.5 && got.excused(false) < State::LookingDown.excused(false), "let off most of it, and less than eyes that are explained");
+        assert_eq!(State::EyesBarelyOpen.concern(false), 1);
+        assert_eq!(State::EyesPartiallyOpen.excused(false), 0.0, "half-shut eyes are charged as they measure, wherever the face is turned");
     }
 
     #[test]
@@ -281,7 +343,7 @@ mod tests {
     fn eyes_that_cannot_be_seen_are_obscured_and_worth_a_look() {
         let got = of(&read([0.0, 0.05, 0.05, 0.0, 0.0, 0.9], 0.1, NEUTRAL, 0.0));
         assert_eq!(got, State::EyesObscured);
-        assert_eq!(got.concern(), 1);
+        assert_eq!(got.concern(true), 1);
     }
 
     #[test]

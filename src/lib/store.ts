@@ -137,6 +137,8 @@ interface State {
   aiRunning: boolean;
   /** Find and judge faces at all. */
   aiEnabled: boolean;
+  /** Judge them the newer way, still being worked on, rather than as the last release did. */
+  aiAdvanced: boolean;
   /** Show faces judged to be background in the face panel, dimmed. */
   showBackgroundFaces: boolean;
   /** Analysis stands aside whenever a photo is being moved to. */
@@ -308,6 +310,13 @@ export function rankRun(ranks: (Rank | undefined)[], members: number[], compared
  */
 export const BLINK = 0.6;
 
+/**
+ * Whether eyes this far short of the same person's best are a blink: not
+ * where the face's state gives a reason for them — looking down, a laugh, a
+ * head turned away.
+ */
+export const blinked = (face: AiFace, share: number | null | undefined) => share != null && share < BLINK && !face.excused;
+
 export type Problem = "eyesClosed" | "blinking" | "lookingAway" | "softFocus";
 export const PROBLEM_LABEL: Record<Problem, string> = { eyesClosed: "Eyes closed", blinking: "Blinking", lookingAway: "Looking away", softFocus: "Soft focus" };
 
@@ -315,7 +324,7 @@ export const PROBLEM_LABEL: Record<Problem, string> = { eyesClosed: "Eyes closed
 export function problemOf(result: AiResult | undefined, compared?: Compared): Problem | null {
   const subjects = result?.faces.filter((f) => f.subject) ?? [];
   if (subjects.some((f) => f.eyesShut)) return "eyesClosed";
-  if (result?.faces.some((f, i) => f.subject && (compared?.eyes[i] ?? 1) < BLINK)) return "blinking";
+  if (result?.faces.some((f, i) => f.subject && blinked(f, compared?.eyes[i]))) return "blinking";
   if (subjects.some((f) => f.lookingAway)) return "lookingAway";
   if (subjects.some((f) => f.sharpness !== null && f.sharpness < 50)) return "softFocus";
   return null;
@@ -349,6 +358,7 @@ const PERSISTED = [
   "rgbHistogram",
   "cacheLimitGb",
   "aiEnabled",
+  "aiAdvanced",
   "showBackgroundFaces",
   "aiPause",
   "smartGroups",
@@ -700,6 +710,7 @@ export const useStore = create<Store>((set, get) => {
     aiDone: 0,
     aiRunning: false,
     aiEnabled: load("aiEnabled", true),
+    aiAdvanced: load("aiAdvanced", false),
     showBackgroundFaces: load("showBackgroundFaces", false),
     aiPause: load("aiPause", true),
     showFaces: load("showFaces", true),

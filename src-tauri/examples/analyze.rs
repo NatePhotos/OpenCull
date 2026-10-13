@@ -14,7 +14,10 @@ use opencull_lib::{ai, faces, preview};
 use rayon::prelude::*;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--basic` anywhere judges by the rules of release 0.3.
+    let rules = if args.iter().any(|a| a == "--basic") { ai::Rules::Basic } else { ai::Rules::Advanced };
+    args.retain(|a| a != "--basic");
     let (list, out, crops) = match args.as_slice() {
         [list, out] => (list, out, None),
         [list, out, crops] => (list, out, Some(std::path::PathBuf::from(crops))),
@@ -35,7 +38,7 @@ fn main() {
         .map(|(name, path)| {
             let t = Instant::now();
             let analysed = preview::decode_upright(Path::new(path), u32::MAX).and_then(|p| {
-                let a = ai::analyze_pixels(&p.rgb, p.width, p.height)?;
+                let a = ai::analyze_pixels(&p.rgb, p.width, p.height, rules)?;
                 if let Some(dir) = &crops {
                     for f in &a.faces {
                         let stem = format!("{name}_{:.4}_{:.4}", f.place.mid_x, f.place.mid_y);

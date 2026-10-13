@@ -119,11 +119,27 @@ four model files, run through ONNX Runtime, give the same answers on every
 platform. One finds faces; one judges each face, and says when what was
 found is not a face at all — a hand, a plate of food, the back of a head; one
 takes a closer look at the eyes alone, and one at the mouth.
+
+The faces are judged by one of two sets of rules, chosen with **Advanced
+AI** in Settings. Off, which is how the app arrives, they are the rules of
+release 0.3, kept in a file of their own (`ai/basic.rs`) and not to be
+improved: who a photo is about goes by size, looking away by the judge's
+score and where the pupils sit, and looking away costs a photo the same
+whoever else is in it. On, they are the rules described below wherever the
+whole photo is weighed, the eyes or the mouth are looked at closer, or a
+face is given a state — newer, measured to be better, and still being worked
+on. Both use the same finder, judge and focus measure, and each keeps its
+own memory of a folder, so switching between them analyses a folder once
+for each and never again. MEASURED: with the switch off, the app gives the
+same answer as release 0.3 to the last figure for every one of 3,075 faces
+in 908 photos, and the same mark and rank for every frame; the basic rules
+take 22 ms a photo and the advanced 23.
+
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
 faces, nearly all seen from behind; where the finder itself was unsure of a
-box, less is asked of the judge before it goes. Who a photo is about is
+box, less is asked of the judge before it goes. With Advanced AI, who a photo is about is
 decided for its faces together: each is weighed on how large it is beside
 the largest, how sharp beside the sharpest, how far to the side it sits, and
 how sure the finder and the judge were of it. In a test of 1,782 faces graded
@@ -176,16 +192,38 @@ faces in 26 shoots none of it learned from, against answers given by eye:
 how open the eyes are, within one step of five in 97%; barely open or
 closed told from the rest 0.98 where the eye ratio tells them 0.83 (1.00 is
 perfect, 0.50 a coin); looking down 0.98; smiling or laughing against not,
-0.96. Of the 12 blinks among them, all 12 are given a state that says
-"probably a fault" or worse, and so are 23 of the 379 faces that were not
-blinks; the "eyes shut" answer it stands in for was given to 7 and to 51.
+0.96. Of the 12 blinks among them, all 12 are called closed or barely open,
+and so are 23 of the 379 faces that were not blinks; the judge's own "eyes
+shut" answer was given to 7 and to 51.
 The closer looks were first made as nine small networks, three to an
 answer; one network for the eyes and one for the mouth were then taught to
 give what the nine gave between them, on some twenty thousand faces, and do
-it rather better for a fifth of the work. The state is for the eye of
-whoever is choosing; the photo's mark does not use it yet, and is charged on
-the eyes as before. It adds nothing that can be measured to the time a
-photo takes.
+it rather better for a fifth of the work. It adds nothing that can be
+measured to the time a photo takes.
+
+Whether eyes that are not open are a fault depends on why, and on where the
+face is turned. Looking down, on a head turned away, or narrowed by a smile
+or a laugh, they are not, however narrow they measure. Closed on a face
+turned to the camera, they are: that is what turns a thumbnail's strip red.
+Closed on a face turned somewhere else — a hug, a kiss, a head bowed — they
+are as likely meant, and are shown as worth a look. The photo's mark follows
+the same lines: where the state gives a reason for the eyes, they cost the
+photo a small part of what they measure, in a burst as in a photo by itself.
+MEASURED: a photographer was shown 100 faces whose eyes were not open, one
+at a time, and asked of each whether that was a fault in the photo. All 32
+of the blinks were. Of 14 shut on purpose, 2 were; of 46 looking down or
+narrowed by a smile, 7, with 17 more that could not be said. Charged on how
+they measure alone, as they were, 26 of the 36 faces called fine lost more
+than half the marks for eyes; now 6 do. The red strip went to 16 of the 44
+faults and 12 of the fine; it goes to 18 and to none. The price is paid on
+blinks turned from the camera, which are let off with the hugs: of the 44
+faults, 39 lost more than half the eye marks and 26 do now. On faces graded
+by eye in 26 shoots nothing here learned from, 55 of 87 people looking down
+lost more than half before and 6 now; of 12 blinks, 11 and 7. Against 734
+photos rated by hand the mark tells the good from the bad slightly less
+often, 78.5% where it told 80.3% — most of the low-rated photos it lifts
+are out of focus — and the frame it puts first in a pose is one of the
+photographer's picks in 34 of 45 poses where it was in 33.
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a
 venue — is marked on how sharp its subject is, and the face panel shows that
