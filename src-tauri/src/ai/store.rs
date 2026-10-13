@@ -15,7 +15,7 @@ use super::{focus, Analysis};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";
+pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-3|eyes-1-0.7|key-1";
 
 /// One face, as it is remembered and as the interface is told of it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -194,15 +194,16 @@ mod tests {
             verdict: Verdict::default(),
             focus_log: Some(0.6f64.log10()),
             subject: false,
-            reason: Reason::SmallAndIsolated,
+            reason: Reason::Small,
             eyes_shut: false,
             looking_away: false,
+            eyes_away: None,
             eyes_read: true,
         };
         let r = Record::from(&Analysis { faces: vec![face], score: Some(50.0), parts: None, key: None });
         let f = &r.faces[0];
         assert!((f.x - 0.4).abs() < 1e-6 && (f.y - 0.2).abs() < 1e-6, "its middle is three quarters of the way UP, so its top is a fifth of the way down");
-        assert_eq!(f.reason.as_deref(), Some("Background — small and away from the group"));
+        assert_eq!(f.reason.as_deref(), Some("Background — small beside the others"));
         assert!((f.sharpness.unwrap() - 100.0).abs() < 1e-3);
     }
 }

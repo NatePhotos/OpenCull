@@ -3,6 +3,7 @@
 //! No part of this comes from the system it runs on: the same two model
 //! files give the same answers on a Mac, on Windows and on Linux.
 
+pub mod eyes;
 pub mod finder;
 pub mod focus;
 pub mod judge;
@@ -38,6 +39,10 @@ pub struct Face {
     pub reason: Reason,
     pub eyes_shut: bool,
     pub looking_away: bool,
+    /// What the closer look at the eyes makes of them: how likely they are
+    /// to be off the camera. `None` for a face too small to be accused, or
+    /// with an eye at the edge of the frame.
+    pub eyes_away: Option<f32>,
     /// Whether its eyes were seen well enough for how open they are to be
     /// set beside the same person's eyes in another frame.
     pub eyes_read: bool,
@@ -95,6 +100,18 @@ const AWAY_MARK: f32 = 0.90;
 /// cancels that. The looking-away score reads mostly the head and misses a
 /// sideways glance from a face held square to the camera; this catches it.
 const GLANCE: f32 = 0.15;
+/// How sure the closer look at the eyes must be that they are off the
+/// camera, for a face the looking-away score lets pass.
+///
+/// MEASURED with the whole app, before and after, on faces nothing here
+/// learned from: of 101 looking away in 25 shoots held out whole, it catches
+/// 83% where it caught 74%, and of 190 looking at the camera it accuses 4.7%
+/// where it accused 2.6%; on 185 graded by hand, each counted for as many as
+/// its kind is common, 75% where it caught 60%, accusing 1.3% before and
+/// after; on 658 faces in posed groups, 17 flagged where there were 14 —
+/// and of the 14 of those 17 since looked at by eye, 10 were in fact
+/// looking away, 2 were not, and 2 could not be told.
+const EYES_AWAY: f32 = 0.7;
 const HEAD_SHARE: f32 = 0.3;
 /// Pupils cannot be placed on a face narrower than this in the finder's
 /// picture. MEASURED: on wider faces the judge's reading tracks the Mac
@@ -170,12 +187,30 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
         })
         .collect();
 
-    let signals: Vec<subject::Signals> = places
-        .iter()
-        .zip(&verdicts)
-        .map(|(place, v)| subject::Signals { place: *place, quality: Some(v.quality as f64), likely_subject: v.validity[0] as f64 })
+    let signals: Vec<subject::Signals> = (0..found.len())
+        .map(|i| subject::Signals {
+            place: places[i],
+            quality: verdicts[i].quality as f64,
+            sure: found[i].sure as f64,
+            background: verdicts[i].validity[1] as f64,
+            focus_log: focus_logs[i],
+        })
         .collect();
     let decisions = subject::classify(&signals);
+
+    // The closer look at the eyes, for faces large enough to be accused.
+    let looked: Vec<usize> = (0..found.len()).filter(|&i| places[i].w * sw as f64 >= AWAY_MIN_WIDTH).collect();
+    let looks: Vec<eyes::Look> = looked
+        .iter()
+        .map(|&i| {
+            let point = |e: (f32, f32)| (e.0 as f64 * up, e.1 as f64 * up);
+            eyes::Look { eyes: [point(found[i].eyes[0]), point(found[i].eyes[1])], box_wide: found[i].w as f64 * up, head_yaw: verdicts[i].head_yaw }
+        })
+        .collect();
+    let mut eyes_away: Vec<Option<f32>> = vec![None; found.len()];
+    for (i, said) in looked.iter().zip(eyes::away(rgb, width, height, &looks)?) {
+        eyes_away[*i] = said;
+    }
 
     let faces: Vec<Face> = (0..found.len())
         .map(|i| {
@@ -189,7 +224,8 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
                 subject: decisions[i].subject,
                 reason: decisions[i].reason,
                 eyes_shut: wide >= SHUT_MIN_WIDTH && v.eyes[2] >= SHUT,
-                looking_away: wide >= AWAY_MIN_WIDTH && is_away(&v, wide),
+                looking_away: wide >= AWAY_MIN_WIDTH && (is_away(&v, wide) || eyes_away[i].is_some_and(|e| e >= EYES_AWAY)),
+                eyes_away: eyes_away[i],
                 eyes_read: wide >= SHUT_MIN_WIDTH && v.eyes[3] < HIDDEN && v.head_yaw.abs() < READ_MAX_TURN,
             }
         })

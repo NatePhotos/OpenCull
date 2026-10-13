@@ -140,7 +140,7 @@ export const mock: Backend = {
             w: f === 3 ? 0.04 : 0.11,
             h: f === 3 ? 0.06 : 0.165,
             subject: f !== 3,
-            reason: f === 3 ? "Background — small and away from the group" : null,
+            reason: f === 3 ? "Background — small beside the others" : null,
             eyesShut: index % 7 === 0 && f === 0,
             lookingAway: index % 4 === 1 && f === 1,
             sharpness: 35 + ((index * 13 + f * 29) % 60),

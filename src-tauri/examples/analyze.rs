@@ -60,7 +60,7 @@ fn main() {
                         .iter()
                         .map(|f| {
                             format!(
-                                "{name},{:.4},{:.4},{:.4},{:.4},{:.3},{},{:?},{:.4},{:.4},{:.4},{:.4},{},{},{},{score},{ms},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
+                                "{name},{:.4},{:.4},{:.4},{:.4},{:.3},{},{:?},{:.4},{:.4},{:.4},{:.4},{},{},{},{score},{ms},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{}\n",
                                 f.place.mid_x,
                                 f.place.mid_y,
                                 f.place.w,
@@ -88,6 +88,7 @@ fn main() {
                                 f.verdict.eyes[0],
                                 f.verdict.eyes[1],
                                 f.verdict.eyes[3],
+                                f.eyes_away.map_or(String::new(), |v| format!("{v:.4}")),
                             )
                         })
                         .collect()
@@ -97,7 +98,7 @@ fn main() {
         .collect();
 
     let mut file = std::fs::File::create(out).expect("create the output file");
-    writeln!(file, "file,midX,midY,w,h,sure,subject,reason,shut,ear,quality,away,eyesShut,lookingAway,focusLog,score,ms,isSubject,isBackground,notFace,atCamera,slightlyOff,gazeAway,gazeDown,profile,eyeOffset,headYaw,eyesOpen,eyesPartial,eyesHidden").unwrap();
+    writeln!(file, "file,midX,midY,w,h,sure,subject,reason,shut,ear,quality,away,eyesShut,lookingAway,focusLog,score,ms,isSubject,isBackground,notFace,atCamera,slightlyOff,gazeAway,gazeDown,profile,eyeOffset,headYaw,eyesOpen,eyesPartial,eyesHidden,eyesAway").unwrap();
     for line in &lines {
         file.write_all(line.as_bytes()).unwrap();
     }

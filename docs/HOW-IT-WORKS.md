@@ -114,23 +114,46 @@ cards on Windows and Linux is written and has never been run.
 
 Face analysis finds the faces in each photo and judges them — eyes shut,
 looking away, how sharp, subject or background — then marks the photo and
-ranks the frames of each burst. It uses no part of the system it runs on: two
-model files, run through ONNX Runtime, give the same answers on every
-platform. One finds faces; the other judges each one, and says when what
-was found is not a face at all — a hand, a plate of food, the back of a head.
+ranks the frames of each burst. It uses no part of the system it runs on:
+three model files, run through ONNX Runtime, give the same answers on every
+platform. One finds faces; one judges each face, and says when what was
+found is not a face at all — a hand, a plate of food, the back of a head; the
+third takes a closer look at the eyes alone.
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
 faces, nearly all seen from behind; where the finder itself was unsure of a
-box, less is asked of the judge before it goes. Looking away is called on
+box, less is asked of the judge before it goes. Who a photo is about is
+decided for its faces together: each is weighed on how large it is beside
+the largest, how sharp beside the sharpest, how far to the side it sits, and
+how sure the finder and the judge were of it. In a test of 1,782 faces graded
+by eye across 79 shoots, each shoot answered by weights fitted without it,
+this leaves out 60% of the people in the background and 0.6% of real
+subjects; the size rules it replaced left out 47% and 0.6%. In posed groups
+it leaves out 1 face of 1,360. Looking away is called on
 the judge's looking-away score or on pupils sitting to one side of a face
 held square. In a test of 185 faces graded by hand, from photographs it
 never learned from and each counted for as many as its kind is common, it
 catches 62% of those looking away and wrongly
 accuses 1.3% of those looking at the camera; what it replaced caught 53%
 and accused none. On 658 faces in posed groups, nearly all of them looking
-at the camera, it accuses 14 where the old one accused 10. Bursts are still
-split by the clock alone.
+at the camera, it accuses 14 where the old one accused 10.
+
+That score reads mostly the turn of the head, and a head held square with
+the eyes turned aside gets past it. So each face large enough to be accused
+is looked at once more: its two eyes are cut from the full-size photo, each
+centred on the finder's own eye point, and a small network shown only those
+— and told how far the head is turned, since eyes swung back to the lens
+from a turned head are looking at the camera — says whether they are on the
+camera. A face is called looking away on either answer. MEASURED with the
+whole app, before and after, on faces none of it learned from: of 101
+looking away in 25 shoots held out whole, 83% caught where 74% were, and of
+190 looking at the camera 4.7% accused where 2.6% were; on the 185 graded by
+hand, 75% caught where 60% were, with 1.3% accused before and after; in the
+posed groups, 17 flagged where there were 14 — and of the 14 of those 17
+since looked at by eye, 10 were in fact looking away. It adds nothing that can be
+measured to the time a photo takes. Bursts are still split by the clock
+alone.
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a
 venue — is marked on how sharp its subject is, and the face panel shows that
