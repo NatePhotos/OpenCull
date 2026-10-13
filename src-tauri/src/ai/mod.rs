@@ -93,30 +93,27 @@ const AWAY: f32 = 0.5;
 /// What a face found to be looking away counts as when the photo is marked:
 /// well up the scale, however narrowly it was found so.
 const AWAY_MARK: f32 = 0.90;
-/// How far the pupils may sit to one side, once the turn of the head is
-/// allowed for, before the face is taken to be looking away. Someone whose
-/// head is turned and whose eyes are on the lens has pupils well off centre
-/// BECAUSE they are looking at the camera; adding a share of the head's turn
-/// cancels that. The looking-away score reads mostly the head and misses a
-/// sideways glance from a face held square to the camera; this catches it.
-const GLANCE: f32 = 0.15;
 /// How sure the closer look at the eyes must be that they are off the
-/// camera, for a face the looking-away score lets pass.
+/// camera for that alone to call a face looking away.
 ///
-/// MEASURED with the whole app, before and after, on faces nothing here
-/// learned from: of 101 looking away in 25 shoots held out whole, it catches
-/// 83% where it caught 74%, and of 190 looking at the camera it accuses 4.7%
-/// where it accused 2.6%; on 185 graded by hand, each counted for as many as
-/// its kind is common, 75% where it caught 60%, accusing 1.3% before and
-/// after; on 658 faces in posed groups, 17 flagged where there were 14 —
-/// and of the 14 of those 17 since looked at by eye, 10 were in fact
-/// looking away, 2 were not, and 2 could not be told.
+/// MEASURED with the whole app, before and after it was added, on faces
+/// nothing here learned from: of 101 looking away in 25 shoots held out
+/// whole, 83% caught where 74% were; on 185 graded by hand, each counted for
+/// as many as its kind is common, 75% where 60% were.
 const EYES_AWAY: f32 = 0.7;
-const HEAD_SHARE: f32 = 0.3;
-/// Pupils cannot be placed on a face narrower than this in the finder's
-/// picture. MEASURED: on wider faces the judge's reading tracks the Mac
-/// app's landmarks at r = 0.84; over all faces, 0.24.
-const GLANCE_MIN_WIDTH: f64 = 90.0;
+/// The looking-away score reads mostly the turn of the head, and by itself
+/// it accuses people who are looking at the camera. Where the eyes could be
+/// looked at, it is believed only if that look goes at least this far along
+/// with it.
+///
+/// MEASURED against the score believed outright: on the 185 graded by hand,
+/// 1 of 73 looking at the camera accused where 5 were, for 72% of those
+/// looking away caught where 75% were; in the shoots held out whole, 8 of
+/// 190 accused where 9 were and 81% caught where 83% were; on 646 faces in
+/// posed groups, 3 accused where 5 were. And of five faces a photographer
+/// picked out of 80 flagged photos as plainly looking at the camera, four
+/// were accused by the score alone and are let go by this.
+const EYES_AGREE: f32 = 0.2;
 /// How sure the judge must be that a box is not a face for it to be thrown
 /// out — a hand, a plate of food, the back of a head.
 ///
@@ -224,7 +221,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
                 subject: decisions[i].subject,
                 reason: decisions[i].reason,
                 eyes_shut: wide >= SHUT_MIN_WIDTH && v.eyes[2] >= SHUT,
-                looking_away: wide >= AWAY_MIN_WIDTH && (is_away(&v, wide) || eyes_away[i].is_some_and(|e| e >= EYES_AWAY)),
+                looking_away: wide >= AWAY_MIN_WIDTH && is_away(&v, eyes_away[i]),
                 eyes_away: eyes_away[i],
                 eyes_read: wide >= SHUT_MIN_WIDTH && v.eyes[3] < HIDDEN && v.head_yaw.abs() < READ_MAX_TURN,
             }
@@ -234,9 +231,11 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, S
     let readings: Vec<score::Reading> = faces
         .iter()
         .map(|f| {
-            // A face caught glancing aside is marked as looking away, even
-            // where the looking-away score alone would have let it pass.
-            let away = if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away };
+            // The mark follows what was decided of the face: one found to be
+            // looking away counts as well up the scale however narrowly it
+            // was found so, and one let go counts as looking, whatever the
+            // score alone made of it.
+            let away = if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away.min(score::LOOKING as f32) };
             score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away as f64) }
         })
         .collect();
@@ -258,10 +257,14 @@ fn is_junk(sure: f32, v: &Verdict) -> bool {
     (sure < FINDER_CERTAIN && v.validity[2] >= NOT_A_FACE) || (sure < FINDER_UNSURE && v.validity[2] >= NOT_A_FACE_IF_UNSURE)
 }
 
-/// Whether a face is looking somewhere other than the camera.
-/// `wide` is the width of its box in the finder's picture, in pixels.
-fn is_away(v: &Verdict, wide: f64) -> bool {
-    v.away >= AWAY || (wide >= GLANCE_MIN_WIDTH && (v.eye_offset + HEAD_SHARE * v.head_yaw).abs() >= GLANCE)
+/// Whether a face is looking somewhere other than the camera. `eyes` is
+/// what the closer look at its eyes made of them, where they could be
+/// looked at.
+fn is_away(v: &Verdict, eyes: Option<f32>) -> bool {
+    match eyes {
+        Some(eyes) => eyes >= EYES_AWAY || (v.away >= AWAY && eyes >= EYES_AGREE),
+        None => v.away >= AWAY,
+    }
 }
 
 /// Finds and judges the faces in a photo file.
@@ -293,25 +296,21 @@ mod tests {
     }
 
     #[test]
-    fn a_sideways_glance_from_a_square_on_face_is_looking_away() {
-        assert!(is_away(&verdict(0.0, 0.01, 0.20, 0.0), 130.0), "pupils well to one side, head straight");
-        assert!(is_away(&verdict(0.0, 0.01, -0.20, 0.0), 130.0), "and to the other side");
-        assert!(is_away(&verdict(0.0, 0.97, 0.0, 0.0), 130.0), "the looking-away score still counts alone");
-        assert!(is_away(&verdict(0.0, 0.55, 0.0, 0.0), 130.0), "and from half way up");
-        assert!(!is_away(&verdict(0.0, 0.45, 0.0, 0.0), 130.0), "but not below it");
-        assert!(!is_away(&verdict(0.0, 0.01, 0.05, 0.0), 130.0), "pupils near the middle");
+    fn the_closer_look_at_the_eyes_can_call_it_alone() {
+        assert!(is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.85)), "head square, eyes turned aside");
+        assert!(!is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.60)), "not sure enough of it");
     }
 
     #[test]
-    fn eyes_turned_back_to_the_lens_from_a_turned_head_is_not_looking_away() {
-        // The pupils are off centre one way and the head the other: the eyes
-        // are making up for the head, which is someone looking at the camera.
-        assert!(!is_away(&verdict(0.0, 0.01, -0.22, 0.40), 130.0));
+    fn the_looking_away_score_is_believed_only_if_the_eyes_go_some_way_with_it() {
+        assert!(is_away(&verdict(0.0, 0.97, 0.0, 0.0), Some(0.30)), "the score says away and the eyes half agree");
+        assert!(!is_away(&verdict(0.0, 0.97, 0.0, 0.0), Some(0.05)), "a turned head with the eyes plainly on the lens");
+        assert!(!is_away(&verdict(0.0, 0.45, 0.0, 0.0), Some(0.30)), "neither says so");
     }
 
     #[test]
-    fn a_small_face_is_not_accused_on_its_pupils() {
-        assert!(!is_away(&verdict(0.0, 0.01, 0.30, 0.0), 60.0), "too few pixels to place a pupil");
-        assert!(is_away(&verdict(0.0, 0.97, 0.30, 0.0), 60.0), "the looking-away score needs no pupils");
+    fn where_the_eyes_could_not_be_looked_at_the_score_decides() {
+        assert!(is_away(&verdict(0.0, 0.55, 0.0, 0.0), None));
+        assert!(!is_away(&verdict(0.0, 0.45, 0.0, 0.0), None));
     }
 }

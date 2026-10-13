@@ -130,29 +130,34 @@ how sure the finder and the judge were of it. In a test of 1,782 faces graded
 by eye across 79 shoots, each shoot answered by weights fitted without it,
 this leaves out 60% of the people in the background and 0.6% of real
 subjects; the size rules it replaced left out 47% and 0.6%. In posed groups
-it leaves out 1 face of 1,360. Looking away is called on
-the judge's looking-away score or on pupils sitting to one side of a face
-held square. In a test of 185 faces graded by hand, from photographs it
-never learned from and each counted for as many as its kind is common, it
-catches 62% of those looking away and wrongly
-accuses 1.3% of those looking at the camera; what it replaced caught 53%
-and accused none. On 658 faces in posed groups, nearly all of them looking
-at the camera, it accuses 14 where the old one accused 10.
+it leaves out 1 face of 1,360. Looking away is called from two
+answers. The judge's own looking-away score reads mostly the turn of the
+head: a head held square with the eyes turned aside gets past it, and it
+accuses people whose head is turned and whose eyes are on the lens. So each
+face large enough to be accused is looked at once more: its two eyes are cut
+from the full-size photo, each centred on the finder's own eye point, and a
+small network shown only those — and told how far the head is turned, since
+eyes swung back to the lens from a turned head are looking at the camera —
+says whether they are on the camera. A face is looking away if that closer
+look is sure of it, or if the score says so and the closer look goes some
+way along with it. MEASURED with the whole app on faces none of it learned
+from, against the score alone: of 101 looking away in 25 shoots held out
+whole, 81% caught where 74% were, with 4.2% of 190 looking at the camera
+accused where 2.6% were; on 185 graded by hand, each counted for as many as
+its kind is common, 72% caught where 60% were, and 0.3% accused where 1.3%
+were; on 646 faces in posed groups, 3 accused. It adds nothing that can be
+measured to the time a photo takes.
 
-That score reads mostly the turn of the head, and a head held square with
-the eyes turned aside gets past it. So each face large enough to be accused
-is looked at once more: its two eyes are cut from the full-size photo, each
-centred on the finder's own eye point, and a small network shown only those
-— and told how far the head is turned, since eyes swung back to the lens
-from a turned head are looking at the camera — says whether they are on the
-camera. A face is called looking away on either answer. MEASURED with the
-whole app, before and after, on faces none of it learned from: of 101
-looking away in 25 shoots held out whole, 83% caught where 74% were, and of
-190 looking at the camera 4.7% accused where 2.6% were; on the 185 graded by
-hand, 75% caught where 60% were, with 1.3% accused before and after; in the
-posed groups, 17 flagged where there were 14 — and of the 14 of those 17
-since looked at by eye, 10 were in fact looking away. It adds nothing that can be
-measured to the time a photo takes. Bursts are still split by the clock
+What looking away costs a photo depends on who else is in it. Where nobody
+is looking at the camera it is the photograph — a couple looking at each
+other, a table of guests, a child with a toy — and costs nothing. Where
+someone else is looking, it costs a little: enough to put a frame behind one
+in which everyone looked, not enough to sink it, and far less than a blink.
+MEASURED: a photographer shown 80 photos with faces flagged as looking away
+called it a flaw in none of the 43 where everyone was flagged and in 3 of
+the 30 where someone else was looking; and on 734 photos rated by hand, the
+mark tells the good from the bad 81% of the time this way, where counting
+every look away in full it told 77%. Bursts are still split by the clock
 alone.
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a

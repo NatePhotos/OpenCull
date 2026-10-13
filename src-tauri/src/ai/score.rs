@@ -4,6 +4,17 @@
 //! WORST subject, because it is ruined by the one person who blinked and not
 //! by the average: MEASURED by the Mac app, 77% against 69% for the average
 //! at telling keepers from rejects.
+//!
+//! Looking away is the exception. Where nobody in the photograph is looking
+//! at the camera, it is the photograph — a couple looking at each other, a
+//! table of guests, a child with a toy — and costs nothing. It costs only
+//! where someone else IS looking, and then a little: enough to put a frame
+//! behind one where everyone looked, not enough to sink it.
+//! MEASURED: a photographer shown 80 photos with faces flagged as looking
+//! away called it a flaw in none of the 43 where everyone was flagged, and
+//! in 3 of the 30 where someone else was looking. And on 734 photos that
+//! were rated by hand, the mark tells the good from the bad 81% of the time
+//! this way, where counting every look away in full it told 77%.
 
 /// What the mark is made from, for one face.
 #[derive(Clone, Copy, Debug)]
@@ -20,6 +31,11 @@ pub struct Reading {
 const EYE_WEIGHT: f64 = 0.45;
 const FOCUS_WEIGHT: f64 = 0.15;
 const GAZE_WEIGHT: f64 = 0.40;
+/// A looking-away score under this is someone looking at the camera.
+pub const LOOKING: f64 = 0.49;
+/// How much of the gaze part one person looking away can cost, where
+/// someone else in the photograph is looking at the camera.
+const ODD_ONE_OUT: f64 = 0.25;
 
 /// Where `value` falls between `low` and `high`, 0 to 1. A reading a photo
 /// does not supply falls back to a neutral figure, never to nought: a
@@ -72,9 +88,20 @@ pub fn parts(faces: &[Reading], with_background: bool) -> Option<Parts> {
         return None;
     }
     let least = |get: fn(&Reading) -> Option<f64>| marked.iter().filter_map(|f| get(f)).min_by(f64::total_cmp);
-    let most_away = marked.iter().filter_map(|f| f.away).max_by(f64::total_cmp);
+    // Looking away counts only against someone looking: with nobody on the
+    // lens there is nothing for it to be a fault beside. A face with no
+    // reading is neither.
+    let someone_looking = marked.iter().any(|f| f.away.is_some_and(|a| a <= LOOKING));
+    let gaze = if marked.iter().all(|f| f.away.is_none()) {
+        0.75
+    } else if someone_looking {
+        let most_away = marked.iter().filter_map(|f| f.away).max_by(f64::total_cmp);
+        1.0 - ODD_ONE_OUT * between(most_away, 0.50, 0.98, 0.0)
+    } else {
+        1.0
+    };
 
-    Some(Parts { eye: eye_alone(least(|f| f.eye)), focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze: 1.0 - between(most_away, 0.50, 0.98, 0.25) })
+    Some(Parts { eye: eye_alone(least(|f| f.eye)), focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze })
 }
 
 /// The photograph's mark out of 100. `None` for a photograph with no faces.
@@ -105,7 +132,9 @@ mod tests {
     #[test]
     fn eyes_wide_in_focus_and_on_the_lens_is_full_marks() {
         assert!((photo(&[face(0.32, 0.7, 0.1)], false).unwrap() - 100.0).abs() < 1e-9);
-        assert!((photo(&[face(0.02, -2.0, 1.0)], false).unwrap()).abs() < 1e-9);
+        // Eyes shut and out of focus is nought of those two parts; looking
+        // away, with nobody else in the frame looking, takes nothing more.
+        assert!((photo(&[face(0.02, -2.0, 1.0)], false).unwrap() - 40.0).abs() < 1e-9);
     }
 
     #[test]
@@ -125,6 +154,22 @@ mod tests {
         assert!(photo(&[subject, passer_by], true).unwrap() < just_subject);
         assert!(photo(&[passer_by], false).is_some(), "with no subject, every face counts");
         assert_eq!(photo(&[], false), None);
+    }
+
+    #[test]
+    fn looking_away_costs_nothing_where_nobody_is_looking_at_the_camera() {
+        let together = photo(&[face(0.3, 0.7, 0.95), face(0.3, 0.7, 0.92)], false).unwrap();
+        assert!((together - 100.0).abs() < 1e-9, "a couple looking at each other");
+        assert!((photo(&[face(0.3, 0.7, 0.95)], false).unwrap() - 100.0).abs() < 1e-9, "or one person looking down");
+    }
+
+    #[test]
+    fn it_costs_a_little_where_someone_else_is_looking() {
+        let all = photo(&[face(0.3, 0.7, 0.1), face(0.3, 0.7, 0.1), face(0.3, 0.7, 0.1)], false).unwrap();
+        let one_off = photo(&[face(0.3, 0.7, 0.1), face(0.3, 0.7, 0.1), face(0.3, 0.7, 0.98)], false).unwrap();
+        assert!((all - one_off - 10.0).abs() < 1e-6, "a quarter of the gaze part's 40");
+        let blink = photo(&[face(0.3, 0.7, 0.1), face(0.3, 0.7, 0.1), face(0.05, 0.7, 0.1)], false).unwrap();
+        assert!(blink < one_off, "and a blink still costs far more");
     }
 
     #[test]

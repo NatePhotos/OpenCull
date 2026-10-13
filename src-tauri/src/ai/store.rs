@@ -15,7 +15,7 @@ use super::{focus, Analysis};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-3|eyes-1-0.7|key-1";
+pub const VERSION: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-1|mark-2|key-1";
 
 /// One face, as it is remembered and as the interface is told of it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
