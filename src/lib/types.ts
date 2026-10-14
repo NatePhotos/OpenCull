@@ -116,6 +116,8 @@ export interface AiFace {
   reason: string | null;
   eyesShut: boolean;
   lookingAway: boolean;
+  /** Not called looking away, but worth a look: everyone else in the photo is looking and this one may not be. */
+  maybeAway: boolean;
   /** How sharp its eyes are, out of 100; null when it could not be told. */
   sharpness: number | null;
   /** How open its eyes measure, about 0.3 when wide open. */

@@ -164,6 +164,27 @@ its kind is common, 70% caught where 60% were, and 0.5% accused where 1.3%
 were; on 646 faces in posed groups, 4 accused. It adds nothing that can be
 measured to the time a photo takes.
 
+Two things were added to that after a round of grading on shoots nothing had
+learned from. Someone whose state is Looking Down or Facing Away is not
+looking at the camera, whatever the score and the closer look made of them;
+and the closer look is believed from a little lower. MEASURED on four sets
+of faces nothing here learned from, 498 not looking and 1,257 looking: 430
+caught where 415 were, and 33 wrongly called where 26 were. A photographer
+shown 20 of the faces that had been let pass called 18 of them not looking.
+The mistake that is left is the quiet one: in a posed group where everyone
+else is looking, one person's eyes just off the camera. Graded by eye, about
+one in eight group photographs in which nobody was called has such a person
+in it. Where everyone else a photograph is about is looking, a face that
+falls short of being called but is less surely on the camera is therefore
+shown as "Possibly Looking Away" — said of the face in the face panel, and
+held against nothing, because it is wrong more often than right: it picks
+out 18 of 83 such people the rule misses, and 41 of 2,838 who are looking.
+Tried and not kept: teaching the closer look from four thousand more graded
+faces (no better put through the same rule), one fitted answer from every
+reading of the face (far better on the faces it was fitted to, no better on
+shoots it had not seen), and setting each person beside themselves in the
+other frames of the pose (worse than the readings as they are).
+
 What looking away costs a photo depends on who else is in it. Where nobody
 is looking at the camera it is the photograph — a couple looking at each
 other, a table of guests, a child with a toy — and costs nothing. Where
@@ -224,6 +245,22 @@ photos rated by hand the mark tells the good from the bad slightly less
 often, 78.5% where it told 80.3% — most of the low-rated photos it lifts
 are out of focus — and the frame it puts first in a pose is one of the
 photographer's picks in 34 of 45 poses where it was in 33.
+
+Eyes the state calls open are inside what is acceptable, however open they
+measure. A photo by itself gives such a face full marks for eyes; beside the
+same person's best frame it loses nothing down to 80% of their best, as any
+eyes do, and little below that, where eyes not called open lose everything.
+This is so that between two frames with everyone's eyes open, the sharper
+one comes first, and not the one whose eyes happen to measure a touch wider.
+MEASURED on 5,206 poses shot more than once, of which a photographer
+delivered some frames and not others. For a face with nothing to compare
+with, how open its eyes measure weighed nothing in which frame was
+delivered once they were called open. Beside their own best, falling from
+80% to 45% weighed as much as 15 points of the mark where the eyes were
+called open, and 33 where they were not. Of 3,343 pairs of frames with
+everyone's eyes open, one plainly the sharper but the lower on eyes, the
+sharper comes first in 47% where it came first in 17%. The frame put first
+in a pose is a delivered one as often as before, 40.9% against 40.7%.
 
 A photo with nobody in it — a table, a tray of pastries, a cufflink, a
 venue — is marked on how sharp its subject is, and the face panel shows that

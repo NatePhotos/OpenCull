@@ -52,6 +52,10 @@ pub struct Face {
     pub reason: Reason,
     pub eyes_shut: bool,
     pub looking_away: bool,
+    /// Not called looking away, but worth a look: everyone else the
+    /// photograph is about is looking at the camera, and this one's eyes
+    /// are less surely on it.
+    pub maybe_away: bool,
     /// Whether the judge takes it to be turned to the camera.
     pub facing: bool,
     /// What the closer look at the eyes makes of them: how likely they are
@@ -63,6 +67,9 @@ pub struct Face {
     /// with an eye at the edge of the frame.
     pub state: Option<state::State>,
     pub blink: Option<f32>,
+    /// Whether that state is one of open eyes, so that how open they
+    /// measure is not held against the face. Never set by the basic rules.
+    pub open: bool,
     /// Whether its eyes were seen well enough for how open they are to be
     /// set beside the same person's eyes in another frame.
     pub eyes_read: bool,
@@ -120,7 +127,14 @@ const AWAY_MARK: f32 = 0.90;
 /// nothing here learned from: of 101 looking away in 25 shoots held out
 /// whole, 83% caught where 74% were; on 185 graded by hand, each counted for
 /// as many as its kind is common, 75% where 60% were.
-const EYES_AWAY: f32 = 0.7;
+///
+/// It was 0.7. A photographer shown 20 faces it then let pass, that two
+/// graders had called not looking, agreed for 18 of them, and asked for a
+/// slightly stricter line. MEASURED with the states below, on four sets of
+/// faces nothing here learned from, 498 not looking and 1,257 looking: at
+/// 0.7 it caught 426 and wrongly called 28; at 0.6, 430 and 33; at 0.5, 438
+/// and 43.
+const EYES_AWAY: f32 = 0.6;
 /// The looking-away score reads mostly the turn of the head, and by itself
 /// it accuses people who are looking at the camera. Where the eyes could be
 /// looked at, it is believed only if that look goes at least this far along
@@ -134,6 +148,18 @@ const EYES_AWAY: f32 = 0.7;
 /// picked out of 80 flagged photos as plainly looking at the camera, four
 /// were accused by the score alone and are let go by this.
 const EYES_AGREE: f32 = 0.2;
+/// Where everyone else a photograph is about is looking at the camera, the
+/// one who may not be is worth a look on less: the eye look this far, or
+/// the score this far with the eye look some way along. It is said of a
+/// face, never held against a photograph, because it is wrong too often to
+/// be: MEASURED on 565 group photographs in which nobody had been called,
+/// every face graded by eye, it picks out 18 of the 83 people not looking
+/// that the rule above misses, and 41 of the 2,838 who are looking.
+const POSED_EYES: f32 = 0.4;
+const POSED_SCORE: f32 = 0.4;
+const POSED_AGREE: f32 = 0.1;
+/// How many others must be looking for a photograph to be taken for posed.
+const POSED_OTHERS: usize = 2;
 /// How sure the judge must be that a box is not a face for it to be thrown
 /// out — a hand, a plate of food, the back of a head.
 ///
@@ -268,17 +294,31 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
                 },
                 looking_away: wide >= AWAY_MIN_WIDTH
                     && match rules {
-                        Rules::Advanced => is_away(&v, eyes_away[i]),
+                        // Someone looking down, or turned right away, is
+                        // not looking at the camera, whatever the eye look
+                        // and the score made of them.
+                        Rules::Advanced => is_away(&v, eyes_away[i]) || states[i].is_some_and(|s| s.0.turned()),
                         Rules::Basic => basic::is_away(&v, wide),
                     },
+                maybe_away: false,
                 facing,
                 eyes_away: eyes_away[i],
                 state: states[i].map(|s| s.0),
                 blink: states[i].map(|s| s.1),
+                open: rules == Rules::Advanced && states[i].is_some_and(|s| s.0.open()),
                 eyes_read: wide >= SHUT_MIN_WIDTH && v.eyes[3] < HIDDEN && v.head_yaw.abs() < READ_MAX_TURN,
             }
         })
         .collect();
+    let mut faces = faces;
+    if rules == Rules::Advanced {
+        let called: Vec<bool> = faces.iter().map(|f| f.looking_away).collect();
+        for (i, face) in faces.iter_mut().enumerate() {
+            let others = (0..called.len()).filter(|&j| j != i && decisions[j].subject);
+            let posed = others.clone().count() >= POSED_OTHERS && !others.clone().any(|j| called[j]);
+            face.maybe_away = face.subject && !face.looking_away && posed && face.eyes_away.is_some_and(|eyes| may_be_away(face.verdict.away, eyes));
+        }
+    }
 
     let readings: Vec<score::Reading> = faces
         .iter()
@@ -290,7 +330,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
                 // even where the score alone would have let it pass.
                 Rules::Basic => (if f.looking_away { f.verdict.away.max(AWAY_MARK) } else { f.verdict.away }) as f64,
             };
-            score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away), excused }
+            score::Reading { subject: f.subject, eye: Some(f.verdict.ear as f64), focus_log: f.focus_log, away: Some(away), excused, open: f.open }
         })
         .collect();
     let parts = match rules {
@@ -336,6 +376,12 @@ fn is_away(v: &Verdict, eyes: Option<f32>) -> bool {
     }
 }
 
+/// Whether a face that was not called looking away is worth a look all the
+/// same, in a photograph where everyone else is looking.
+fn may_be_away(score: f32, eyes: f32) -> bool {
+    eyes >= POSED_EYES || (score >= POSED_SCORE && eyes >= POSED_AGREE)
+}
+
 /// Finds and judges the faces in a photo file.
 pub fn analyze(path: &Path, rules: Rules) -> Result<Analysis, String> {
     let picture = preview::decode_upright(path, u32::MAX)?;
@@ -374,7 +420,16 @@ mod tests {
     #[test]
     fn the_closer_look_at_the_eyes_can_call_it_alone() {
         assert!(is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.85)), "head square, eyes turned aside");
-        assert!(!is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.60)), "not sure enough of it");
+        assert!(is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.62)), "and from a little over half way");
+        assert!(!is_away(&verdict(0.0, 0.01, 0.0, 0.0), Some(0.50)), "not sure enough of it");
+    }
+
+    #[test]
+    fn where_everyone_else_is_looking_less_makes_a_face_worth_a_look() {
+        assert!(may_be_away(0.05, 0.45), "the eye look half thinks so");
+        assert!(may_be_away(0.45, 0.15), "or the score does, and the eye look goes a little way with it");
+        assert!(!may_be_away(0.45, 0.05), "the score alone is not enough: it reads the turn of the head");
+        assert!(!may_be_away(0.10, 0.20), "eyes plainly on the lens");
     }
 
     #[test]

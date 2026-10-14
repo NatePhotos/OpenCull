@@ -15,7 +15,7 @@ use super::{focus, Analysis, Rules};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-const ADVANCED: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.7-agree-0.2|rules-3|eyes-2|states-3|mark-3|key-1";
+const ADVANCED: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.6-agree-0.2-turned-posed-0.4|rules-3|eyes-2|states-3|mark-4|key-1";
 /// The basic rules are those of release 0.3 and are remembered under its
 /// name, so a folder analysed by that release is not analysed again.
 const BASIC: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";
@@ -43,6 +43,10 @@ pub struct FaceRecord {
     pub reason: Option<String>,
     pub eyes_shut: bool,
     pub looking_away: bool,
+    /// Not called looking away, but worth a look: everyone else is looking
+    /// and this one may not be.
+    #[serde(default)]
+    pub maybe_away: bool,
     /// How sharp its eyes are, out of 100. `None` when it could not be told.
     pub sharpness: Option<f32>,
     /// How open its eyes measure: the eye ratio, about 0.3 when wide open.
@@ -61,6 +65,10 @@ pub struct FaceRecord {
     /// far that state excuses eyes that measure narrow.
     #[serde(default)]
     pub excused: f32,
+    /// Whether its state says the eyes are open, so that how open they
+    /// measure is inside what is acceptable.
+    #[serde(default)]
+    pub open: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -99,12 +107,14 @@ impl From<&Analysis> for Record {
                 reason: f.reason.badge().map(str::to_string),
                 eyes_shut: f.eyes_shut,
                 looking_away: f.looking_away,
+                maybe_away: f.maybe_away,
                 sharpness: f.focus_log.map(|log| focus::score(10f64.powf(log)) as f32),
                 eye: f.verdict.ear,
                 eyes_read: f.eyes_read,
                 state: f.state.map(|s| s.name().to_string()),
                 concern: f.state.map_or(0, |s| s.concern(f.facing)),
                 excused: f.state.map_or(0.0, |s| s.excused(f.facing)) as f32,
+                open: f.open,
             })
             .collect();
         let key = a.key.map(|k| KeyRecord { x: k.x as f32, y: k.y as f32, w: k.w as f32, h: k.h as f32 });
@@ -173,7 +183,7 @@ mod tests {
     use super::*;
 
     fn record(score: f32) -> Record {
-        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0, excused: 0.85 };
+        let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, maybe_away: false, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0, excused: 0.85, open: false };
         Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
     }
 
@@ -224,10 +234,12 @@ mod tests {
             reason: Reason::Small,
             eyes_shut: false,
             looking_away: false,
+            maybe_away: false,
             facing: false,
             eyes_away: None,
             state: Some(crate::ai::state::State::LookingDown),
             blink: Some(0.01),
+            open: false,
             eyes_read: true,
         };
         let r = Record::from(&Analysis { faces: vec![face], score: Some(50.0), parts: None, key: None });

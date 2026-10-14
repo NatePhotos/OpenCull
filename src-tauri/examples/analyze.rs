@@ -63,7 +63,7 @@ fn main() {
                         .iter()
                         .map(|f| {
                             format!(
-                                "{name},{:.4},{:.4},{:.4},{:.4},{:.3},{},{:?},{:.4},{:.4},{:.4},{:.4},{},{},{},{score},{ms},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
+                                "{name},{:.4},{:.4},{:.4},{:.4},{:.3},{},{:?},{:.4},{:.4},{:.4},{:.4},{},{},{},{score},{ms},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{}\n",
                                 f.place.mid_x,
                                 f.place.mid_y,
                                 f.place.w,
@@ -101,6 +101,7 @@ fn main() {
                                 f.verdict.expression[4],
                                 f.verdict.profile,
                                 f.verdict.down,
+                                u8::from(f.maybe_away),
                             )
                         })
                         .collect()
@@ -110,7 +111,7 @@ fn main() {
         .collect();
 
     let mut file = std::fs::File::create(out).expect("create the output file");
-    writeln!(file, "file,midX,midY,w,h,sure,subject,reason,shut,ear,quality,away,eyesShut,lookingAway,focusLog,score,ms,isSubject,isBackground,notFace,atCamera,slightlyOff,gazeAway,gazeDown,profile,eyeOffset,headYaw,eyesOpen,eyesPartial,eyesHidden,eyesAway,state,blink,neutral,smiling,laughing,midWord,otherFace,profileFace,downFace").unwrap();
+    writeln!(file, "file,midX,midY,w,h,sure,subject,reason,shut,ear,quality,away,eyesShut,lookingAway,focusLog,score,ms,isSubject,isBackground,notFace,atCamera,slightlyOff,gazeAway,gazeDown,profile,eyeOffset,headYaw,eyesOpen,eyesPartial,eyesHidden,eyesAway,state,blink,neutral,smiling,laughing,midWord,otherFace,profileFace,downFace,maybeAway").unwrap();
     for line in &lines {
         file.write_all(line.as_bytes()).unwrap();
     }

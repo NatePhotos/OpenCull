@@ -143,6 +143,7 @@ export const mock: Backend = {
             reason: f === 3 ? "Background — small beside the others" : null,
             eyesShut: index % 7 === 0 && f === 0,
             lookingAway: index % 4 === 1 && f === 1,
+            maybeAway: advanced && index % 5 === 3 && f === 2,
             sharpness: 35 + ((index * 13 + f * 29) % 60),
             // Now and then someone is caught half way through a blink.
             eye: (index + f) % 6 === 2 ? 0.15 : 0.28 + ((index + f) % 3) * 0.01,

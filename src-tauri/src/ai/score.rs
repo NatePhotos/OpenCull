@@ -43,6 +43,9 @@ pub struct Reading {
     /// The least its eyes may count for, 0 to 1: how far the state it is
     /// in excuses eyes that measure narrow. Nought where nothing does.
     pub excused: f64,
+    /// Whether its state says the eyes are open. How open they measure is
+    /// then not held against it.
+    pub open: bool,
 }
 
 const EYE_WEIGHT: f64 = 0.45;
@@ -94,6 +97,30 @@ pub fn eye_in_burst(share_of_best: f64) -> f64 {
     between(Some(share_of_best), 0.45, 0.80, 1.0)
 }
 
+/// The least eyes may count for beside the same person's best, where the
+/// face's state says they are open.
+const OPEN_LEAST: f64 = 0.65;
+
+/// How a face's eyes do beside the same person's best frame, where its
+/// state says they are open: inside what is acceptable down to 0.80 of
+/// their best, as any eyes are, and below that marked down gently, because
+/// open eyes that measure narrower are seldom a blink.
+///
+/// MEASURED on 5,206 poses shot more than once, of which a photographer
+/// delivered some frames and not others. Fitting which frame was delivered:
+/// where the eyes were called open, falling from 0.80 of their best to 0.45
+/// weighed as much as 15 points of this mark; where they were not, 33, and
+/// all the eye marks with a blink. And for a face with nothing to compare
+/// with, how open its eyes measure weighed nothing once they were called
+/// open (under 2 points either way), so `parts` gives those full marks.
+/// Marked this way, of 3,343 pairs of frames with everyone's eyes open, one
+/// plainly the sharper but the lower on eyes, the sharper comes first in
+/// 47% where it came first in 17%; and the frame put first in a pose is a
+/// delivered one as often as before (40.9% against 40.7%).
+pub fn eye_open_in_burst(share_of_best: f64) -> f64 {
+    OPEN_LEAST + (1.0 - OPEN_LEAST) * eye_in_burst(share_of_best)
+}
+
 /// What a photograph is marked on. `None` for a photograph with no faces.
 ///
 /// Marked on the subjects, or on every face if `with_background` or if none
@@ -118,9 +145,14 @@ pub fn parts(faces: &[Reading], with_background: bool) -> Option<Parts> {
         1.0
     };
 
-    // Each face's eyes count for how open they measure, or for what its
-    // state excuses if that is more; the photograph, for its worst.
-    let eye = marked.iter().filter_map(|f| f.eye.map(|ratio| eye_alone(Some(ratio)).max(f.excused))).min_by(f64::total_cmp).unwrap_or(eye_alone(None));
+    // Each face's eyes count in full where its state says they are open;
+    // otherwise for how open they measure, or for what its state excuses if
+    // that is more. The photograph counts for its worst.
+    let eye = marked
+        .iter()
+        .filter_map(|f| f.eye.map(|ratio| if f.open { 1.0 } else { eye_alone(Some(ratio)).max(f.excused) }))
+        .min_by(f64::total_cmp)
+        .unwrap_or(eye_alone(None));
 
     Some(Parts { eye, focus: between(least(|f| f.focus_log), -1.2, 0.6, 0.75), gaze })
 }
@@ -147,7 +179,7 @@ mod tests {
     use super::*;
 
     fn face(eye: f64, focus: f64, away: f64) -> Reading {
-        Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away), excused: 0.0 }
+        Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away), excused: 0.0, open: false }
     }
 
     #[test]
@@ -208,8 +240,22 @@ mod tests {
     }
 
     #[test]
+    fn open_eyes_that_measure_narrower_cost_nothing_so_focus_decides() {
+        // Two frames, everyone's eyes open: one sharper, one whose eyes
+        // happen to measure a little wider.
+        let sharper = Reading { open: true, ..face(0.24, 0.5, 0.1) };
+        let wider = Reading { open: true, ..face(0.30, 0.2, 0.1) };
+        assert!(photo(&[sharper], false).unwrap() > photo(&[wider], false).unwrap());
+        // Without the state's word that they are open, the measure still counts.
+        assert!(photo(&[face(0.24, 0.5, 0.1)], false).unwrap() < photo(&[face(0.30, 0.2, 0.1)], false).unwrap());
+        // Beside the same person's best, open eyes lose little even far short of it, and nothing from 0.80 up.
+        assert_eq!(eye_open_in_burst(0.85), 1.0);
+        assert!((eye_open_in_burst(0.45) - 0.65).abs() < 1e-9 && eye_in_burst(0.45) == 0.0);
+    }
+
+    #[test]
     fn a_missing_reading_is_neutral_not_a_fault() {
-        let unread = Reading { subject: true, eye: None, focus_log: None, away: None, excused: 0.0 };
+        let unread = Reading { subject: true, eye: None, focus_log: None, away: None, excused: 0.0, open: false };
         let got = photo(&[unread], false).unwrap();
         assert!((got - (0.45 * 0.75 + 0.15 * 0.75 + 0.40 * 0.75) * 100.0).abs() < 1e-9);
     }

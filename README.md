@@ -87,6 +87,8 @@ deciding what to keep. OpenCull is built to make that fast.
   **Advanced AI** in Settings to try the newer way of judging them, which is
   still being worked on: it tells a blink from someone looking down, laughing
   or closing their eyes in a hug, and stops marking a photo down for those.
+  Where everyone's eyes are open it lets the sharper frame come first, and in
+  a posed group it points out someone who may be looking just off the camera.
 * **Compares a person with themselves.** It follows each person through a
   burst, or through a pose shot again, and ranks the frames, so the one with
   everyone's eyes open is the one it puts first.

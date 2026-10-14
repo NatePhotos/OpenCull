@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn looking_away_is_counted_in_full_whoever_else_is_in_the_frame() {
-        let reading = |eye: f64, focus: f64, away: f64| Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away), excused: 0.0 };
+        let reading = |eye: f64, focus: f64, away: f64| Reading { subject: true, eye: Some(eye), focus_log: Some(focus), away: Some(away), excused: 0.0, open: false };
         assert!((parts(&[reading(0.32, 0.7, 0.1)], false).unwrap().total() - 100.0).abs() < 1e-9);
         assert!(parts(&[reading(0.02, -2.0, 1.0)], false).unwrap().total().abs() < 1e-9, "eyes shut, out of focus and looking away is nought");
         assert!((parts(&[reading(0.32, 0.7, 0.98), reading(0.32, 0.7, 0.98)], false).unwrap().total() - 60.0).abs() < 1e-9, "a couple looking at each other loses all the gaze part");

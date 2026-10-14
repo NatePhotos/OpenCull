@@ -327,7 +327,12 @@ function eyeVerdict(face: AiFace, eyes: number | null): { colour: string; glyph:
     if (blinked(face, eyes) && face.state !== "Eyes Obscured") return { colour: RED, glyph: "shut", text: `Mid-Blink${share}` };
     const turned = face.state === "Looking Down" || face.state === "Facing Away";
     if (face.concern === 0 && face.lookingAway && !turned) return { colour: YELLOW, glyph: "aside", text: "Looking Away" };
-    const colour = [GREEN, YELLOW, ORANGE, RED][Math.min(face.concern, 3)];
+    // Everyone else in the photo is looking and this one's eyes are less
+    // surely on the camera: worth a look, and nothing more is made of it.
+    if (face.concern === 0 && face.maybeAway && !turned) return { colour: YELLOW, glyph: "aside", text: "Possibly Looking Away" };
+    // Someone looking down or turned away is not looking at the camera,
+    // and is shown as someone looking away is.
+    const colour = turned && face.lookingAway && face.concern === 0 ? YELLOW : [GREEN, YELLOW, ORANGE, RED][Math.min(face.concern, 3)];
     const shut = face.concern >= 2 || face.state.endsWith("Eyes Closed");
     return { colour, glyph: turned ? "aside" : shut ? "shut" : "open", text: face.state + (turned ? "" : share) };
   }

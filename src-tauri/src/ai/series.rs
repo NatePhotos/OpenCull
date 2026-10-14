@@ -246,7 +246,12 @@ pub fn compare(frames: &[&Record]) -> Vec<Compared> {
                 .map(|(face, share)| {
                     let eye = match share {
                         Some(_) if face.eyes_shut => 0.0,
+                        // Eyes the face's state calls open are inside what
+                        // is acceptable: a little narrower than their best
+                        // is not a blink, and costs little.
+                        Some(share) if face.open => score::eye_open_in_burst(*share as f64),
                         Some(share) => score::eye_in_burst(*share as f64),
+                        None if face.open => 1.0,
                         None => score::eye_alone(Some(face.eye as f64)),
                     };
                     // Eyes lowered or narrowed for a reason the face's
@@ -266,7 +271,7 @@ mod tests {
     use super::*;
 
     fn face(x: f32, eye: f32) -> FaceRecord {
-        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, sharpness: Some(80.0), eye, eyes_read: true, state: None, concern: 0, excused: 0.0 }
+        FaceRecord { x, y: 0.3, w: 0.1, h: 0.15, subject: true, reason: None, eyes_shut: false, looking_away: false, maybe_away: false, sharpness: Some(80.0), eye, eyes_read: true, state: None, concern: 0, excused: 0.0, open: false }
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {
@@ -360,6 +365,27 @@ mod tests {
         assert!((got[1].eyes[0].unwrap() - 0.4).abs() < 1e-6, "still seen to be far less open than their best");
         assert!((got[1].score.unwrap() - 93.25).abs() < 1e-4, "and nearly nothing taken off for it: {:?}", got[1].score);
         assert_eq!(got[2].score, Some(55.0), "where the same eyes with no reason given cost all the eye marks");
+    }
+
+    #[test]
+    fn open_eyes_a_little_short_of_their_best_cost_little_and_a_blink_still_costs_everything() {
+        let mut narrower = face(0.2, 0.20);
+        narrower.open = true;
+        let mut wide = face(0.2, 0.30);
+        wide.open = true;
+        let got = marks(&[frame(vec![wide]), frame(vec![narrower]), frame(vec![face(0.2, 0.20)])]);
+        // Two thirds of their best: 0.63 of the way up from 0.45 to 0.80, on the gentle scale.
+        let eye = 0.65 + 0.35 * ((0.20 / 0.30 - 0.45) / 0.35);
+        assert!((got[1].score.unwrap() as f64 - (45.0 * eye + 55.0)).abs() < 1e-3, "{:?}", got[1].score);
+        assert!(got[2].score.unwrap() < got[1].score.unwrap() - 10.0, "the same eyes not called open are marked as before");
+        let mut shut = face(0.2, 0.20);
+        shut.open = true;
+        shut.eyes_shut = true;
+        assert_eq!(marks(&[frame(vec![wide_open()]), frame(vec![shut])])[1].score, Some(55.0));
+    }
+
+    fn wide_open() -> FaceRecord {
+        face(0.2, 0.30)
     }
 
     #[test]
