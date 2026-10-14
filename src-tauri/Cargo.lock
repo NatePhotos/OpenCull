@@ -2662,7 +2662,7 @@ dependencies = [
 
 [[package]]
 name = "opencull"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fast_image_resize",
  "jpeg-decoder",
