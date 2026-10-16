@@ -5,7 +5,10 @@ import { create } from "zustand";
 import { api, type UpdateFound } from "./api";
 import { useCrop } from "./crop";
 import { cropFromShare, isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, turned, viewSize, type Share } from "./framing";
-import { load, save } from "./prefs";
+import { load, save, snapshotPreferences } from "./prefs";
+import { openingView, validViewMode } from "./view-preferences";
+import { validRankingPalette, type RankingPalette } from "./ranking-palette";
+import { shouldShowOverview } from "./onboarding";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
 
 interface Session {
@@ -28,7 +31,7 @@ interface Session {
  */
 type Edit = { index: number; before: Marks; after: Marks; framing?: { before: Framing; after: Framing } }[];
 
-export type ZoomCommand = { kind: "toggle" | "centre" | "in" | "out"; nonce: number };
+export type ZoomCommand = { kind: "toggle" | "centre" | "face" | "in" | "out"; nonce: number };
 
 interface State {
   platform: string;
@@ -61,6 +64,10 @@ interface State {
   sortAscending: boolean;
 
   viewMode: ViewMode;
+  /** View used when opening a folder without remembering the last one. */
+  defaultViewMode: ViewMode;
+  /** Reopen the last view mode used in a folder. */
+  rememberViewMode: boolean;
   gridColumns: number;
   showExif: boolean;
   /** How wide the EXIF panel is, in pixels. */
@@ -69,7 +76,17 @@ interface State {
   showInfo: boolean;
   showRatingBar: boolean;
   showFilterBar: boolean;
+  showHistogram: boolean;
   filmstripHeight: number;
+  sceneStripHeight: number;
+  experimentalNativeFilmstrip: boolean;
+  experimentalSmoothZoom: boolean;
+  experimentalTransitions: boolean;
+  experimentalHideFilmstripOnCrop: boolean;
+  experimentalFaceOutlines: boolean;
+  experimentalFaceSpotlight: boolean;
+  spaceZoomToFace: boolean;
+  rankingPalette: RankingPalette;
   /** The strip's edge is being dragged, and its height is changing every frame. */
   stripResizing: boolean;
   /** A side panel's edge is being dragged, and the photo beside it changes size every frame. */
@@ -149,9 +166,11 @@ interface State {
   facePanelWidth: number;
   /** A face to zoom the loupe to; numbered so the same one can be asked for twice. */
   faceZoom: { x: number; y: number; nonce: number } | null;
+  hoveredFace: { photoIndex: number; display: string; version: string; face: AiFace } | null;
 
   shortcutsOpen: boolean;
   settingsOpen: boolean;
+  overviewOpen: boolean;
   shipOpen: boolean;
   /** A photo is being cropped in the big view. */
   cropOpen: boolean;
@@ -333,18 +352,36 @@ export function problemOf(result: AiResult | undefined, compared?: Compared): Pr
 /** Whether marking a photo should move on to the next one. */
 export const speedCulling = (s: Pick<State, "speedCull" | "speedCullAlways">) => s.speedCull || s.speedCullAlways;
 
+/** The filmstrip can be hidden by the photographer or temporarily while cropping. */
+export function filmstripVisible(s: Pick<State, "showFilmstrip" | "cropOpen" | "experimentalHideFilmstripOnCrop">): boolean {
+  return s.showFilmstrip && !(s.cropOpen && s.experimentalHideFilmstripOnCrop);
+}
+
 /** Settings written back to storage whenever they change. */
 const PERSISTED = [
   "sort",
   "sortAscending",
   "gridColumns",
+  "viewMode",
+  "defaultViewMode",
+  "rememberViewMode",
   "showExif",
   "exifPanelWidth",
   "showFilmstrip",
   "showInfo",
   "showRatingBar",
   "showFilterBar",
+  "showHistogram",
   "filmstripHeight",
+  "sceneStripHeight",
+  "experimentalNativeFilmstrip",
+  "experimentalSmoothZoom",
+  "experimentalTransitions",
+  "experimentalHideFilmstripOnCrop",
+  "experimentalFaceOutlines",
+  "experimentalFaceSpotlight",
+  "spaceZoomToFace",
+  "rankingPalette",
   "includeSubfolders",
   "fileKinds",
   "embedInJpeg",
@@ -671,7 +708,9 @@ export const useStore = create<Store>((set, get) => {
     sort: load<SortKey>("sort", "captureTime"),
     sortAscending: load("sortAscending", true),
 
-    viewMode: "loupe",
+    viewMode: validViewMode(load("viewMode", "loupe")),
+    defaultViewMode: validViewMode(load("defaultViewMode", "loupe")),
+    rememberViewMode: load("rememberViewMode", false),
     gridColumns: load("gridColumns", 4),
     showExif: load("showExif", false),
     exifPanelWidth: load("exifPanelWidth", 250),
@@ -679,7 +718,17 @@ export const useStore = create<Store>((set, get) => {
     showInfo: load("showInfo", false),
     showRatingBar: load("showRatingBar", true),
     showFilterBar: load("showFilterBar", false),
+    showHistogram: load("showHistogram", true),
     filmstripHeight: load("filmstripHeight", 120),
+    sceneStripHeight: load("sceneStripHeight", 160),
+    experimentalNativeFilmstrip: load("experimentalNativeFilmstrip", false),
+    experimentalSmoothZoom: load("experimentalSmoothZoom", false),
+    experimentalTransitions: load("experimentalTransitions", false),
+    experimentalHideFilmstripOnCrop: load("experimentalHideFilmstripOnCrop", false),
+    experimentalFaceOutlines: load("experimentalFaceOutlines", false),
+    experimentalFaceSpotlight: load("experimentalFaceSpotlight", false),
+    spaceZoomToFace: load("spaceZoomToFace", false),
+    rankingPalette: validRankingPalette(load("rankingPalette", "classic")),
     stripResizing: false,
     panelResizing: false,
     includeSubfolders: load("includeSubfolders", false),
@@ -716,9 +765,11 @@ export const useStore = create<Store>((set, get) => {
     showFaces: load("showFaces", true),
     facePanelWidth: load("facePanelWidth", 340),
     faceZoom: null,
+    hoveredFace: null,
 
     shortcutsOpen: false,
     settingsOpen: false,
+    overviewOpen: shouldShowOverview(snapshotPreferences()),
     shipOpen: false,
     cropOpen: false,
     copiedCrop: null,
@@ -769,7 +820,7 @@ export const useStore = create<Store>((set, get) => {
         metaProgress: 0,
         undoStack: [],
         redoStack: [],
-        viewMode: "loupe",
+        viewMode: openingView(get().defaultViewMode, get().rememberViewMode, get().viewMode),
         flagFilter: "all",
         ratingFilter: null,
         colorFilters: new Set(),
@@ -840,6 +891,7 @@ export const useStore = create<Store>((set, get) => {
         aiDone: 0,
         aiRunning: false,
         faceZoom: null,
+        hoveredFace: null,
       });
       if (photos.length === 0) return;
 

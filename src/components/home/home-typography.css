@@ -1,0 +1,44 @@
+/* Keep the opening page's hierarchy proportional to its preview area. */
+.home-content { container-type: inline-size; }
+.home-heading h1 { font-size: 2.75rem; line-height: 1.12; letter-spacing: -0.025em; }
+.home-heading > p { font-size: 1rem; line-height: 1.5; }
+.home-recents h2 { font-size: 1.5rem; line-height: 1.25; }
+.home-recents { padding-top: 1.5rem; }
+@supports (font-size: 1cqi) {
+  .home-heading h1 { font-size: clamp(2.25rem, 1.75rem + 2cqi, 3.5rem); }
+  .home-heading > p { font-size: clamp(0.875rem, 0.75rem + 0.4cqi, 1.125rem); }
+  .home-recents h2 { font-size: clamp(1.375rem, 1rem + 1cqi, 2rem); }
+}
+@media (max-width: 40em) {
+  .home-header { padding: 1.5rem; }
+  .home-recents { padding: 1.5rem; }
+}
+.home-heading { flex: 1 0 100%; min-width: 0; }
+.home-controls { flex: 1 0 100%; justify-content: flex-start; }
+/* The original design always uses the whole window, including after switching from a split preset. */
+:root:not([data-home-featured="true"]) .home-view { display: flex; inline-size: 100%; block-size: 100%; max-inline-size: none; }
+:root:not([data-home-featured="true"]) .home-content { inline-size: 100%; min-inline-size: 0; align-self: stretch; }
+
+/* One shared gutter and deliberate space between identity, actions and history. */
+:root:not([data-home-featured="true"]) .home-header {
+  padding: 2rem clamp(1.25rem, 3vw, 3rem);
+  row-gap: 2rem;
+}
+:root:not([data-home-featured="true"]) .home-recents {
+  padding: 1rem clamp(1.25rem, 3vw, 3rem) 2rem;
+}
+:root .home-view .home-utilities { flex-wrap: wrap; gap: 0.75rem; }
+:root .home-view .home-controls { column-gap: 1.5rem; row-gap: 1rem; }
+:root .home-view .home-actions { gap: 0.75rem; }
+:root .home-view .home-heading > p { margin-top: 0.75rem; }
+:root .home-view[data-home-layout="classic"] .home-heading { flex: 1 1 18rem; }
+:root .home-view[data-home-layout="classic"] .home-controls {
+  flex: 0 1 auto;
+  width: auto;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+/* Keep macOS traffic-light clearance even with the shared page gutter. */
+@media (min-width: 40em) {
+  :root:not([data-home-featured="true"]) .home-view[data-platform="macos"] .home-header { padding-left: max(78px, 3rem); }
+}

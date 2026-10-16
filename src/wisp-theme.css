@@ -1,0 +1,106 @@
+/* Wisp: readable work surfaces; neutral photo pixels and unmistakable controls. */
+:root[data-theme="wisp"] {
+  color-scheme: dark;
+  --background: #111827; --foreground: #f3f6ff;
+  --card: #1d293d; --card-foreground: #f3f6ff;
+  --popover: #162033; --popover-foreground: #f3f6ff;
+  --primary: #b7a6ff; --primary-foreground: #21173e;
+  --secondary: #2b3b55; --secondary-foreground: #f3f6ff;
+  --muted: #26364b; --muted-foreground: #bac8df;
+  --accent: #354866; --accent-foreground: #fff;
+  --border: #71839f; --input: #8c9db8; --ring: #c8bbff;
+  --destructive: #ffb0b9;
+  --home-from: #111827; --home-to: #111827;
+  --opencull-toolbar: #162033; --opencull-panel: #1d293d;
+  --opencull-strip: #162033; --opencull-cell: #26364b;
+  --opencull-accent: #b7a6ff; --opencull-select: #b7a6ff;
+  --ui-text-4d4d4d: #a4b4cf; --ui-text-666666: #bac8df;
+  --ui-text-737373: #bac8df; --ui-text-808080: #bac8df;
+  --ui-text-8c8c8c: #bac8df; --ui-text-999999: #c3cde0;
+  --ui-text-a6a6a6: #c3cde0; --ui-text-b3b3b3: #d4dcef;
+  --ui-text-bdbdbd: #d4dcef; --ui-text-bfbfbf: #d4dcef;
+  --ui-text-cccccc: #e5ebf7; --ui-text-d9d9d9: #f3f6ff; --ui-text-e6e6e6: #f3f6ff;
+  --ui-line-2e2e2e: #71839f; --ui-line-333333: #71839f; --ui-line-383838: #71839f;
+  --ui-line-3a3a44: #8c9db8; --ui-line-595959: #8c9db8; --ui-line-8c8c8c: #8c9db8;
+  --ui-surface-101014: #111827; --ui-surface-131318: #111827; --ui-surface-141414: #111827;
+  --ui-surface-14141a: #111827; --ui-surface-17171c: #162033; --ui-surface-1a1a21: #162033;
+  --ui-surface-1f1f1f: #1d293d; --ui-surface-262626: #26364b; --ui-surface-28282e: #26364b;
+  --ui-surface-292929: #2b3b55; --ui-surface-2a2a30: #2b3b55; --ui-surface-2e2e2e: #2b3b55;
+  --ui-surface-333333: #354866; --ui-surface-383838: #354866; --ui-surface-404040: #455b7a;
+  --ui-surface-4d4d4d: #455b7a; --ui-surface-595959: #566c8b; --ui-surface-666666: #566c8b;
+}
+/* Keep the photographic surround neutral in every preset. */
+:root[data-theme="wisp"] { --opencull-canvas: #111; }
+:root[data-theme="wisp"] {
+  --background: #171717; --card: #292929; --popover: #222;
+  --secondary: #3d3d3d; --muted: #292929; --muted-foreground: #d0d0d0;
+  --accent: #484848; --border: #858585; --input: #999;
+  --home-from: #171717; --home-to: #171717;
+  --opencull-canvas: #767676; --opencull-toolbar: #222;
+  --opencull-panel: #292929; --opencull-strip: #171717; --opencull-cell: #444;
+}
+
+:root[data-theme="wisp"] .setting-row {
+  gap: 24px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--foreground);
+}
+:root[data-theme="wisp"] .setting-title { color: var(--foreground); }
+:root[data-theme="wisp"] .setting-detail { color: var(--muted-foreground); }
+:root[data-theme="wisp"] fieldset { border-color: var(--border); background: var(--card); color: var(--foreground); }
+:root[data-theme="wisp"] [data-slot="tabs-list"] { gap: 4px; padding: 6px; background: var(--background); border: 1px solid var(--border); }
+:root[data-theme="wisp"] [role="tab"] { min-height: 40px; border: 1px solid transparent; color: var(--muted-foreground); }
+:root[data-theme="wisp"] [role="tab"][data-state="active"] { background: var(--secondary); color: var(--foreground); border-color: var(--ring); font-weight: 600; }
+:root[data-theme="wisp"] :is(button,input,select,textarea,a):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+:root[data-theme="wisp"] :is(select,input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),textarea) { border: 1px solid var(--input); color: var(--foreground); background: var(--background); }
+:root[data-theme="wisp"] [role="switch"] { border: 1px solid var(--input); background: var(--secondary); }
+:root[data-theme="wisp"] [role="switch"][data-state="checked"] { background: var(--primary); }
+:root[data-theme="wisp"] [data-slot="switch-thumb"] { background: var(--foreground); }
+:root[data-theme="wisp"] [role="switch"][data-state="checked"] [data-slot="switch-thumb"] { background: var(--primary-foreground); }
+:root[data-theme="wisp"] :is(input[type="checkbox"],input[type="radio"],input[type="range"]) { accent-color: var(--primary); }
+:root[data-theme="wisp"] .home-open { background: var(--primary); color: var(--primary-foreground); box-shadow: none; }
+
+/* Metadata is reading content: distinguish hierarchy by size, weight and surfaces,
+   rather than dimming small type against the panel. */
+:root[data-theme="wisp"] .metadata-section {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+}
+:root[data-theme="wisp"] .metadata-rule { display: none; }
+:root[data-theme="wisp"] .metadata-heading {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 600;
+  text-transform: none;
+}
+:root[data-theme="wisp"] .metadata-label {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-transform: none;
+}
+:root[data-theme="wisp"] .metadata-value {
+  margin-top: 0.25rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-theme="wisp"] .metadata-row { gap: 0.75rem; }
+:root[data-theme="wisp"] .metadata-icon { width: 1rem; flex-shrink: 0; }
+:root[data-theme="wisp"] :is(.metadata-icon, .metadata-label) svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--primary);
+}
+:root[data-theme="wisp"] .metadata-badge { min-width: 0; border-color: var(--border); background: var(--secondary); }
+@media (forced-colors: active) {
+  :root[data-theme="wisp"] :is(.setting-row,fieldset,.metadata-section,.metadata-badge,[data-slot="tabs-list"]) { border-color: CanvasText; background: Canvas; color: CanvasText; }
+  :root[data-theme="wisp"] [role="tab"][data-state="active"] { outline: 2px solid Highlight; }
+}

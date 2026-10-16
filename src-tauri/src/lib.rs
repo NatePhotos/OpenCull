@@ -19,6 +19,7 @@ pub mod raw;
 pub mod scan;
 pub mod serve;
 pub mod sidecar;
+pub mod settings;
 pub mod times;
 pub mod transfer;
 pub mod update;
@@ -97,6 +98,7 @@ pub fn run() {
                 // painting.
                 window.show().ok();
             }
+            app.manage(settings::Settings(std::sync::Mutex::new(settings::location(app.handle())?)));
             app.manage(launch);
 
             // Bring the cache back under its limit, well away from startup.
@@ -179,6 +181,10 @@ pub fn run() {
             commands::ai_set_yield,
             commands::ai_cache_usage,
             commands::ai_clear_cache,
+            settings::config_load,
+            settings::config_set,
+            settings::config_set_many,
+            settings::config_export_file,
             update::update_check,
             update::update_install,
             update::open_release_page,

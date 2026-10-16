@@ -11,6 +11,7 @@
     "core:window:allow-is-fullscreen",
     "core:window:allow-set-title",
     "dialog:allow-open",
+    "dialog:allow-save",
     "opener:allow-reveal-item-in-dir"
   ]
 }

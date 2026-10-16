@@ -1,7 +1,9 @@
+import { previewAspect, usePreviewAspectRevision } from "@/lib/preview-aspect";
 import { memo, useMemo, useRef } from "react";
 
 import { bucket, THUMB_SIZES } from "@/lib/api";
 import { groupOf, hasActiveFilter, useStore } from "@/lib/store";
+import { stripPhotoWidth } from "@/lib/strip-aspect";
 import { cn } from "@/lib/utils";
 import { PhotoMenu } from "./PhotoMenu";
 import { useStrip } from "./strip";
@@ -67,7 +69,9 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
   const storedHeight = useStore((s) => s.filmstripHeight);
   const height = fixedHeight ?? storedHeight;
   const thumbH = stripThumbHeight(height);
-  const thumbW = Math.round(thumbH * 1.5);
+  const nativeAspect = useStore((s) => s.experimentalNativeFilmstrip);
+  const aspectRevision = usePreviewAspectRevision(nativeAspect);
+  const widths = useMemo(() => view.map((index) => stripPhotoWidth(photos[index], thumbH, nativeAspect, previewAspect(photos[index]))), [view, photos, thumbH, nativeAspect, aspectRevision]);
   const size = useStripThumbSize(height);
 
   // Frames of one group are drawn joined, on a shared backing. A group is a
@@ -92,18 +96,18 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
     let x = PAD;
     rows.forEach((row, i) => {
       out[i] = x;
-      x += thumbW + (row.burst && row.first ? 8 : 3) + (row.burst && row.last ? 8 : 3) + (row.gap ? 6 : 0);
+      x += widths[i] + (row.burst && row.first ? 8 : 3) + (row.burst && row.last ? 8 : 3) + (row.gap ? 6 : 0);
     });
     out[rows.length] = x;
     return out;
-  }, [rows, thumbW]);
+  }, [rows, widths]);
   // Keep the photo in the loupe in the middle of the strip.
   const position = useMemo(() => rows.findIndex((r) => r.index === current), [rows, current]);
   const { scroller, length, from, to, onScroll, onWheel } = useStrip({ starts, pad: PAD, position, anchor: current });
 
   return (
     <div className="relative flex shrink-0 flex-col bg-strip" style={{ height }}>
-      {resizable ? <ResizeHandle /> : <div style={{ height: HANDLE }} className="shrink-0 bg-[#262626]" />}
+      {resizable ? <FilmstripResizeHandle /> : <div style={{ height: HANDLE }} className="shrink-0 bg-[var(--ui-surface-262626)]" />}
       <div ref={scroller} onWheel={onWheel} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="relative h-full" style={{ width: length }}>
           {rows.slice(from, to).map((row, i) => {
@@ -113,13 +117,13 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
                 <div
                   className={cn(
                     "flex h-[calc(100%-12px)] items-center",
-                    row.burst && "bg-[#2e2e2e]",
+                    row.burst && "bg-[var(--ui-surface-2e2e2e)]",
                     row.burst && row.first && "rounded-l-lg",
                     row.burst && row.last && "rounded-r-lg",
                   )}
                   style={{ paddingLeft: row.burst && row.first ? 8 : 3, paddingRight: row.burst && row.last ? 8 : 3 }}
                 >
-                  <Cell index={row.index} width={thumbW} height={thumbH} size={size} />
+                  <Cell index={row.index} width={widths[at]} height={thumbH} size={size} />
                 </div>
               </div>
             );
@@ -143,7 +147,7 @@ const Cell = memo(function Cell({ index, width, height, size }: { index: number;
       <button
         type="button"
         onClick={(e) => useStore.getState().select(index, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
-        className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[#141414] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
+        className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[var(--ui-surface-141414)] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
         style={{ width, height }}
       >
         <FramedThumb photo={photo} size={size} box={{ w: width, h: height }} className="size-full object-contain" />
@@ -175,10 +179,10 @@ function Counter() {
       {filtering && (
         <>
           <span className="text-[#73b8ff]">{shown} filtered</span>
-          <span className="text-[#666]">·</span>
+          <span className="text-[var(--ui-text-666666)]">·</span>
         </>
       )}
-      <span className="text-[#bfbfbf]">
+      <span className="text-[var(--ui-text-bfbfbf)]">
         {number} / {total}
       </span>
       {selected > 0 && <span className="text-[#73b8ff]">· {selected} selected</span>}
@@ -187,10 +191,16 @@ function Counter() {
 }
 
 /** The top edge of the strip, which drags to make it taller or shorter. */
-function ResizeHandle() {
+export function FilmstripResizeHandle({ setting = "filmstripHeight", label = "Resize filmstrip" }: { setting?: "filmstripHeight" | "sceneStripHeight"; label?: string }) {
+  const height = useStore((s) => s[setting]);
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const next = e.key === "ArrowUp" ? height + 12 : e.key === "ArrowDown" ? height - 12 : e.key === "Home" ? MIN_HEIGHT : e.key === "End" ? MAX_HEIGHT : null;
+    if (next === null) return;
+    e.preventDefault(); e.stopPropagation(); useStore.getState().set(setting, Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, next)));
+  };
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const startY = e.clientY;
-    const startHeight = useStore.getState().filmstripHeight;
+    const startHeight = useStore.getState()[setting];
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
 
@@ -203,7 +213,7 @@ function ResizeHandle() {
     let frame = 0;
     const apply = () => {
       frame = 0;
-      if (wanted !== useStore.getState().filmstripHeight) useStore.getState().set("filmstripHeight", wanted);
+      if (wanted !== useStore.getState()[setting]) useStore.getState().set(setting, wanted);
     };
     const onMove = (ev: PointerEvent) => {
       wanted = Math.round(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, startHeight + (startY - ev.clientY))));
@@ -225,7 +235,7 @@ function ResizeHandle() {
   return (
     // Lit along its whole length while the pointer is on it, as the edges of
     // the side panels are: the line above it and the bar itself, five pixels.
-    <div onPointerDown={onPointerDown} className="group relative z-10 shrink-0 cursor-row-resize bg-[#262626]" style={{ height: HANDLE }}>
+    <div role="separator" tabIndex={0} aria-label={label} aria-orientation="horizontal" aria-valuenow={height} aria-valuemin={MIN_HEIGHT} aria-valuemax={MAX_HEIGHT} onKeyDown={onKeyDown} onPointerDown={onPointerDown} className="group relative z-10 shrink-0 cursor-row-resize bg-[var(--ui-surface-262626)]" style={{ height: HANDLE }}>
       <span className="absolute inset-x-0 -top-px bottom-0 group-hover:bg-[#4d8cff]/60 group-active:bg-[#4d8cff]/60" />
     </div>
   );

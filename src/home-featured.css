@@ -1,0 +1,190 @@
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/SpaceGrotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+.rapidraw-intro, .rapidraw-footer { display: none; }
+
+:root[data-home-featured="true"] .home-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr);
+  padding: 8px;
+  background: var(--background);
+}
+:root[data-home-featured="true"] .rapidraw-artwork {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px 0 0 6px;
+  background: var(--muted);
+}
+.rapidraw-artwork img { width: 100%; height: 100%; object-fit: cover; }
+.rapidraw-artwork span {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  padding: 6px 10px;
+  color: #fff;
+  background: #0009;
+  border-radius: 4px;
+  font-size: 11px;
+}
+:root[data-home-featured="true"] .home-content {
+  min-width: 0;
+  overflow-y: auto;
+  justify-content: center;
+  padding: 48px clamp(24px, 4vw, 64px) 24px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+}
+:root[data-home-featured="true"] .home-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0;
+  align-items: center;
+}
+:root[data-home-featured="true"] .home-heading { flex: 1 0 100%; }
+:root[data-home-featured="true"] .home-controls {
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+:root[data-home-featured="true"] .home-utilities { justify-content: flex-start; }
+:root[data-home-featured="true"] .home-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+:root[data-home-featured="true"] .home-heading h1 {
+  margin: 0 0 16px;
+  background: none;
+  color: var(--foreground);
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: -2px;
+}
+:root[data-home-featured="true"] .home-heading > p:first-of-type { display: none; }
+:root[data-home-featured="true"] .rapidraw-intro {
+  display: block;
+  max-width: 360px;
+  margin: 0 0 24px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+:root[data-home-featured="true"] .home-header button {
+  min-height: 40px;
+  margin: 0;
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--secondary);
+  box-shadow: none;
+}
+:root[data-home-featured="true"] .home-header button:hover { background: var(--accent); }
+:root[data-home-featured="true"] .home-header .home-open {
+  justify-content: center;
+  flex: 1 0 100%;
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+:root[data-home-featured="true"] .home-header .home-ingest {
+  flex: 1;
+  justify-content: center;
+}
+:root[data-home-featured="true"] .home-header button[aria-label] { padding: 0; }
+:root[data-home-featured="true"] .home-header button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+:root[data-home-featured="true"] .home-recents { flex: 0 0 auto; max-height: 40vh; padding: 28px 0 0; }
+:root[data-home-featured="true"] .home-empty { display: none; }
+:root[data-home-featured="true"] .home-recents h2 { color: var(--muted-foreground); }
+:root[data-home-featured="true"] .home-recents > .grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 16px; }
+:root[data-home-featured="true"] .home-recents .group {
+  background: var(--secondary);
+  border-color: var(--border);
+  box-shadow: none;
+  border-radius: 6px;
+}
+:root[data-home-featured="true"] .home-recents .group:hover { transform: none; background: var(--accent); }
+:root[data-home-featured="true"] .home-recents .group > div:first-child { display: none; }
+:root[data-home-featured="true"] .home-recents .group > div:nth-child(2) { padding-left: 42px; }
+:root[data-home-featured="true"] .home-recents .group > div:nth-child(2) > div { color: var(--foreground); }
+:root[data-home-featured="true"] .home-recents .group > div:nth-child(2) > div + div { color: var(--muted-foreground); }
+:root[data-home-featured="true"] .home-recents .group > button { display: block; top: 14px; }
+:root[data-home-featured="true"] .rapidraw-footer {
+  display: block;
+  margin-top: 32px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+@media (max-width: 800px) {
+  :root[data-home-featured="true"] .home-view { grid-template-columns: minmax(0, 1fr); }
+  :root[data-home-featured="true"] .rapidraw-artwork { display: none; }
+  :root[data-home-featured="true"] .home-content { border-radius: 6px; padding: 40px 24px 24px; }
+}
+
+/* Compact application header: actions share a row rather than filling columns. */
+:root[data-home-featured="true"] .home-content {
+  justify-content: flex-start;
+  padding: 32px clamp(24px, 3vw, 48px) 24px;
+}
+:root[data-home-featured="true"] .home-header { flex-wrap: wrap; gap: 16px; }
+:root[data-home-featured="true"] .home-heading { flex: 1 1 260px; min-width: 0; }
+:root[data-home-featured="true"] .home-heading h1 {
+  margin: 0 0 8px;
+  font-size: clamp(2.25rem, 1.75rem + 2cqi, 3.5rem);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+:root[data-home-featured="true"] .rapidraw-intro {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+:root[data-home-featured="true"] .home-controls {
+  width: auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+}
+:root[data-home-featured="true"] .home-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+:root[data-home-featured="true"] .home-header button { flex: 0 0 auto; order: initial; }
+:root[data-home-featured="true"] .home-header .home-open,
+:root[data-home-featured="true"] .home-header .home-ingest { flex: 0 0 auto; }
+:root[data-home-featured="true"] .home-header button[aria-label] { order: initial; padding: 0; width: 40px; height: 40px; }
+:root[data-home-featured="true"] .home-recents { flex: 1 1 auto; max-height: none; min-height: 0; }
+:root[data-home-featured="true"] .rapidraw-footer { margin-top: 16px; }
+:root[data-home-featured="true"] .home-controls { gap: 8px; }
+:root[data-home-featured="true"] .home-actions { gap: 8px; }
+:root[data-home-featured="true"] .home-actions button { padding-inline: 12px; }
+/* Identity always occupies its own row above the horizontal actions. */
+:root[data-home-featured="true"] .home-heading { flex: 1 0 100%; }
+:root[data-home-featured="true"] .home-controls { flex: 1 0 100%; }
+
+/* Keep folder contact sheets; session history is denser in this preset. */
+:root[data-home-featured="true"] .home-recents .group { max-width: 320px; }
+:root[data-home-featured="true"] .home-recents .group > div:first-child { display: block; height: auto; aspect-ratio: 16 / 9; }
+:root[data-home-featured="true"] .home-recents .group > div:nth-child(2) { padding: 12px; }
+:root[data-home-featured="true"] .home-recents .group > button { display: block; top: 12px; }
+:root[data-home-featured="true"] .recent-sessions-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+}
+:root[data-home-featured="true"] .recent-sessions-grid > .recent-session-card { max-width: 320px; }
+:root[data-home-featured="true"] .recent-sessions-grid .recent-session-open > div:first-child { aspect-ratio: 16 / 9; }
+:root[data-home-featured="true"] .recent-sessions-grid .recent-session-open > div:nth-child(2) { padding: 12px; }
+:root[data-home-featured="true"] .recent-sessions-grid .recent-session-open > div:nth-child(2) > div { font-size: 0.875rem; }
+:root[data-home-featured="true"] .recent-sessions-grid p { font-size: 0.75rem; line-height: 1.5; }
+/* Let the welcome block breathe before the first row of photographs. */
+:root[data-home-featured="true"] .home-content { padding-top: 40px; }
+:root[data-home-featured="true"] .home-header { row-gap: 24px; padding-bottom: 32px; }

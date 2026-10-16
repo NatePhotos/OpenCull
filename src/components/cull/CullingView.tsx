@@ -1,7 +1,8 @@
+import { MotionRegion } from "./InterfaceMotion";
 import { FolderSearch, Images } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/store";
+import { filmstripVisible, useStore } from "@/lib/store";
 import { useFaceScan } from "@/lib/faces";
 import { useWarmAhead } from "@/lib/warm";
 import { ExifPanel } from "./ExifPanel";
@@ -9,7 +10,7 @@ import { FacePanel } from "./FacePanel";
 import { Filmstrip } from "./Filmstrip";
 import { Grid } from "./Grid";
 import { Loupe } from "./Loupe";
-import { SceneView } from "./SceneView";
+import { SceneOverview, SceneView } from "./SceneView";
 import { Toolbar } from "./Toolbar";
 
 /** How narrow and how wide each side panel may be, as a share of the workspace. */
@@ -36,7 +37,7 @@ const held = (panel: PanelWidth, width: number) => `clamp(${PANEL_LIMITS[panel].
 export function CullingView() {
   const viewMode = useStore((s) => s.viewMode);
   const showExif = useStore((s) => s.showExif);
-  const showFilmstrip = useStore((s) => s.showFilmstrip);
+  const showFilmstrip = useStore(filmstripVisible);
   const showFaces = useStore((s) => s.showFaces);
   const exifPanelWidth = useStore((s) => s.exifPanelWidth);
   const facePanelWidth = useStore((s) => s.facePanelWidth);
@@ -56,34 +57,32 @@ export function CullingView() {
           </div>
         ) : (
           <>
-            {showExif && (
-              <div
+            {(
+              <MotionRegion open={showExif} width={held("exifPanelWidth", exifPanelWidth)}
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
-                style={{ width: held("exifPanelWidth", exifPanelWidth) }}
               >
                 <ExifPanel />
-              </div>
+              </MotionRegion>
             )}
             {showExif && <PanelHandle panel="exifPanelWidth" direction={1} />}
             <div className="min-w-0 flex-1 overflow-hidden">
               {viewMode === "scene" ? <SceneView /> : <Loupe />}
             </div>
             {showFaces && <PanelHandle panel="facePanelWidth" direction={-1} />}
-            {showFaces && (
-              <div
+            {(
+              <MotionRegion open={showFaces} width={held("facePanelWidth", facePanelWidth)}
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
-                style={{ width: held("facePanelWidth", facePanelWidth) }}
               >
                 <FacePanel />
-              </div>
+              </MotionRegion>
             )}
           </>
         )}
       </div>
-      {showFilmstrip && viewMode === "loupe" && !empty && (
-        <div className="border-t border-[#333]">
-          <Filmstrip />
-        </div>
+      {(viewMode === "loupe" || viewMode === "scene") && !empty && (
+        <MotionRegion open={showFilmstrip}><div className="border-t border-[var(--ui-line-333333)]">
+          {viewMode === "scene" ? <SceneOverview /> : <Filmstrip />}
+        </div></MotionRegion>
       )}
     </div>
   );
@@ -137,7 +136,7 @@ function PanelHandle({ panel, direction }: { panel: PanelWidth; direction: 1 | -
   // could be dragged; what is grabbed is a wider strip laid over it, seen
   // only when the pointer is on it.
   return (
-    <div role="separator" aria-orientation="vertical" onPointerDown={onPointerDown} className="group relative z-10 w-px shrink-0 cursor-col-resize bg-[#333]">
+    <div role="separator" aria-orientation="vertical" onPointerDown={onPointerDown} className="group relative z-10 w-px shrink-0 cursor-col-resize bg-[var(--ui-surface-333333)]">
       <span className="absolute inset-y-0 -left-[2px] w-[5px] group-hover:bg-[#4d8cff]/60 group-active:bg-[#4d8cff]/60" />
     </div>
   );
@@ -162,12 +161,12 @@ function EmptyFolder() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3.5 text-center">
-      <Icon className="size-11 text-[#737373]" strokeWidth={1} />
-      <div className="text-lg font-medium text-[#d9d9d9]">No photos in this folder</div>
-      <div className="text-sm text-[#808080]">{session.name}</div>
+      <Icon className="size-11 text-[var(--ui-text-737373)]" strokeWidth={1} />
+      <div className="text-lg font-medium text-[var(--ui-text-d9d9d9)]">No photos in this folder</div>
+      <div className="text-sm text-[var(--ui-text-808080)]">{session.name}</div>
       {otherKind && (
         <>
-          <p className="max-w-[420px] pt-1 text-sm text-[#999]">
+          <p className="max-w-[420px] pt-1 text-sm text-[var(--ui-text-999999)]">
             It holds {session.leftOut === 1 ? `1 ${unwanted} photo` : `${session.leftOut.toLocaleString()} ${unwanted} photos`}, and Settings is set to show only {wanted}.
           </p>
           <Button
@@ -180,12 +179,12 @@ function EmptyFolder() {
           >
             Show RAW + JPEG
           </Button>
-          <p className="text-xs text-[#737373]">Stays that way for folders you open from now on. Change it any time in Settings.</p>
+          <p className="text-xs text-[var(--ui-text-737373)]">Stays that way for folders you open from now on. Change it any time in Settings.</p>
         </>
       )}
       {otherKind ? null : hidden ? (
         <>
-          <p className="max-w-[420px] pt-1 text-sm text-[#999]">
+          <p className="max-w-[420px] pt-1 text-sm text-[var(--ui-text-999999)]">
             It contains {session.subfolderCount === 1 ? "1 subfolder" : `${session.subfolderCount} subfolders`}. Photos inside subfolders are not opened unless you ask for them.
           </p>
           <Button
@@ -198,12 +197,12 @@ function EmptyFolder() {
           >
             Include Subfolders
           </Button>
-          <p className="text-xs text-[#737373]">Stays on for folders you open from now on. Change it any time in Settings.</p>
+          <p className="text-xs text-[var(--ui-text-737373)]">Stays on for folders you open from now on. Change it any time in Settings.</p>
         </>
       ) : (
-        session.includeSubfolders && <p className="text-sm text-[#999]">Nothing was found here or in any of its subfolders.</p>
+        session.includeSubfolders && <p className="text-sm text-[var(--ui-text-999999)]">Nothing was found here or in any of its subfolders.</p>
       )}
-      <button type="button" className="mt-2.5 text-sm text-[#8c8c8c] hover:text-white" onClick={() => useStore.getState().closeFolder()}>
+      <button type="button" className="mt-2.5 text-sm text-[var(--ui-text-8c8c8c)] hover:text-white" onClick={() => useStore.getState().closeFolder()}>
         Back to Home
       </button>
     </div>

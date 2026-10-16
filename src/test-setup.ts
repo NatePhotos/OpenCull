@@ -8,6 +8,10 @@ if (g.window === undefined) {
   g.removeEventListener = () => {};
 }
 
+if (g.navigator === undefined) {
+  g.navigator = { userAgent: "" };
+}
+
 if (g.localStorage === undefined) {
   const items = new Map<string, string>();
   g.localStorage = {

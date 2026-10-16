@@ -4,7 +4,7 @@ import { FlipHorizontal2, FlipVertical2, Grid3x3, Lock, LockOpen, Repeat2, Rotat
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
-import { CUSTOM, dragged, MOST_TILT, OVERLAY_NAMES, OVERLAYS, SHAPES, useCrop, type Overlay } from "@/lib/crop";
+import { CUSTOM, dragged, scrolledCrop, MOST_TILT, OVERLAY_NAMES, OVERLAYS, SHAPES, useCrop, type Overlay } from "@/lib/crop";
 import { MIRROR_ACROSS, MIRROR_DOWN, QUARTER_LEFT, QUARTER_RIGHT, slidOn, turnTransform } from "@/lib/framing";
 import { isMac } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
@@ -67,6 +67,27 @@ export function CropView({ photo }: { photo: Photo }) {
 
   // Where the picture is held while a handle is dragged; null when it follows the crop.
   const [held, setHeld] = useState<{ s: number; cx: number; cy: number } | null>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    let lastWheel = -Infinity;
+    const wheel = (event: WheelEvent) => {
+      if (held || (event.target instanceof Element && event.target.closest("[data-crop-controls], input, button, [role=slider]"))) return;
+      const state = useCrop.getState();
+      if (state.index !== photo.index || state.lining || !event.deltaY) return;
+      event.preventDefault();
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? el.clientHeight : 1);
+      const next = scrolledCrop(state.crop, delta, state.view);
+      if (Math.abs(next.w - state.crop.w) < .001 && Math.abs(next.h - state.crop.h) < .001) return;
+      const now = performance.now();
+      if (now - lastWheel > 180) state.mark();
+      lastWheel = now;
+      state.set(next);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, [photo.index, held]);
+
   const [settling, setSettling] = useState(false);
   const [line, setLine] = useState<{ from: Point; to: Point } | null>(null);
   const settle = useRef<number | undefined>(undefined);
@@ -168,6 +189,7 @@ export function CropView({ photo }: { photo: Photo }) {
   return (
     <div
       ref={stage}
+      data-crop-stage=""
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => {
         const within = stage.current!.getBoundingClientRect();
@@ -308,8 +330,8 @@ function CropBar() {
   const c = useCrop();
   const s = useStore.getState();
   const mod = isMac ? "⌘" : "Ctrl+";
-  const divider = <span className="h-5 w-px shrink-0 bg-[#595959]" />;
-  const tool = "flex size-7 shrink-0 items-center justify-center rounded-md text-[#bdbdbd] hover:bg-white/10 hover:text-white [&_svg]:size-[15px]";
+  const divider = <span className="h-5 w-px shrink-0 bg-[var(--ui-surface-595959)]" />;
+  const tool = "flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--ui-text-bdbdbd)] hover:bg-white/10 hover:text-white [&_svg]:size-[15px]";
   const lit = "bg-brand/20 text-brand hover:bg-brand/25 hover:text-brand";
   const [custom, setCustom] = useState({ w: "", h: "" });
 
@@ -321,9 +343,10 @@ function CropBar() {
 
   return (
     <div
+      data-crop-controls=""
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className="absolute bottom-5 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-2.5 rounded-xl border border-white/10 bg-[#2a2a30]/90 px-3 py-2 text-xs text-[#d9d9d9] shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"
+      className="absolute bottom-5 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-2.5 rounded-xl border border-white/10 bg-[var(--ui-surface-2a2a30)]/90 px-3 py-2 text-xs text-[var(--ui-text-d9d9d9)] shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -343,10 +366,10 @@ function CropBar() {
           <DropdownMenuSeparator />
           {/* Typed, so the keys go to the boxes and not to the menu or the app. */}
           <div className="flex items-center gap-1.5 px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
-            <span className="mr-auto text-[#8c8c8c]">Custom</span>
+            <span className="mr-auto text-[var(--ui-text-8c8c8c)]">Custom</span>
             {(["w", "h"] as const).map((side, i) => (
               <span key={side} className="flex items-center gap-1.5">
-                {i === 1 && <span className="text-[#8c8c8c]">×</span>}
+                {i === 1 && <span className="text-[var(--ui-text-8c8c8c)]">×</span>}
                 <input
                   inputMode="decimal"
                   value={custom[side]}
@@ -354,7 +377,7 @@ function CropBar() {
                   onChange={(e) => setCustom({ ...custom, [side]: e.target.value.replace(/[^0-9.]/g, "") })}
                   onKeyDown={(e) => e.key === "Enter" && applyCustom()}
                   onBlur={applyCustom}
-                  className="h-6 w-10 rounded bg-white/[0.08] px-1 text-center text-xs text-white outline-none focus:ring-1 focus:ring-brand"
+                  className="h-6 w-10 rounded bg-white/[0.08] px-1 text-center text-xs text-foreground outline-none focus:ring-1 focus:ring-brand"
                 />
               </span>
             ))}
@@ -400,7 +423,7 @@ function CropBar() {
           c.tilt(0);
           c.tiltDone();
         }}
-        className="w-11 shrink-0 text-right font-mono tabular-nums text-[#bdbdbd]"
+        className="w-11 shrink-0 text-right font-mono tabular-nums text-[var(--ui-text-bdbdbd)]"
       >
         {tilt > 0 ? "+" : ""}
         {tilt.toFixed(2)}°
@@ -423,7 +446,7 @@ function CropBar() {
       {divider}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" title="Guides (O to step through, Shift+O to turn)" className={cn(tool, c.overlay !== "none" && "text-white")}>
+          <button type="button" title="Guides (O to step through, Shift+O to turn)" className={cn(tool, c.overlay !== "none" && "text-foreground")}>
             <Grid3x3 />
           </button>
         </DropdownMenuTrigger>
@@ -439,10 +462,10 @@ function CropBar() {
         </DropdownMenuContent>
       </DropdownMenu>
       {divider}
-      <button type="button" title="Back to the whole photo, level" onClick={c.reset} className="h-7 shrink-0 rounded-md px-2 text-[#bdbdbd] hover:bg-white/10 hover:text-white">
+      <button type="button" title="Back to the whole photo, level" onClick={c.reset} className="h-7 shrink-0 rounded-md px-2 text-[var(--ui-text-bdbdbd)] hover:bg-white/10 hover:text-white">
         Reset
       </button>
-      <button type="button" title="Leave the photo as it was (Esc)" onClick={() => s.closeCrop(false)} className="h-7 shrink-0 rounded-md px-2 text-[#bdbdbd] hover:bg-white/10 hover:text-white">
+      <button type="button" title="Leave the photo as it was (Esc)" onClick={() => s.closeCrop(false)} className="h-7 shrink-0 rounded-md px-2 text-[var(--ui-text-bdbdbd)] hover:bg-white/10 hover:text-white">
         Cancel
       </button>
       <button type="button" title="Keep this crop (Enter)" onClick={() => s.closeCrop(true)} className="h-7 shrink-0 rounded-md bg-brand px-3 font-medium text-white hover:bg-brand/85">
