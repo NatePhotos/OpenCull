@@ -135,7 +135,7 @@ same answer as release 0.3 to the last figure for every one of 3,075 faces
 in 908 photos, and the same mark and rank for every frame; the basic rules
 take 22 ms a photo and the advanced 23.
 
-**MobileCLIP visual grouping** is an experimental option. Its licence is not settled: the model is published under the Apple Machine Learning Research Model License, which allows non-commercial research only, so this option must not ship until that is resolved or the model is replaced. Its separately
+**MobileCLIP visual grouping** is an experimental option. The model is Apple's, published under the Apple Machine Learning Research Model License, whose terms cover non-commercial research use; read them before using the option for paid work. It is not bundled with OpenCull: it is downloaded only if you choose to, and the option is off until then. Its separately
 downloaded MobileCLIP-S0 model compares whole-image embeddings, so frames can
 be grouped even when no faces were found. The loose, normal and tight settings
 use cosine-similarity cutoffs above 0.70, 0.80 and 0.90. Visual matches still

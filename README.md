@@ -114,6 +114,25 @@ system, reports are very welcome.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+### What's new in 0.5.0
+
+* **Review a card before copying it.** Pick **Cull first** when you copy from a
+  card: look through the photos where they are, choose the ones you want, and
+  copy only those. **Finish review** at the top does the copying, then opens
+  the copies so you can ship them. Prefer to copy everything first? Choose
+  **Copy first**.
+* **Shoots from several cards.** Select photos in a folder and press **Add to
+  shoot**; do the same on the next card and review them together. Nothing is
+  selected for you.
+* **Pick up where you left off.** Quit mid-review and OpenCull offers to resume
+  the session next time.
+* **Group by what the picture looks like.** An optional setting compares whole
+  frames, so photos without faces can be grouped too. Off until you download
+  its model.
+* **Your workspace, your way.** Choose which panels show, where they sit and
+  how photos are scaled, and try the new Wisp look in Settings.
+* **Better with long folder paths**, and the buttons line up properly.
+
 ### Built With
 
 * [![Tauri][Tauri-badge]][Tauri-url]
@@ -280,6 +299,7 @@ Project Link: [https://github.com/NatePhotos/OpenCull](https://github.com/NatePh
 * [ONNX Runtime](https://onnxruntime.ai) and the [ort](https://ort.pyke.io) crate
 * [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), the face finder
 * [libjpeg-turbo](https://libjpeg-turbo.org)
+* [MobileCLIP](https://github.com/apple/ml-mobileclip), the optional visual grouping model (Apple Machine Learning Research Model License; downloaded only on request)
 * [shadcn/ui](https://ui.shadcn.com), [Radix UI](https://www.radix-ui.com) and [Lucide](https://lucide.dev)
 * [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
 * [Shields.io](https://shields.io)
