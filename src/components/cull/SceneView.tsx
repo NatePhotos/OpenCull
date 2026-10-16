@@ -1,4 +1,3 @@
-import { MotionRegion } from "./InterfaceMotion";
 import { previewAspect, usePreviewAspectRevision } from "@/lib/preview-aspect";
 import { stripPhotoWidth } from "@/lib/strip-aspect";
 import { useMemo } from "react";
@@ -43,9 +42,11 @@ export function SceneView() {
       <div className="min-h-0 flex-1">
         <Loupe />
       </div>
-      <MotionRegion open={showFilmstrip}><div className="border-t border-[var(--ui-line-333333)]">
-        <Filmstrip only={frames} height={height} resizable={true} />
-      </div></MotionRegion>
+      {showFilmstrip && (
+        <div className="border-t border-[var(--ui-line-333333)]">
+          <Filmstrip only={frames} height={height} resizable={true} />
+        </div>
+      )}
     </div>
   );
 }
@@ -86,7 +87,7 @@ function SceneStrip({ scenes, active }: { scenes: Scene[]; active: Scene | undef
   const height = useStore((s) => s.sceneStripHeight);
   const cardHeight = Math.max(24, height - 24);
   const photos = useStore((s) => s.photos);
-  const native = useStore((s) => s.experimentalNativeFilmstrip);
+  const native = useStore((s) => s.nativeFilmstrip);
   const aspectRevision = usePreviewAspectRevision(native);
   const widths = useMemo(() => scenes.map((scene) => stripPhotoWidth(photos[scene.frames[0]], cardHeight, native, previewAspect(photos[scene.frames[0]]))), [scenes, photos, native, aspectRevision, cardHeight]);
   const starts = useMemo(() => {
@@ -130,7 +131,7 @@ function SceneCard({ scene, active, width, height, native }: { scene: Scene; act
       className={cn("relative overflow-hidden rounded-md bg-[var(--ui-surface-141414)]", active ? "ring-2 ring-[#d9d9d9]" : "opacity-75 hover:opacity-100")}
       style={{ width, height }}
     >
-      <FramedThumb photo={first} size={320} box={{ w: width, h: height }} cover={!native} className={native ? "size-full object-contain" : "size-full object-cover"} />
+      <FramedThumb photo={first} size={320} box={{ w: width, h: height }} cover={native} className={native ? "size-full object-cover" : "size-full object-contain"} />
       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--ui-text-d9d9d9)]">{scene.number}</span>
       {scene.frames.length > 1 && (
         <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#73b8ff]">×{scene.frames.length}</span>

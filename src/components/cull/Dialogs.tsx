@@ -1,11 +1,6 @@
-import { InterfaceMotionSettings } from "./InterfaceMotionSettings";
-import { ExperimentalFilmstripSettings } from "./ExperimentalFilmstripSettings";
-import { FaceOverlaySettings } from "./FaceOverlaySettings";
-import { ExperimentalZoomSettings } from "./ExperimentalZoomSettings";
 import { HomeLayoutSettings } from "@/components/HomeLayoutSettings";
 import { SettingsTransfer } from "@/components/SettingsTransfer";
 import { InterfaceScaleSettings } from "@/components/InterfaceScaleSettings";
-import { FontSettings } from "@/components/FontSettings";
 import { ThemeSettings } from "@/components/ThemeSettings";
 import { ViewModeSettings } from "@/components/ViewModeSettings";
 import { ChartColumn, Funnel, Info, Palette, PanelBottom, PanelLeft, PanelRight, PanelsTopLeft } from "lucide-react";
@@ -273,7 +268,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
     }
   };
 
-  const toggle = (key: "spaceZoomToFace" | "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "aiAdvanced" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates", label?: string) => (
+  const toggle = (key: "spaceZoomToFace" | "hideFilmstripOnCrop" | "nativeFilmstrip" | "faceSpotlight" | "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "aiAdvanced" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates", label?: string) => (
     <Switch aria-label={label} checked={s[key]} onCheckedChange={(on) => set(key, on)} />
   );
   const boxKey = isMac ? "⌘ Command" : "Ctrl";
@@ -292,10 +287,8 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           they are stepped through; a tab with more than fits scrolls. */}
       <div className="h-[min(560px,calc(100dvh-12rem))] min-h-0 overflow-x-hidden overflow-y-auto pr-1">
         <TabsContent value="design" className="flex flex-col gap-4">
-          <InterfaceMotionSettings />
           <HomeLayoutSettings />
           <ThemeSettings />
-          <FontSettings />
           <InterfaceScaleSettings />
         </TabsContent>
         <TabsContent value="layout" className="flex flex-col gap-4">
@@ -317,6 +310,11 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
               ))}
             </div>
           </fieldset>
+          <Setting
+            title="Native-aspect filmstrip"
+            detail="Keeps each photo's own shape in the filmstrip and the scene strip: upright photos take less width, wide ones more. Off, every photo gets the same 3:2 space."
+            control={toggle("nativeFilmstrip", "Native-aspect filmstrip")}
+          />
           {([
             ["filmstripHeight", "Filmstrip height", 80, 300],
             ["exifPanelWidth", "EXIF panel width", 160, 640],
@@ -329,11 +327,15 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           ))}
         </TabsContent>
         <TabsContent value="culling" className="space-y-4">
-          <ExperimentalFilmstripSettings />
           <Setting
             title="Speed cull"
             detail="Moves straight on to the next photo after you pick, reject or rate one. Its key — Caps Lock unless you change it — also turns it on, whatever is set here."
             control={toggle("speedCullAlways")}
+          />
+          <Setting
+            title="Hide filmstrip while cropping"
+            detail="Hides both filmstrip rows while you crop a photo, to give the crop more room. They come back as they were when you keep or cancel the crop."
+            control={toggle("hideFilmstripOnCrop", "Hide filmstrip while cropping")}
           />
           <Setting
             title="Rating bar"
@@ -431,7 +433,6 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           />
         </TabsContent>
         <TabsContent value="zoom" className="space-y-4">
-          <ExperimentalZoomSettings />
           <Setting
             title="Prefer highest-scoring face"
             detail="Face zoom targets the sharpest scored main subject when enabled; otherwise it uses the first visible main subject. With no detected face, it uses the centre. Press again to return to fit. Follows Zoom to face if you rebind Space."
@@ -454,7 +455,6 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           />
         </TabsContent>
         <TabsContent value="ai" className="space-y-4">
-          <FaceOverlaySettings />
           <Setting
             title="OpenCull AI"
             detail="Finds the faces in each photo and judges them: eyes shut, looking away, how sharp, and who the photo is about. From that it marks each photo and ranks the frames of a burst, or of the same pose shot again. Runs on this computer; nothing is sent anywhere."
@@ -464,6 +464,11 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
             title="Advanced AI"
             detail="A newer way of judging faces that is still being worked on. It looks closer at each face's eyes and mouth and names the state it is in — looking down, laughing, eyes closed in a hug — and stops marking a photo down for those, or for people looking away where nobody is looking at the camera. It also weighs the whole photo to decide who is in the background. Off, photos are judged as they were in OpenCull 0.3. Switching analyses the open folder again; each way remembers its own results. Needs OpenCull AI."
             control={toggle("aiAdvanced")}
+          />
+          <Setting
+            title="Face hover spotlight"
+            detail="Hover over a face in the face panel, or move to it with the keyboard, to dim the rest of the photo around it. The zoom stays as it is; click the face to zoom to it. Needs OpenCull AI."
+            control={toggle("faceSpotlight", "Face hover spotlight")}
           />
           <Setting
             title="Show background faces"

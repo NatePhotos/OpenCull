@@ -107,7 +107,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         <div data-tauri-drag-region className="home-heading min-w-[220px] flex-1">
           <h1 className="bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-[32px] font-bold leading-tight tracking-tight text-transparent">OpenCull</h1>
           <p className="mt-1 text-[13px] text-[var(--ui-text-808080)]">Culling Software made for Photographers</p>
-          <p className="rapidraw-intro">{recents.length ? "Welcome back. Choose a folder or bring in your next shoot." : "Your next great photograph starts with a closer look."}</p>
+          <p className="home-featured-intro">{recents.length ? "Welcome back. Choose a folder or bring in your next shoot." : "Your next great photograph starts with a closer look."}</p>
         </div>
         <div className="home-controls flex max-w-full flex-wrap items-center justify-end gap-4">
         <div role="group" aria-label="Utility actions" className="home-utilities flex items-center gap-2">
@@ -210,7 +210,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
           </>
         )}
       </main>
-      <footer className="rapidraw-footer">Local photos. A clear view. Your best frames.</footer>
+      <footer className="home-featured-footer">Local photos. A clear view. Your best frames.</footer>
       </div>
 
       {dropping && (
@@ -248,7 +248,7 @@ function WelcomeArtwork({ path }: { path?: string }) {
     );
     return () => { stale = true; };
   }, [path]);
-  return <aside className="rapidraw-artwork" aria-label="Welcome artwork">
+  return <aside className="home-featured-artwork" aria-label="Welcome artwork">
     <img src={image ? sharp === fullUrl ? fullUrl! : api.url("thumb", image, 1280) : "/theme-landscape.svg"}
       onError={() => { if (image) setImage(null); }}
       alt={image ? "A photograph from your recent folder" : "Illustrated mountain ridges at dusk"} />

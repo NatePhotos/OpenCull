@@ -3,7 +3,6 @@ import { useInterfaceScale } from "@/components/InterfaceScaleSettings";
 import { FirstLaunchOverview } from "@/components/FirstLaunchOverview";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAppFont } from "@/components/FontSettings";
 import { useAppTheme } from "@/components/ThemeSettings";
 
 import { CullingView } from "@/components/cull/CullingView";
@@ -18,7 +17,6 @@ import { installShortcuts, loadBindings, saveBindings, type Action, type Combo }
 import { useStore } from "@/lib/store";
 
 export default function App() {
-  useAppFont();
   useAppTheme();
   useHomeAppearance();
   useInterfaceScale();

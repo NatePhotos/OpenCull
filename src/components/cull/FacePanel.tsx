@@ -244,7 +244,7 @@ function Cut({ region, fill, closer = false, photo, width, height, softSrc, shar
  * the burst, or null where there is nothing to compare them with.
  */
 function FaceCell({ face, faceIndex, eyes, photo, width, height, softSrc, sharpSrc, fullSrc }: { face: AiFace; faceIndex: number; eyes: number | null; photo: Photo; width: number; height: number; softSrc: string | null; sharpSrc: string | null; fullSrc: string | null }) {
-  const spotlight = useStore((s) => s.experimentalFaceSpotlight);
+  const spotlight = useStore((s) => s.faceSpotlight);
   const clear = () => {
     const s = useStore.getState();
     if (s.hoveredFace?.face === face && s.hoveredFace.photoIndex === photo.index && s.hoveredFace.display === photo.display && s.hoveredFace.version === photo.version) s.set("hoveredFace", null);
@@ -253,7 +253,7 @@ function FaceCell({ face, faceIndex, eyes, photo, width, height, softSrc, sharpS
   const highlight = () => {
     const s = useStore.getState();
     const current = s.photos[s.current];
-    if (s.experimentalFaceSpotlight && s.aiEnabled && s.showFaces && s.current === photo.index && current?.display === photo.display && current.version === photo.version && s.ai[photo.index]?.faces.includes(face)) {
+    if (s.faceSpotlight && s.aiEnabled && s.showFaces && s.current === photo.index && current?.display === photo.display && current.version === photo.version && s.ai[photo.index]?.faces.includes(face)) {
       s.set("hoveredFace", { photoIndex: photo.index, display: photo.display, version: photo.version, face });
     }
   };

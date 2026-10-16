@@ -1,4 +1,3 @@
-import { PhotoTransition } from "./InterfaceMotion";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Loader2, X } from "lucide-react";
 
@@ -15,7 +14,7 @@ import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
 import { CropView } from "./Crop";
 import { PhotoMenu } from "./PhotoMenu";
-import { FaceOverlays } from "./FaceOverlays";
+import { FaceSpotlight } from "./FaceSpotlight";
 
 /** Zoom and pan: how many times larger than fit, and how far off centre. */
 interface Zoom {
@@ -45,7 +44,7 @@ const MAX_ZOOM = 20;
 const SHARPEN_MS = 120;
 
 /** How long each zoom takes to glide into place, in milliseconds. */
-
+const GLIDE = { in: 220, out: 200, box: 250 };
 
 /** A press that travels no further than this is a click, not a drag. */
 const CLICK_SLOP = 3;
@@ -129,9 +128,9 @@ export function Loupe() {
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
       {photo && cropping ? (
-        <PhotoTransition identity={`${photo.display}:${photo.version}:crop`}><CropView photo={photo} /></PhotoTransition>
+        <CropView photo={photo} />
       ) : photo ? (
-        <PhotoTransition identity={`${photo.display}:${photo.version}:view`}><Canvas photo={photo} /></PhotoTransition>
+        <Canvas photo={photo} />
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-2 text-sm text-[var(--ui-text-666666)]">
           {loading && <Loader2 className="size-4 animate-spin" />}
@@ -177,22 +176,6 @@ function Canvas({ photo }: { photo: Photo }) {
     measure();
     return () => observer.disconnect();
   }, []);
-
-  // Keep the optional motion hooks after the baseline canvas hooks so the
-  // still-canvas wrapper can be introduced without changing this hook block.
-  const smoothZoom = useStore((s) => s.experimentalSmoothZoom);
-  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReducedMotion(query.matches);
-    query.addEventListener("change", update);
-    update();
-    return () => query.removeEventListener("change", update);
-  }, []);
-  const GLIDE = smoothZoom
-    ? reducedMotion ? { in: 0, out: 0, box: 0 } : { in: 320, out: 280, box: 340 }
-    : { in: 220, out: 200, box: 250 };
-  const zoomCurve = smoothZoom ? "cubic-bezier(0.22, 1, 0.36, 1)" : "ease-in-out";
 
   // The picture's shape is known from the folder's metadata before a single
   // pixel has loaded. Until that has been read, assume the usual 3:2.
@@ -671,7 +654,7 @@ function Canvas({ photo }: { photo: Photo }) {
               marginLeft: -laid.w / 2,
               marginTop: -laid.h / 2,
               transform,
-              transition: glide > 0 ? `transform ${glide}ms ${zoomCurve}` : undefined,
+              transition: glide > 0 ? `transform ${glide}ms ease-in-out` : undefined,
             }}
           >
             {/* The pictures, in one box that is always here: for a photo with
@@ -729,7 +712,7 @@ function Canvas({ photo }: { photo: Photo }) {
               />
             )}
             </div>
-            <FaceOverlays photo={photo} />
+            <FaceSpotlight photo={photo} />
           </div>
         )}
         {marquee && <MarqueeBox marquee={marquee} frame={box} />}

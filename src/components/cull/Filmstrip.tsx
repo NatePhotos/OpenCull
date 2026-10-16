@@ -69,7 +69,7 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
   const storedHeight = useStore((s) => s.filmstripHeight);
   const height = fixedHeight ?? storedHeight;
   const thumbH = stripThumbHeight(height);
-  const nativeAspect = useStore((s) => s.experimentalNativeFilmstrip);
+  const nativeAspect = useStore((s) => s.nativeFilmstrip);
   const aspectRevision = usePreviewAspectRevision(nativeAspect);
   const widths = useMemo(() => view.map((index) => stripPhotoWidth(photos[index], thumbH, nativeAspect, previewAspect(photos[index]))), [view, photos, thumbH, nativeAspect, aspectRevision]);
   const size = useStripThumbSize(height);

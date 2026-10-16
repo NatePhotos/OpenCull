@@ -120,8 +120,8 @@ mod tests {
         let dir = root(); let path = dir.join("nested/config.json");
         let first = Values::from([("theme".into(), Value::from("grey")), ("future".into(), Value::from(42))]);
         migrate(&path, first).unwrap();
-        let result = migrate(&path, Values::from([("theme".into(), Value::from("dark")), ("font".into(), Value::from("system"))])).unwrap();
-        assert_eq!(result["theme"], "grey"); assert_eq!(result["future"], 42); assert_eq!(result["font"], "system");
+        let result = migrate(&path, Values::from([("theme".into(), Value::from("dark")), ("homeLayout".into(), Value::from("classic"))])).unwrap();
+        assert_eq!(result["theme"], "grey"); assert_eq!(result["future"], 42); assert_eq!(result["homeLayout"], "classic");
         assert_eq!(read(&path).unwrap(), result);
         fs::remove_dir_all(dir).unwrap();
     }

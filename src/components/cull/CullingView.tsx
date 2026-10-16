@@ -1,4 +1,3 @@
-import { MotionRegion } from "./InterfaceMotion";
 import { FolderSearch, Images } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -57,32 +56,34 @@ export function CullingView() {
           </div>
         ) : (
           <>
-            {(
-              <MotionRegion open={showExif} width={held("exifPanelWidth", exifPanelWidth)}
+            {showExif && (
+              <div
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
+                style={{ width: held("exifPanelWidth", exifPanelWidth) }}
               >
                 <ExifPanel />
-              </MotionRegion>
+              </div>
             )}
             {showExif && <PanelHandle panel="exifPanelWidth" direction={1} />}
             <div className="min-w-0 flex-1 overflow-hidden">
               {viewMode === "scene" ? <SceneView /> : <Loupe />}
             </div>
             {showFaces && <PanelHandle panel="facePanelWidth" direction={-1} />}
-            {(
-              <MotionRegion open={showFaces} width={held("facePanelWidth", facePanelWidth)}
+            {showFaces && (
+              <div
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
+                style={{ width: held("facePanelWidth", facePanelWidth) }}
               >
                 <FacePanel />
-              </MotionRegion>
+              </div>
             )}
           </>
         )}
       </div>
-      {(viewMode === "loupe" || viewMode === "scene") && !empty && (
-        <MotionRegion open={showFilmstrip}><div className="border-t border-[var(--ui-line-333333)]">
+      {showFilmstrip && (viewMode === "loupe" || viewMode === "scene") && !empty && (
+        <div className="border-t border-[var(--ui-line-333333)]">
           {viewMode === "scene" ? <SceneOverview /> : <Filmstrip />}
-        </div></MotionRegion>
+        </div>
       )}
     </div>
   );

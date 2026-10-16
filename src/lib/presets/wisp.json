@@ -15,8 +15,7 @@
     "showInfo": true,
     "showRatingBar": true,
     "showFilterBar": false,
-    "experimentalNativeFilmstrip": true,
-    "experimentalSmoothZoom": true,
+    "nativeFilmstrip": true,
     "sceneStripHeight": 158,
     "filmstripHeight": 209,
     "includeSubfolders": false,
@@ -38,10 +37,6 @@
     "showFaces": true,
     "facePanelWidth": 484,
     "interfaceScale": 1.25,
-    "font": {
-      "choice": "space-grotesk",
-      "family": ""
-    },
     "homeLayout": "classic",
     "theme": "wisp",
     "ingestSort": "captureTime",

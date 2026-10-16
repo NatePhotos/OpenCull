@@ -79,12 +79,11 @@ interface State {
   showHistogram: boolean;
   filmstripHeight: number;
   sceneStripHeight: number;
-  experimentalNativeFilmstrip: boolean;
-  experimentalSmoothZoom: boolean;
-  experimentalTransitions: boolean;
-  experimentalHideFilmstripOnCrop: boolean;
-  experimentalFaceOutlines: boolean;
-  experimentalFaceSpotlight: boolean;
+  nativeFilmstrip: boolean;
+  /** Hide the filmstrip rows while a photo is being cropped. */
+  hideFilmstripOnCrop: boolean;
+  /** Dim the rest of the photo while a face in the face panel is hovered. */
+  faceSpotlight: boolean;
   spaceZoomToFace: boolean;
   rankingPalette: RankingPalette;
   /** The strip's edge is being dragged, and its height is changing every frame. */
@@ -353,8 +352,8 @@ export function problemOf(result: AiResult | undefined, compared?: Compared): Pr
 export const speedCulling = (s: Pick<State, "speedCull" | "speedCullAlways">) => s.speedCull || s.speedCullAlways;
 
 /** The filmstrip can be hidden by the photographer or temporarily while cropping. */
-export function filmstripVisible(s: Pick<State, "showFilmstrip" | "cropOpen" | "experimentalHideFilmstripOnCrop">): boolean {
-  return s.showFilmstrip && !(s.cropOpen && s.experimentalHideFilmstripOnCrop);
+export function filmstripVisible(s: Pick<State, "showFilmstrip" | "cropOpen" | "hideFilmstripOnCrop">): boolean {
+  return s.showFilmstrip && !(s.cropOpen && s.hideFilmstripOnCrop);
 }
 
 /** Settings written back to storage whenever they change. */
@@ -374,12 +373,9 @@ const PERSISTED = [
   "showHistogram",
   "filmstripHeight",
   "sceneStripHeight",
-  "experimentalNativeFilmstrip",
-  "experimentalSmoothZoom",
-  "experimentalTransitions",
-  "experimentalHideFilmstripOnCrop",
-  "experimentalFaceOutlines",
-  "experimentalFaceSpotlight",
+  "nativeFilmstrip",
+  "hideFilmstripOnCrop",
+  "faceSpotlight",
   "spaceZoomToFace",
   "rankingPalette",
   "includeSubfolders",
@@ -712,21 +708,18 @@ export const useStore = create<Store>((set, get) => {
     defaultViewMode: validViewMode(load("defaultViewMode", "loupe")),
     rememberViewMode: load("rememberViewMode", false),
     gridColumns: load("gridColumns", 4),
-    showExif: load("showExif", false),
+    showExif: load("showExif", true),
     exifPanelWidth: load("exifPanelWidth", 250),
     showFilmstrip: load("showFilmstrip", true),
     showInfo: load("showInfo", false),
     showRatingBar: load("showRatingBar", true),
     showFilterBar: load("showFilterBar", false),
     showHistogram: load("showHistogram", true),
-    filmstripHeight: load("filmstripHeight", 120),
+    filmstripHeight: load("filmstripHeight", 150),
     sceneStripHeight: load("sceneStripHeight", 160),
-    experimentalNativeFilmstrip: load("experimentalNativeFilmstrip", false),
-    experimentalSmoothZoom: load("experimentalSmoothZoom", false),
-    experimentalTransitions: load("experimentalTransitions", false),
-    experimentalHideFilmstripOnCrop: load("experimentalHideFilmstripOnCrop", false),
-    experimentalFaceOutlines: load("experimentalFaceOutlines", false),
-    experimentalFaceSpotlight: load("experimentalFaceSpotlight", false),
+    nativeFilmstrip: load("nativeFilmstrip", false),
+    hideFilmstripOnCrop: load("hideFilmstripOnCrop", false),
+    faceSpotlight: load("faceSpotlight", false),
     spaceZoomToFace: load("spaceZoomToFace", false),
     rankingPalette: validRankingPalette(load("rankingPalette", "classic")),
     stripResizing: false,

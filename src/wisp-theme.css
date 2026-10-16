@@ -1,5 +1,13 @@
 /* Wisp: readable work surfaces; neutral photo pixels and unmistakable controls. */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/SpaceGrotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
 :root[data-theme="wisp"] {
+  --theme-font: "Space Grotesk", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color-scheme: dark;
   --background: #111827; --foreground: #f3f6ff;
   --card: #1d293d; --card-foreground: #f3f6ff;
