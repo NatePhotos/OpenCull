@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { useStore } from "@/lib/store";
 import type { Histogram as HistogramData, Photo } from "@/lib/types";
+import { HistogramGuard } from "./Histogram";
 
 /** The panel down the left: a histogram, then what the camera recorded. */
 export function ExifPanel() {
@@ -116,6 +117,14 @@ function Row({ icon, title, value }: { icon: ReactNode; title: string; value: st
   );
 }
 
+function Histogram({ photo }: { photo: Photo | undefined }) {
+  return (
+    <HistogramGuard photo={photo}>
+      <StillHistogram photo={photo} />
+    </HistogramGuard>
+  );
+}
+
 const H = 96;
 
 /**
@@ -125,7 +134,7 @@ const H = 96;
  * passes through dozens of photos a second, and a histogram for each would be
  * work done for pictures nobody stopped to look at.
  */
-function Histogram({ photo }: { photo: Photo | undefined }) {
+function StillHistogram({ photo }: { photo: Photo | undefined }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [data, setData] = useState<HistogramData | null>(null);
   const [width, setWidth] = useState(0);

@@ -7,6 +7,7 @@ import { api, type Volume } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Scanned } from "@/lib/types";
+import { RecentSessions, ResumeLatestSession } from "./RecentSessions";
 
 const GRADIENT = "bg-gradient-to-r from-[#4d80ff] to-[#804dff]";
 
@@ -113,6 +114,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         >
           <CardIcon className="size-4 text-white" /> Ingest from Card
         </button>
+        <ResumeLatestSession />
         <button
           type="button"
           onClick={() => void chooseFolder()}
@@ -191,6 +193,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
             </div>
           </>
         )}
+        <RecentSessions />
       </main>
 
       {dropping && (

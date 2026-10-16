@@ -2,6 +2,8 @@
 // each photo in it, and what is on screen.
 
 import { create } from "zustand";
+import { sourceWritable, type ReviewSession } from "./review";
+import { saveReview } from "./review-api";
 import { api, type UpdateFound } from "./api";
 import { useCrop } from "./crop";
 import { cropFromShare, isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, turned, viewSize, type Share } from "./framing";
@@ -37,6 +39,7 @@ interface State {
   version: string;
 
   session: Session | null;
+  review: ReviewSession | null;
   /** The folder is still being listed. */
   loading: boolean;
   /** How much of the folder's ratings and EXIF has been read, 0–1. */
@@ -90,6 +93,7 @@ interface State {
   updateFound: UpdateFound | null;
   /** The offer to install it is on screen. */
   updateOpen: boolean;
+  ignoreVideos: boolean;
   /** Move on to the next photo after marking one. Follows Caps Lock. */
   speedCull: boolean;
   /** The same, left on whatever Caps Lock is doing. */
@@ -173,7 +177,7 @@ interface State {
 
 interface Actions {
   init(): Promise<void>;
-  openFolder(path: string): Promise<void>;
+  openFolder(path: string, review?: ReviewSession): Promise<void>;
   closeFolder(): void;
   reloadForSubfolders(): void;
 
@@ -346,6 +350,7 @@ const PERSISTED = [
   "showFilterBar",
   "filmstripHeight",
   "includeSubfolders",
+  "ignoreVideos",
   "fileKinds",
   "embedInJpeg",
   "askBeforeTrash",
@@ -442,9 +447,10 @@ export const useStore = create<Store>((set, get) => {
     // them: the photo's own file if it is one, and the JPEG it is drawn from
     // if it is a RAW with one beside it.
     const jpegs = (p: Photo) => (s.embedInJpeg ? [...new Set([p.path, p.display])].filter((file) => /\.jpe?g$/i.test(file)) : []);
-    void api.setMarks(edit.map((e) => ({ path: photos[e.index].path, into: jpegs(photos[e.index]), ...e.after })));
+    if (sourceWritable(s.review)) void api.setMarks(edit.map((e) => ({ path: photos[e.index].path, into: jpegs(photos[e.index]), ...e.after })));
     set({
       photos,
+      ...(s.review ? { review: { ...s.review, decisions: { ...s.review.decisions, ...Object.fromEntries(edit.map((e) => { const p = photos[e.index]; return [p.path, { rating: p.rating, flag: p.flag, color: p.color, framing: p.framing }]; })) } } } : {}),
       // A photo that no longer passes the filter leaves the view at once,
       // which is what filtering to "unrated" and rating your way through
       // the folder relies on.
@@ -473,7 +479,7 @@ export const useStore = create<Store>((set, get) => {
     if (edit.length === 0) return;
 
     // A self-test frames nothing in anyone's folder.
-    if (!s.selfTest) {
+    if (!s.selfTest && sourceWritable(s.review)) {
       const jpegs = (p: Photo) => (s.embedInJpeg ? [...new Set([p.path, p.display])].filter((file) => /\.jpe?g$/i.test(file)) : []);
       void api.setFraming(
         edit.map((e) => {
@@ -482,7 +488,7 @@ export const useStore = create<Store>((set, get) => {
         }),
       );
     }
-    set({ photos, ...(record ? { undoStack: [...s.undoStack.slice(-MAX_UNDO + 1), edit], redoStack: [] } : {}) });
+    set({ photos, ...(s.review ? { review: { ...s.review, decisions: { ...s.review.decisions, ...Object.fromEntries(edit.map((e) => { const p = photos[e.index]; return [p.path, { rating: p.rating, flag: p.flag, color: p.color, framing: p.framing }]; })) } } } : {}), ...(record ? { undoStack: [...s.undoStack.slice(-MAX_UNDO + 1), edit], redoStack: [] } : {}) });
   }
 
   /**
@@ -558,7 +564,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const failed = new Set(await api.moveToTrash(going.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }))));
       // The folder may have been closed, or another opened, while this ran.
-      if (get().session?.id === session) drop(new Set(going.filter((i) => !failed.has(s.photos[i].path))));
+      if (get().session?.id === session) get().forget(going.filter((i) => !failed.has(s.photos[i].path)).map((i) => s.photos[i].path));
     } finally {
       going.forEach((i) => trashing.delete(i));
     }
@@ -655,6 +661,7 @@ export const useStore = create<Store>((set, get) => {
     selfTest: false,
     version: "",
     session: null,
+    review: null,
     loading: false,
     metaProgress: 0,
     openError: null,
@@ -683,6 +690,7 @@ export const useStore = create<Store>((set, get) => {
     stripResizing: false,
     panelResizing: false,
     includeSubfolders: load("includeSubfolders", false),
+    ignoreVideos: load("ignoreVideos", true),
     fileKinds: load<FileKinds>("fileKinds", "both"),
     // Off by default: rating should not rewrite original files unless asked.
     embedInJpeg: load("embedInJpeg", false),
@@ -752,13 +760,14 @@ export const useStore = create<Store>((set, get) => {
       if (info.openPath) await get().openFolder(info.openPath);
     },
 
-    async openFolder(path) {
+    async openFolder(path, review) {
       const before = get();
       if (before.session) get().closeFolder();
 
       const { includeSubfolders, fileKinds } = get();
       set({
-        session: { id: -1, folder: path, name: baseName(path), includeSubfolders, subfolderCount: 0, fileKinds, leftOut: 0, timed: false },
+        review: review ?? null,
+        session: { id: -1, folder: path, name: review?.name ?? baseName(path), includeSubfolders, subfolderCount: 0, fileKinds, leftOut: 0, timed: false },
         loading: true,
         openError: null,
         photos: [],
@@ -777,7 +786,7 @@ export const useStore = create<Store>((set, get) => {
 
       let reply;
       try {
-        reply = await api.openFolder(path, includeSubfolders, fileKinds);
+        reply = await api.openFolder(path, includeSubfolders, fileKinds, get().ignoreVideos, review?.items);
       } catch (e) {
         set({ session: null, loading: false, openError: String(e) });
         return;
@@ -801,6 +810,7 @@ export const useStore = create<Store>((set, get) => {
         framing: PLAIN,
         framable: false,
         group: reply.groups?.[index] ?? null,
+        ...review?.decisions[im.path],
       }));
       // When every capture time came back with the listing, the folder opens
       // in the order it was shot and on its true first frame. That matters
@@ -822,9 +832,10 @@ export const useStore = create<Store>((set, get) => {
       const resume = exact >= 0 || !remembered ? exact : photos.findIndex((p) => frame(p.path) === frame(remembered));
       const current = photos.length === 0 ? -1 : resume >= 0 ? resume : order[0];
 
-      const recents = [path, ...get().recents.filter((r) => r !== path)].slice(0, MAX_RECENTS);
+      const recents = review ? get().recents : [path, ...get().recents.filter((r) => r !== path)].slice(0, MAX_RECENTS);
+      if (!review) save("lastFolderSession", { path, updatedAt: Date.now() });
       set({
-        session: { id: reply.session, folder: path, name: baseName(path), includeSubfolders, subfolderCount: reply.subfolderCount, fileKinds, leftOut: reply.leftOut, timed: reply.timed },
+        session: { id: reply.session, folder: path, name: review?.name ?? baseName(path), includeSubfolders, subfolderCount: reply.subfolderCount, fileKinds, leftOut: reply.leftOut, timed: reply.timed },
         loading: false,
         photos,
         order,
@@ -852,7 +863,7 @@ export const useStore = create<Store>((set, get) => {
         if (event.type === "batch") {
           const next = s.photos.slice();
           for (const m of event.items) {
-            next[m.index] = { ...next[m.index], ...m.marks, exif: m.exif, captureMs: m.exif.captureMs ?? next[m.index].captureMs, fullWidth: m.fullWidth, fullHeight: m.fullHeight, framing: isPlain(m.framing) ? PLAIN : m.framing, framable: m.framable };
+            next[m.index] = { ...next[m.index], ...m.marks, exif: m.exif, captureMs: m.exif.captureMs ?? next[m.index].captureMs, fullWidth: m.fullWidth, fullHeight: m.fullHeight, framing: isPlain(m.framing) ? PLAIN : m.framing, framable: m.framable, ...(get().review?.decisions[next[m.index].path] ?? {}) };
           }
           read += event.items.length;
           set({ photos: next, view: filtered(s.order, next, s), metaProgress: read / next.length });
@@ -889,12 +900,12 @@ export const useStore = create<Store>((set, get) => {
       if (!session) return;
       rememberPosition();
       if (session.id >= 0) void api.closeFolder(session.id);
-      set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
+      set({ session: null, review: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
     },
 
     reloadForSubfolders() {
       const folder = get().session?.folder;
-      if (folder) void get().openFolder(folder);
+      if (folder) void get().openFolder(folder, get().review ?? undefined);
     },
 
     select(index, mods) {
@@ -1106,7 +1117,7 @@ export const useStore = create<Store>((set, get) => {
       const s = get();
       const list = targets ?? (s.selected.size > 0 ? [...s.selected] : currentOnly());
       if (list.length === 0) return;
-      if (s.askBeforeTrash) set({ trashPending: list });
+      if (s.review || s.askBeforeTrash) set({ trashPending: list });
       else void trash(list);
     },
 
@@ -1119,6 +1130,7 @@ export const useStore = create<Store>((set, get) => {
 
     async transfer(targets, moving) {
       const s = get();
+      if (s.review) { set({ notice: { title: "Finish card review to import", body: "Use Finish review to copy selected files with their local marks, or import them in place. Sources are not moved during card review." } }); return; }
       if (!s.session || targets.length === 0) return;
       const count = `${targets.length} photo${targets.length === 1 ? "" : "s"}`;
       const destination = await api.pickFolder(moving ? `Move ${count} to:` : `Copy ${count} to:`);
@@ -1175,6 +1187,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     openShip(targets) {
+      if (get().review) { set({ notice: { title: "Finish card review to import", body: "Use Finish review to choose which card files to import." } }); return; }
       if (!get().session) return;
       // Ship works from the selection, so shipping these means selecting them.
       if (targets && targets.length > 0) set({ selected: new Set(targets) });
@@ -1185,6 +1198,8 @@ export const useStore = create<Store>((set, get) => {
       const gone = new Set(paths);
       const { photos, order } = get();
       drop(new Set(order.filter((i) => gone.has(photos[i].path))));
+      const review = get().review;
+      if (review) set({ review: { ...review, items: review.items.filter((p) => !gone.has(p.path)), chosen: review.chosen?.filter((path) => !gone.has(path)) ?? null } });
     },
 
     removeRecents: (paths) => set((s) => ({ recents: s.recents.filter((r) => !paths.includes(r)) })),
@@ -1197,6 +1212,9 @@ let last = useStore.getState();
 useStore.subscribe((state) => {
   for (const key of PERSISTED) {
     if (state[key] !== last[key]) save(key, state[key]);
+  }
+  if (state.review && (state.photos !== last.photos || state.review !== last.review) && !state.loading) {
+    void saveReview(state.review).catch((error) => useStore.setState({ notice: { title: "Card session could not be saved", body: String(error) } }));
   }
   last = state;
 });

@@ -366,6 +366,11 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             }
           />
           <Setting
+            title="Ignore videos"
+            detail="Hide video files when opening folders and ingesting cards. Turn off to include playback where the system supports the codec."
+            control={<Switch aria-label="Ignore videos" checked={s.ignoreVideos} onCheckedChange={(on) => { set("ignoreVideos", on); useStore.getState().reloadForSubfolders(); }} />}
+          />
+          <Setting
             title="Check for updates"
             detail={`Looks for a newer OpenCull each time the app opens, and offers to install it. It is the only thing OpenCull uses the internet for, and nothing about you or your photos is sent. ${
               updates === "newest" ? `You have ${s.version}, the newest version.` : typeof updates === "object" ? `Could not check just now: ${updates.failed}` : `You have ${s.version}.`

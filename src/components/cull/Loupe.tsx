@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
 import { CropView } from "./Crop";
+import { isVideo } from "@/lib/media";
+import { VideoPlayer } from "./VideoPlayer";
 import { PhotoMenu } from "./PhotoMenu";
 
 /** Zoom and pan: how many times larger than fit, and how far off centre. */
@@ -142,6 +144,10 @@ export function Loupe() {
 }
 
 function Canvas({ photo }: { photo: Photo }) {
+  return isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : <StillCanvas photo={photo} />;
+}
+
+function StillCanvas({ photo }: { photo: Photo }) {
   const frame = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -620,7 +626,7 @@ function Canvas({ photo }: { photo: Photo }) {
         if (at + d < view.length) near.push(view[at + d]);
         if (d <= BEHIND && at - d >= 0) near.push(view[at - d]);
       }
-      void api.prefetch(near.map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
+      void api.prefetch(near.filter((i) => !isVideo(photos[i].path)).map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
     });
     return () => cancelAnimationFrame(handle);
   }, [photo.index, photo.display, photo.version, fitSize, box.w]);

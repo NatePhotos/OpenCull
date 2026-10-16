@@ -1,3 +1,4 @@
+import { isVideo } from "@/lib/media";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Focus, ScanFace } from "lucide-react";
 
@@ -171,7 +172,7 @@ export function FacePanel() {
         ) : (
           <div className="flex size-full flex-col items-center justify-center gap-2 text-xs text-[#666]">
             <ScanFace className="size-7" strokeWidth={1.25} />
-            {!enabled ? "OpenCull AI is off" : result ? "No faces detected" : "Analyzing…"}
+            {photo && isVideo(photo.path) ? "Face analysis is unavailable for video" : !enabled ? "OpenCull AI is off" : result ? "No faces detected" : "Analyzing…"}
           </div>
         )}
       </div>

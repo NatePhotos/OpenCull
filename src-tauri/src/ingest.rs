@@ -182,12 +182,13 @@ pub fn volumes() -> Vec<Volume> {
 }
 
 /// How many photos sit directly in a folder.
-pub fn shallow_count(folder: &Path) -> usize {
+pub fn shallow_count(folder: &Path) -> usize { shallow_count_media(folder, false) }
+pub fn shallow_count_media(folder: &Path, include_videos: bool) -> usize {
     let Ok(entries) = std::fs::read_dir(folder) else { return 0 };
     entries
         .flatten()
         .filter(|e| e.file_name().to_str().is_some_and(|n| !hidden(n)))
-        .filter(|e| is_image(&extension(&e.path())) && e.file_type().is_ok_and(|k| !k.is_dir()))
+        .filter(|e| (is_image(&extension(&e.path())) || include_videos && scan::is_video(&extension(&e.path()))) && e.file_type().is_ok_and(|k| !k.is_dir()))
         .count()
 }
 
@@ -204,26 +205,27 @@ fn subfolders(folder: &Path) -> Vec<PathBuf> {
 /// Whether there is a photo anywhere beneath `folder`. Stops at the first:
 /// counting an archive drive's tens of thousands to answer yes would be slow
 /// for nothing.
-fn contains_photos(folder: &Path, depth: usize) -> bool {
-    if shallow_count(folder) > 0 {
+fn contains_photos(folder: &Path, depth: usize, include_videos: bool) -> bool {
+    if shallow_count_media(folder, include_videos) > 0 {
         return true;
     }
-    depth < 12 && subfolders(folder).iter().any(|sub| contains_photos(sub, depth + 1))
+    depth < 12 && subfolders(folder).iter().any(|sub| contains_photos(sub, depth + 1, include_videos))
 }
 
 /// Folders a system keeps on a drive that are never a photographer's.
 const SYSTEM_FOLDERS: &[&str] = &["system volume information", "$recycle.bin", "trash"];
 
 /// The folders directly inside `directory` that have photos somewhere in them.
-pub fn photo_folders(directory: &Path) -> Vec<Folder> {
+pub fn photo_folders(directory: &Path) -> Vec<Folder> { photo_folders_media(directory, false) }
+pub fn photo_folders_media(directory: &Path, include_videos: bool) -> Vec<Folder> {
     let mut found: Vec<Folder> = subfolders(directory)
         .into_iter()
         .filter_map(|path| {
             let name = path.file_name()?.to_str()?.to_string();
-            if SYSTEM_FOLDERS.contains(&name.to_lowercase().as_str()) || !contains_photos(&path, 0) {
+            if SYSTEM_FOLDERS.contains(&name.to_lowercase().as_str()) || !contains_photos(&path, 0, include_videos) {
                 return None;
             }
-            Some(Folder { image_count: shallow_count(&path), name, path })
+            Some(Folder { image_count: shallow_count_media(&path, include_videos), name, path })
         })
         .collect();
     found.sort_by(|a, b| natural_cmp(&a.name, &b.name));
@@ -232,10 +234,11 @@ pub fn photo_folders(directory: &Path) -> Vec<Folder> {
 
 /// The photos to offer from `folder`: those directly in it, or, when it holds
 /// only folders — a card's DCIM — everything beneath.
-pub fn scan(folder: &Path) -> Vec<Scanned> {
-    let direct = scan::scan_folder(folder, false);
+pub fn scan(folder: &Path) -> Vec<Scanned> { scan_media(folder, false) }
+pub fn scan_media(folder: &Path, include_videos: bool) -> Vec<Scanned> {
+    let direct = scan::scan_folder_media(folder, false, scan::Kinds::Both, include_videos);
     if direct.images.is_empty() && direct.subfolder_count > 0 {
-        scan::scan_folder(folder, true).images
+        scan::scan_folder_media(folder, true, scan::Kinds::Both, include_videos).images
     } else {
         direct.images
     }
@@ -244,6 +247,7 @@ pub fn scan(folder: &Path) -> Vec<Scanned> {
 /// What a photo's own file says about it: when it was taken, in milliseconds,
 /// and the stars given in the camera.
 pub fn details(photo: &Path) -> (Option<f64>, u8) {
+    if scan::is_video(&extension(photo)) { return (None, xmp::read(photo, None).rating); }
     let probe = raw::probe(photo).ok();
     let taken = probe.as_ref().and_then(|p| p.exif.capture_ms);
     (taken, xmp::read(photo, probe.as_ref()).rating)

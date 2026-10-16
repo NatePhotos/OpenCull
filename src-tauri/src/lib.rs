@@ -13,9 +13,11 @@ pub mod embed;
 pub mod faces;
 pub mod framing;
 pub mod ingest;
+pub mod multicard;
 pub mod pool;
 pub mod preview;
 pub mod raw;
+pub mod review;
 pub mod scan;
 pub mod serve;
 pub mod sidecar;
@@ -23,6 +25,8 @@ pub mod times;
 pub mod transfer;
 pub mod update;
 pub mod xmp;
+#[cfg(target_os = "linux")]
+pub mod video_stream;
 
 use std::sync::Arc;
 
@@ -168,10 +172,17 @@ pub fn run() {
             commands::ingest_volumes,
             commands::ingest_browse,
             commands::ingest_scan,
+            commands::ingest_sources,
             commands::ingest_details,
             commands::ingest_conflicts,
             commands::ingest_copy,
             commands::ingest_cancel,
+            review::review_save,
+            review::review_list,
+            review::review_remove,
+            review::review_load,
+            commands::review_copy,
+            commands::video_source,
             commands::ai_scan,
             commands::ai_look_at,
             commands::ai_compare,

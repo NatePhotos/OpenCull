@@ -1,3 +1,4 @@
+import { isVideo } from "./media";
 // Runs face analysis over the open folder, in the background.
 
 import { useEffect, useRef } from "react";
@@ -59,7 +60,7 @@ export function useFaceScan(): void {
         if (at + d < s.view.length) near.push(s.view[at + d]);
         if (at - d >= 0) near.push(s.view[at - d]);
       }
-      void api.aiLookAt(near.filter((index) => s.ai[index] === undefined)).catch(() => {});
+      void api.aiLookAt(near.filter((index) => s.ai[index] === undefined && !isVideo(s.photos[index].path))).catch(() => {});
     };
     const stop = useStore.subscribe((s) => {
       if (s.current === last) return;
@@ -88,7 +89,7 @@ export function useFaceScan(): void {
     const { order, current, photos } = useStore.getState();
     if (photos.length === 0) return;
     const here = Math.max(0, order.indexOf(current));
-    const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index);
+    const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index).filter((i) => !isVideo(photos[i].path));
 
     useStore.setState({ aiRunning: true });
     // A scan that has been stopped may still have answers on their way.
