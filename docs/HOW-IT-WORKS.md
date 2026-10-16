@@ -454,7 +454,9 @@ npm run tauri build -- --debug --no-bundle
 ./src-tauri/target/debug/opencull --selftest /path/to/a/folder/of/photos
 ```
 
-It never writes to the folder. This is the thing to run first on a new
+It never writes to the folder, and it leaves your settings as they were: its
+folder is not added to the recent folders, and no position or switch it
+touches is remembered. This is the thing to run first on a new
 machine: the parts most likely to break on another platform are the ones a
 compiler cannot see.
 

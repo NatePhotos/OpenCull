@@ -7,7 +7,7 @@ import { saveReview } from "./review-api";
 import { api, type UpdateFound } from "./api";
 import { useCrop } from "./crop";
 import { cropFromShare, isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, turned, viewSize, type Share } from "./framing";
-import { load, save, snapshotPreferences } from "./prefs";
+import { holdPreferences, load, save, snapshotPreferences } from "./prefs";
 import { openingView, validViewMode } from "./view-preferences";
 import { validRankingPalette, type RankingPalette } from "./ranking-palette";
 import { shouldShowOverview } from "./onboarding";
@@ -808,6 +808,7 @@ export const useStore = create<Store>((set, get) => {
     async init() {
       const info = await api.appInfo();
       set({ platform: info.platform, selfTest: info.selfTest, version: info.version });
+      if (info.selfTest) holdPreferences();
       // Asked in the background, and no matter if it cannot be: there may be
       // no connection, and the app is none the worse for not knowing.
       if (!info.selfTest && get().checkForUpdates) {

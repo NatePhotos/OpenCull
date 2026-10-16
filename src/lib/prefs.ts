@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 const PREFIX = "opencull.";
 let nativeValues: Record<string, unknown> | null = null;
 let writes = Promise.resolve();
+let held = false;
 
 function report(error: unknown) {
   console.error("Preferences could not be saved", String(error));
@@ -39,7 +40,14 @@ export function load<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
+/**
+ * A self-test runs on the real settings but must leave them as they were:
+ * no recent folder, remembered position or changed switch of its own.
+ */
+export function holdPreferences(): void { held = true; }
+
 export function save(key: string, value: unknown): void {
+  if (held) return;
   try { localStorage.setItem(PREFIX + key, JSON.stringify(value)); } catch (error) { report(error); }
   if (nativeValues && !key.startsWith("session.")) {
     nativeValues[key] = value;
