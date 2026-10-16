@@ -11,6 +11,7 @@ import { Grid } from "./Grid";
 import { Loupe } from "./Loupe";
 import { SceneView } from "./SceneView";
 import { Toolbar } from "./Toolbar";
+import { AiAccelerationError } from "./AiAccelerationError";
 
 /** How narrow and how wide each side panel may be, as a share of the workspace. */
 const PANEL_LIMITS = {
@@ -47,6 +48,7 @@ export function CullingView() {
   return (
     <div className="flex size-full flex-col bg-canvas">
       <Toolbar />
+      <AiAccelerationError />
       <div className="flex min-h-0 flex-1">
         {empty ? (
           <EmptyFolder />

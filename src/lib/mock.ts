@@ -177,6 +177,7 @@ export const mock: Backend = {
         }),
       ),
     ),
+  aiAccelerationInfo: async () => null,
   aiLookAt: () => later(undefined),
   aiStop: () => later(undefined),
   aiSetYield: () => later(undefined),

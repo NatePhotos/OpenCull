@@ -9,6 +9,13 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AiEvent, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
 
+export interface AiAccelerationInfo {
+  requested: boolean;
+  enabled: boolean;
+  failure: string | null;
+  failureKind: "memory" | "unavailable" | "runtime" | null;
+}
+
 export interface AppInfo {
   platform: string;
   version: string;
@@ -156,6 +163,7 @@ export interface Backend {
    * finds the poses in it — or, without `poses`, only the bursts.
    */
   aiCompare(runs: RunFrame[][], poses: boolean): Promise<Compared[][]>;
+  aiAccelerationInfo(): Promise<AiAccelerationInfo | null>;
   aiStop(): Promise<void>;
   /** Whether analysis stands aside while the photographer moves between photos. */
   aiSetYield(on: boolean): Promise<void>;
@@ -240,6 +248,7 @@ const tauri: Backend = {
     return invoke("ai_scan", { session, order, advanced, events });
   },
   aiCompare: (runs, poses) => invoke("ai_compare", { runs, poses }),
+  aiAccelerationInfo: () => invoke("ai_acceleration_info"),
   aiLookAt: (order) => invoke("ai_look_at", { order }),
   aiStop: () => invoke("ai_stop"),
   aiSetYield: (on) => invoke("ai_set_yield", { on }),
