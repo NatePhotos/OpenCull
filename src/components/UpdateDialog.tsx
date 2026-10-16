@@ -18,7 +18,7 @@ export function UpdateDialog() {
   const found = useStore((s) => s.updateFound);
   const open = useStore((s) => s.updateOpen);
   const windows = useStore((s) => s.platform === "windows");
-  const idle = useStore((s) => s.session === null && !s.loading && !s.ingestOpen && !s.settingsOpen && !s.shortcutsOpen && !s.notice);
+  const idle = useStore((s) => s.session === null && !s.loading && !s.ingestOpen && !s.settingsOpen && !s.shortcutsOpen && !s.overviewOpen && !s.notice);
   const offered = useRef(false);
   /** How much has come down, 0 to 1, or `null` when nothing is being installed. */
   const [progress, setProgress] = useState<number | null>(null);

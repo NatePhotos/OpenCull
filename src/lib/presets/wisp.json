@@ -38,16 +38,15 @@
     "aiPause": true,
     "showFaces": true,
     "facePanelWidth": 484,
-    "visualTheme": "wisp",
     "interfaceScale": 1.25,
     "font": {
       "choice": "space-grotesk",
       "family": ""
     },
-    "visualThemeFont": true,
     "homeLayout": "classic",
-    "theme": "grey",
+    "theme": "wisp",
     "ingestSort": "captureTime",
-    "ingestSortAscending": false
+    "ingestSortAscending": false,
+    "showFeaturedImage": true
   }
 }

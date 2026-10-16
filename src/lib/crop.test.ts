@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { dragged, reshaped, useCrop } from "./crop";
+import { dragged, reshaped, scrolledCrop, useCrop } from "./crop";
 import { inside, MIRROR_ACROSS, QUARTER_RIGHT } from "./framing";
 import type { Crop } from "./types";
 
@@ -184,5 +184,25 @@ describe("a crop in the making", () => {
     expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(4 / 5);
     c.reset();
     expect(useCrop.getState().result().crop).toBeNull();
+  });
+});
+
+describe("scroll crop level", () => {
+  it("tightens and loosens around the centre without changing aspect or angle", () => {
+    const from = { ...middle, angle: 12 };
+    const tighter = scrolledCrop(from, -100, view);
+    expect(tighter.w).toBeLessThan(from.w);
+    expect(tighter.w / tighter.h).toBeCloseTo(from.w / from.h);
+    expect([tighter.cx, tighter.cy, tighter.angle]).toEqual([from.cx, from.cy, from.angle]);
+    expect(scrolledCrop(tighter, 100, view).w).toBeCloseTo(from.w);
+  });
+  it("clamps large wheel deltas, preserves bounds and never creates an empty crop", () => {
+    expect(scrolledCrop(middle, -100000, view)).toEqual(scrolledCrop(middle, -1000, view));
+    let crop = middle;
+    for (let i = 0; i < 100; i++) crop = scrolledCrop(crop, -100, view);
+    expect(Math.min(crop.w, crop.h)).toBeGreaterThanOrEqual(96 - 1e-6);
+    for (let i = 0; i < 100; i++) crop = scrolledCrop(crop, 100, view);
+    expect(inside(crop, view)).toBe(true);
+    expect(scrolledCrop(middle, NaN, view)).toBe(middle);
   });
 });

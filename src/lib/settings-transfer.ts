@@ -1,13 +1,17 @@
+import { migrateAppearance } from "./appearance-migration";
 import { DEFAULTS } from "./shortcuts";
 import { INTERFACE_SCALES } from "./interface-scale";
 export const SETTINGS_FILE_LIMIT = 1024 * 1024;
 const booleanKeys = new Set([
- "aiMotionBlur", "autoRateMotionBlur", "aiMobileClipGrouping",
-  "rememberViewMode", "sortAscending", "ingestSortAscending", "showExif", "showHistogram", "showFilmstrip", "showInfo", "showRatingBar", "showFilterBar", "experimentalNativeFilmstrip", "experimentalSmoothZoom", "includeSubfolders", "ignoreVideos", "embedInJpeg", "askBeforeTrash", "checkForUpdates", "warmAhead", "speedCullAlways", "keepZoom", "instantZoom", "rgbHistogram", "aiEnabled", "aiAdvanced", "showBackgroundFaces", "aiPause", "smartGroups", "showFaces", "visualThemeFont",
+  "showFeaturedImage", "aiMotionBlur", "autoRateMotionBlur", "aiMobileClipGrouping",
+  "spaceZoomToFace",
+  "experimentalFaceOutlines", "experimentalFaceSpotlight",
+  "rememberViewMode", "sortAscending", "ingestSortAscending", "showExif", "showHistogram", "showFilmstrip", "showInfo", "showRatingBar", "showFilterBar", "experimentalNativeFilmstrip", "experimentalSmoothZoom", "experimentalTransitions", "experimentalHideFilmstripOnCrop", "includeSubfolders", "ignoreVideos", "embedInJpeg", "askBeforeTrash", "checkForUpdates", "warmAhead", "speedCullAlways", "keepZoom", "instantZoom", "rgbHistogram", "aiEnabled", "aiAdvanced", "showBackgroundFaces", "aiPause", "smartGroups", "showFaces", "visualThemeFont",
 ]);
 const enums: Record<string, readonly string[]> = {
- mobileClipGrouping: ["loose", "normal", "tight"], rankingPalette: ["classic", "red-green"],
-  theme: ["dark", "light", "grey"], visualTheme: ["default", "rapidraw", "wisp"], homeLayout: ["spacious", "classic"],
+  mobileClipGrouping: ["loose", "normal", "tight"],
+  rankingPalette: ["classic", "red-green"],
+  theme: ["dark", "light", "grey", "wisp"], visualTheme: ["default", "rapidraw", "wisp"], homeLayout: ["spacious", "classic"],
   viewMode: ["loupe", "scene", "grid"], defaultViewMode: ["loupe", "scene", "grid"], sort: ["captureTime", "filename", "rating"], ingestSort: ["captureTime", "filename", "rating"], fileKinds: ["both", "raw", "jpeg"],
 };
 const ranges: Record<string, readonly [number, number]> = { gridColumns: [1, 100], exifPanelWidth: [40, 10000], facePanelWidth: [40, 10000], filmstripHeight: [72, 300], sceneStripHeight: [72, 300], cacheLimitGb: [1, 200] };
@@ -33,9 +37,9 @@ export function parseSettingsImport(text: string): Record<string, unknown> {
     if (!known(key)) throw new Error(`Unsupported setting: ${key}`);
     if (!valid(key, value)) throw new Error(`Invalid value for setting: ${key}`);
   }
-  return Object.fromEntries(entries);
+  return migrateAppearance(Object.fromEntries(entries));
 }
 export function exportSettings(values: Record<string, unknown>): string {
-  const portable = Object.fromEntries(Object.entries(values).filter(([key, value]) => known(key) && valid(key, value)));
+  const portable = Object.fromEntries(Object.entries(migrateAppearance(values)).filter(([key, value]) => known(key) && valid(key, value)));
   return JSON.stringify({ format: "opencull-settings", version: 1, values: portable }, null, 2);
 }

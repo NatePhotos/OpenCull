@@ -1,30 +1,28 @@
-# AI & grouping bundle
+# Interface & workspace bundle
 
-Prerequisite: `ideas/ingest-sessions`, which includes `ideas/gpu-performance`. This branch adds one curated AI commit to those two bundles. It carries three new commits beyond upstream 0.4.1, not MobileCLIP's 197 inherited commits.
+Prerequisite: `ideas/ai-grouping`, which includes `ideas/ingest-sessions` and `ideas/gpu-performance`. This branch completes the four-bundle stack. It contains the full application at `a1aa61c` plus this bundle guide, with four curated commits beyond upstream OpenCull 0.4.1.
 
-Includes MobileCLIP-S0 whole-image grouping, Loose >0.70 / Normal >0.80 / Tight >0.90 similarity, three-second group limits, motion-blur detection and filtering, optional one-star + Reject for currently unrated blur detections, cached AI results and embeddings, cached preview JPEG reuse, scaled decoding, shared CUDA inference, CPU fallback, and VRAM errors. Model download and the experimental toggle are in Settings → AI. Settings transfer preserves the AI options.
+Includes Wisp as a theme, featured home images and home layout controls, ranking palettes, compact settings, settings import/export, typography/scale, inline keyboard settings, first-run overview, resizable native-aspect filmstrips, face spotlight/outlines and face-targeted zoom, crop improvements, and experimental transitions/filmstrip hiding while cropping.
 
-## Why these prerequisites
+## Why it follows AI and sessions
 
-The existing session store owns grouping, ratings, filters, cache restoration and stale-analysis cancellation. The native scan protocol handles card sessions and videos as well as ordinary photos. Splitting those protocols apart would create a new implementation rather than regroup the working changes. The GPU bundle supplies the shared ONNX worker and provider packaging. The ingest bundle supplies their existing session/settings foundation. Full Wisp and the later workspace redesign are not required.
+The final settings page, filmstrip, home page and overlays control the session and AI fields introduced by the preceding bundles. Keeping this full interface intact requires those APIs. GPU/runtime is the independent base; this branch is the complete experience. These are cumulative integration bundles, not four independent feature patches. To contribute a smaller UI-only patch upstream, use the source references and extract that change separately.
 
 ## Provenance
 
-AI/backend and store integration from `a1aa61c`. Feature sources include tighter time grouping `136ef9c`, motion blur `b652d03` and `f09fd60`, session AI cache `51c4e5d`, initial MobileCLIP `343036b`, shared CUDA/VRAM handling `6b50dcd`, cached preview reuse `2d0d023`, strength controls `818d56a`, thresholds `cbb4bae`. Thumbnail labels and settings import validation are kept with their AI fields. Original history remains on restored feature branches and archive tags.
+Final application snapshot: `a1aa61c`. Sources include configurable UI `a4263b7`, local preferences `f919a33`/`d2e1259`, final Wisp/home/panel consolidation `18c02b7`, ranking palettes `59da368`, face interaction `c45022a`/`f232769`/`be10db6`/`f312435`, transitions `83dc060`, crop behavior `c64c2fe`, and experimental settings order `041f12d`. Every original feature branch and archive tag remains available. The four commits reorganize the snapshot; they do not rewrite the restored branches or main/dev.
 
 ## Try or merge
 
 ```sh
-git clone --branch ideas/ai-grouping --single-branch https://github.com/wispdevon/OpenCull.git
+git clone --branch ideas/interface-workspace --single-branch https://github.com/wispdevon/OpenCull.git
 cd OpenCull
 npm ci
 npm run desktop
 ```
 
-Enable OpenCull AI, download the MobileCLIP model once, then enable visual grouping in Settings → AI. CUDA is automatic on supported Linux NVIDIA installations; `npm run desktop -- --cpu` overrides it. macOS and Windows use CPU inference. Fetch and merge the idea branch to bring its explicitly listed prerequisites together.
+Fetch and merge this branch for all four idea bundles. For everyday development use `dev`; for installers use the tagged 0.5.0 release. These idea branches are curated pull/contribution snapshots, not parallel release channels.
 
 ## Validation
 
-Linux production frontend build; 87 frontend tests and 11 launcher tests passed; 312 native tests passed with CUDA enabled, two hardware benchmarks ignored. Tests cover grouping boundaries, motion rating/Reject preservation, caches, settings transfer and CPU/CUDA error handling. Cross-platform CI and native runtime measurements for the full release are separate from these curated-subset checks.
-
-Hardware checks also passed on the local NVIDIA GPU: concurrent CUDA callers matched CPU outputs; real MobileCLIP embeddings were computed on CUDA in 692 ms for two reference RAW files, and a reopened embedding cache was read in 49 µs without recomputation. These are correctness smoke-test timings, not a throughput benchmark.
+This application snapshot has the full 98-test frontend suite, 11 launcher checks, production frontend build and 312 native tests (two hardware benchmarks ignored). The preceding AI bundle has identical native source. The 0.5.0 tag additionally runs Windows, Apple-silicon macOS and Linux build jobs; see the release workflow for their authoritative status.

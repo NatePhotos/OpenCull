@@ -1,0 +1,1 @@
+Settings → Culling → Experimental Features → Native-aspect filmstrip. Disabled by default. Uses displayed rotation/crop proportions at a common height, preserving the existing virtualized horizontal strip. Unknown dimensions temporarily use 3:2 until metadata arrives. No masonry CSS dependency or photo changes.

@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { load, save } from "@/lib/prefs";
 import { fontStack, validFont, type FontChoice, type FontSetting } from "@/lib/font";
 
-const useFont = create<{ value: FontSetting; set: (value: FontSetting) => void }>((set) => ({
+export const useFont = create<{ value: FontSetting; set: (value: FontSetting) => void }>((set) => ({
   value: validFont(load("font", null)),
   set(value) { const safe = validFont(value); save("font", safe); set({ value: safe }); },
 }));

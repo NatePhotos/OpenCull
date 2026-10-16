@@ -131,6 +131,67 @@
   font-style: normal;
   font-display: swap;
 }
+
+/* Settings use reading sizes, rather than the compact photo-overlay type scale.
+   Keep native font rasterization: forced grayscale smoothing can thin small type. */
+.settings-panel.settings-panel { font-size: 0.875rem; line-height: 1.5; }
+.settings-panel.settings-panel fieldset,
+.settings-panel.settings-panel .setting-row { padding: 1.25rem; }
+.settings-panel.settings-panel fieldset { padding-top: 0.75rem; }
+.settings-panel.settings-panel fieldset > legend { margin-block-end: 0; }
+.settings-panel.settings-panel fieldset > legend + * { margin-block-start: 0; }
+/* Nested semantic groups aren't additional cards. Never compound their padding. */
+.settings-panel.settings-panel fieldset fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  background: transparent;
+}
+.settings-panel.settings-panel fieldset fieldset legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.settings-panel.settings-panel .setting-row {
+  gap: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+}
+.settings-panel.settings-panel .setting-row > :first-child { min-width: 0; flex: 1; }
+.settings-panel.settings-panel .setting-detail { margin-top: 0.375rem; }
+.settings-panel.settings-panel legend {
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.settings-panel.settings-panel :is(fieldset label, .setting-title) {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.settings-panel.settings-panel fieldset label { flex-wrap: wrap; }
+.settings-panel.settings-panel :is(fieldset p, .setting-detail, .setting-hint) {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.settings-panel.settings-panel .setting-label { font-size: 0.9375rem; line-height: 1.5; font-weight: 500; }
+.settings-panel.settings-panel .setting-toggle-row { flex-wrap: nowrap; align-items: flex-start; gap: 1.5rem; }
+.settings-panel.settings-panel .setting-copy { flex: 1; min-width: 0; }
+.settings-panel.settings-panel .setting-toggle-row [role="switch"] { flex-shrink: 0; margin-top: 0.1875rem; }
+.settings-panel.settings-panel :is(select, input[type="text"], input:not([type]), button) {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.settings-panel.settings-panel :is(select, input[type="text"], input:not([type])) {
+  min-height: 2.5rem;
+  max-width: 100%;
+  min-width: 0;
+}
 /* Neutral interface roles, keeping the original dark values. */
 :root {
   --ui-line-2e2e2e: #2e2e2e;
@@ -222,13 +283,13 @@
   --ui-text-e6e6e6: #252525;
 }
 :root[data-theme="grey"] {
-  --background: #303030; --foreground: #fff;
-  --card: #303030; --card-foreground: #fff; --popover: #303030; --popover-foreground: #fff;
-  --secondary: #404040; --secondary-foreground: #fff;
-  --muted: #393939; --muted-foreground: #c4c4c4; --accent: #444; --accent-foreground: #fff;
+  --background: #171717; --foreground: #fff;
+  --card: #292929; --card-foreground: #fff; --popover: #222; --popover-foreground: #fff;
+  --secondary: #3d3d3d; --secondary-foreground: #fff;
+  --muted: #292929; --muted-foreground: #d0d0d0; --accent: #484848; --accent-foreground: #fff;
   --border: #909090; --input: #929292;
-  --opencull-canvas: #767676; --opencull-toolbar: #303030; --opencull-strip: #252525;
-  --opencull-panel: #303030; --opencull-cell: #444;
+  --opencull-canvas: #767676; --opencull-toolbar: #222; --opencull-strip: #171717;
+  --opencull-panel: #292929; --opencull-cell: #444;
   --ui-line-2e2e2e: #909090;
   --ui-line-333333: #909090;
   --ui-line-383838: #909090;
@@ -276,3 +337,14 @@
 :root { --home-from: #12121a; --home-to: #1a1a26; }
 :root[data-theme="light"] { --home-from: #fafafa; --home-to: #eee; }
 :root[data-theme="grey"] { --home-from: #303030; --home-to: #303030; }
+
+/* Experimental groups lead each Settings tab. Red identifies their status;
+   ordinary labels and descriptions retain their readable theme colours. */
+:root { --experimental-accent: #ff9e9e; }
+:root[data-theme="light"] { --experimental-accent: #9a2634; }
+.settings-panel.settings-panel .experimental-section {
+  border-color: color-mix(in srgb, var(--experimental-accent) 65%, var(--border));
+}
+.settings-panel.settings-panel .experimental-section > legend {
+  color: var(--experimental-accent);
+}

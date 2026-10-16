@@ -1,7 +1,10 @@
+import "./home-typography.css";
 import { useEffect, useRef, useState } from "react";
 import { Circle, CircleCheck, FolderPlus, FolderSearch, Images, Keyboard, Settings, Trash2, X } from "lucide-react";
 
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { useHomeLayout } from "@/components/HomeLayoutSettings";
+import { useFeaturedImage } from "@/components/HomeLayoutSettings";
 import { RecentSessions, ResumeLatestSession } from "./RecentSessions";
 import { CardIcon } from "@/components/ingest/IngestView";
 import { api, type Volume } from "@/lib/api";
@@ -10,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { Scanned } from "@/lib/types";
 
 const GRADIENT = "bg-gradient-to-r from-[#4d80ff] to-[#804dff]";
+const HOME_ACTION = "inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-0 text-[13px] font-medium leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -27,6 +31,8 @@ async function chooseFolder() {
 
 /** Where the app opens: the folders worked on lately, and a way to open another. */
 export function HomeView({ dropping }: { dropping: boolean }) {
+  const featured = useFeaturedImage((s) => s.enabled);
+  const layout = useHomeLayout((s) => s.layout);
   const recents = useStore((s) => s.recents);
   const platform = useStore((s) => s.platform);
   const openError = useStore((s) => s.openError);
@@ -95,39 +101,49 @@ export function HomeView({ dropping }: { dropping: boolean }) {
   };
 
   return (
-    <div className="relative flex size-full flex-col bg-gradient-to-br from-[#12121a] to-[#1a1a26]">
-      <header data-tauri-drag-region className={cn("flex shrink-0 items-center px-10 pb-6 pt-7", platform === "macos" && "pl-[78px]")}>
-        <div data-tauri-drag-region className="flex-1">
-          <h1 className="bg-gradient-to-r from-white to-[#bfbfbf] bg-clip-text text-[28px] font-bold leading-tight tracking-tight text-transparent">OpenCull</h1>
-          <p className="mt-1 text-[13px] text-[#808080]">Culling Software made for Photographers</p>
+    <div data-home-layout={layout} data-platform={platform} className="home-view relative flex size-full flex-col bg-gradient-to-br from-[var(--home-from)] to-[var(--home-to)]">
+      {featured && <WelcomeArtwork path={recents.find((path) => !missing.has(path))} />}
+      <div className="home-content flex min-h-0 flex-1 flex-col">
+      <header data-tauri-drag-region className={cn("home-header flex shrink-0 flex-wrap items-center gap-6 px-8 py-6", platform === "macos" && "pl-[78px]")}>
+        <div data-tauri-drag-region className="home-heading min-w-[220px] flex-1">
+          <h1 className="bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-[32px] font-bold leading-tight tracking-tight text-transparent">OpenCull</h1>
+          <p className="mt-1 text-[13px] text-[var(--ui-text-808080)]">Culling Software made for Photographers</p>
+          <p className="rapidraw-intro">{recents.length ? "Welcome back. Continue a session or bring in your next shoot." : "Your next great photograph starts with a closer look."}</p>
         </div>
-        <button type="button" title="Keyboard Shortcuts" aria-label="Keyboard Shortcuts" onClick={() => useStore.getState().set("shortcutsOpen", true)} className="mr-1 rounded-lg p-2.5 text-[#8c8c8c] hover:bg-white/[0.07] hover:text-white">
+        <div className="home-controls flex max-w-full flex-wrap items-center justify-end gap-4">
+        <div role="group" aria-label="Utility actions" className="home-utilities flex items-center gap-2">
+        <button type="button" title="Keyboard Shortcuts" aria-label="Keyboard Shortcuts" onClick={() => useStore.getState().set("shortcutsOpen", true)} className="flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Keyboard className="size-[18px]" />
         </button>
-        <button type="button" title="Settings" aria-label="Settings" onClick={() => useStore.getState().set("settingsOpen", true)} className="mr-3 rounded-lg p-2.5 text-[#8c8c8c] hover:bg-white/[0.07] hover:text-white">
+        <button type="button" title="Settings" aria-label="Settings" onClick={() => useStore.getState().set("settingsOpen", true)} className="flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Settings className="size-[18px]" />
         </button>
+
+        </div>
+        <div role="group" aria-label="Session actions" className="home-actions flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => useStore.setState({ ingestOpen: true, ingestFrom: null })}
-          className="mr-3 flex items-center gap-2 rounded-[10px] bg-[#2e2e2e] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#383838]"
+          className={cn("home-ingest border border-border bg-secondary text-secondary-foreground hover:bg-accent", HOME_ACTION)}
         >
-          <CardIcon className="size-4 text-white" /> Ingest from Card
+          <CardIcon className="size-4 text-current" /> Ingest from Card
         </button>
-        <ResumeLatestSession />
+        <ResumeLatestSession className={cn(HOME_ACTION, "border-border bg-secondary text-secondary-foreground shadow-none hover:bg-accent")} />
         <button
           type="button"
           onClick={() => void chooseFolder()}
-          className={cn("flex items-center gap-2 rounded-[10px] px-[18px] py-2.5 text-[13px] font-semibold text-white shadow-[0_4px_8px_rgba(77,128,255,.4)]", GRADIENT)}
+          className={cn("home-open bg-brand text-white hover:brightness-110", HOME_ACTION)}
         >
           <FolderPlus className="size-4" /> Open Folder
         </button>
+        </div>
+        </div>
       </header>
 
       {arrived && (
         <div className="mx-10 mb-4 flex items-center gap-3 rounded-[10px] bg-[#4d80ff]/15 px-4 py-2.5">
           <CardIcon className="size-4" />
-          <span className="flex-1 text-[13px] font-medium text-white">“{arrived.name}” detected</span>
+          <span className="flex-1 text-[13px] font-medium text-foreground">“{arrived.name}” detected</span>
           <button
             type="button"
             onClick={() => {
@@ -138,7 +154,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
           >
             Ingest
           </button>
-          <button type="button" aria-label="Dismiss" onClick={() => setArrived(null)} className="text-[#8c8c8c] hover:text-white">
+          <button type="button" aria-label="Dismiss" onClick={() => setArrived(null)} className="text-[var(--ui-text-8c8c8c)] hover:text-white">
             <X className="size-3.5" />
           </button>
         </div>
@@ -146,13 +162,13 @@ export function HomeView({ dropping }: { dropping: boolean }) {
 
       {openError && <div className="mx-10 mb-4 rounded-lg bg-[#e64d4d]/15 px-4 py-2.5 text-[13px] text-[#f29999]">Could not open that folder: {openError}</div>}
 
-      <main className="flex-1 overflow-y-auto p-10 pt-4">
+      <main className="home-recents flex-1 overflow-y-auto p-10 pt-4">
         <RecentSessions />
         {recents.length === 0 ? (
-          <div className="flex flex-col items-center gap-5 pt-16 text-center">
+          <div className="home-empty flex flex-col items-center gap-5 pt-16 text-center">
             <Images className="size-16 text-[#5970ff]" strokeWidth={1.25} />
-            <div className="text-xl font-semibold text-white">Open a folder to start culling</div>
-            <p className="max-w-sm text-sm text-[#808080]">Choose a folder of photos, or drop one anywhere on this window. RAW files open straight from the previews your camera already made.</p>
+            <div className="text-xl font-semibold text-foreground">Open a folder to start culling</div>
+            <p className="max-w-sm text-sm text-[var(--ui-text-808080)]">Choose a folder of photos, or drop one anywhere on this window. RAW files open straight from the previews your camera already made.</p>
             <button type="button" onClick={() => void chooseFolder()} className={cn("mt-2 rounded-[10px] px-6 py-3 text-sm font-semibold text-white", GRADIENT)}>
               Open Folder
             </button>
@@ -160,13 +176,15 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         ) : (
           <>
             <div className="mb-4 flex items-center gap-3">
-              <h2 className="flex-1 text-base font-semibold text-[#a6a6a6]">Recent Folders ({recents.length})</h2>
-              <button type="button" disabled={selected.size === recents.length} onClick={() => setSelected(new Set(recents))} className="text-xs font-medium text-[#8c8c8c] disabled:text-[#4d4d4d]">
+              <h2 className="flex-1 text-lg font-semibold text-[var(--ui-text-a6a6a6)]">Recent Folders ({recents.length})</h2>
+              {selected.size > 0 && <>
+              <button type="button" disabled={selected.size === recents.length} onClick={() => setSelected(new Set(recents))} className="text-xs font-medium text-[var(--ui-text-8c8c8c)] disabled:text-[var(--ui-text-4d4d4d)]">
                 Select All
               </button>
-              <button type="button" disabled={selected.size === 0} onClick={() => setSelected(new Set())} className="text-xs font-medium text-[#8c8c8c] disabled:text-[#4d4d4d]">
+              <button type="button" disabled={selected.size === 0} onClick={() => setSelected(new Set())} className="text-xs font-medium text-[var(--ui-text-8c8c8c)] disabled:text-[var(--ui-text-4d4d4d)]">
                 Deselect All
               </button>
+              </>}
               {selected.size > 0 && (
                 <button
                   type="button"
@@ -178,7 +196,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,420px),1fr))] gap-6">
               {recents.map((path) => (
                 <FolderCard
                   key={path}
@@ -195,6 +213,8 @@ export function HomeView({ dropping }: { dropping: boolean }) {
           </>
         )}
       </main>
+      <footer className="rapidraw-footer">Local photos. A clear view. Your best frames.</footer>
+      </div>
 
       {dropping && (
         <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand bg-brand/10 text-lg font-semibold text-white">
@@ -203,6 +223,40 @@ export function HomeView({ dropping }: { dropping: boolean }) {
       )}
     </div>
   );
+}
+
+/** Uses only local session previews; original artwork fills the first-run state. */
+function WelcomeArtwork({ path }: { path?: string }) {
+  const [image, setImage] = useState<Scanned | null>(null);
+  const [sharp, setSharp] = useState<string | null>(null);
+  const fullUrl = image ? api.url("full", image) : null;
+  useEffect(() => {
+    let stale = false;
+    setSharp(null);
+    if (fullUrl) {
+      // Decode the largest camera preview before replacing the quick thumbnail.
+      // The thumb tier is capped at 1280px even when a larger size is requested.
+      const next = new Image();
+      next.src = fullUrl;
+      void next.decode().then(() => { if (!stale) setSharp(fullUrl); }, () => {});
+    }
+    return () => { stale = true; };
+  }, [fullUrl]);
+  useEffect(() => {
+    let stale = false;
+    setImage(null);
+    if (path) void api.folderCover(path).then(
+      (images) => { if (!stale) setImage(images[0] ?? null); },
+      () => {},
+    );
+    return () => { stale = true; };
+  }, [path]);
+  return <aside className="rapidraw-artwork" aria-label="Welcome artwork">
+    <img src={image ? sharp === fullUrl ? fullUrl! : api.url("thumb", image, 1280) : "/theme-landscape.svg"}
+      onError={() => { if (image) setImage(null); }}
+      alt={image ? "A photograph from your recent folder" : "Illustrated mountain ridges at dusk"} />
+    <span>{image ? "From your recent photographs" : "A little perspective"}</span>
+  </aside>;
 }
 
 function FolderCard({
@@ -240,17 +294,17 @@ function FolderCard({
           onClick={open}
           onKeyDown={(e) => e.key === "Enter" && open()}
           className={cn(
-            "group relative cursor-pointer overflow-hidden rounded-xl border bg-[#1f1f1f] shadow-[0_4px_8px_rgba(0,0,0,.3)] transition-transform duration-150 hover:scale-[1.02] hover:bg-[#292929]",
-            selected ? "border-2 border-[#5999ff]" : "border-[#383838] hover:border-[#4d80ff]/60",
+            "group relative cursor-pointer overflow-hidden rounded-xl border bg-[var(--ui-surface-1f1f1f)] shadow-[0_4px_8px_rgba(0,0,0,.3)] transition-transform duration-150 hover:scale-[1.02] hover:bg-[var(--ui-surface-292929)]",
+            selected ? "border-2 border-[#5999ff]" : "border-[var(--ui-line-383838)] hover:border-[#4d80ff]/60",
           )}
         >
-          <div className="h-[150px]">{missing ? <Placeholder /> : <Cover path={path} />}</div>
-          <div className="px-3.5 py-3">
-            <div className={cn("flex items-center gap-1.5 text-[13px] font-semibold", missing ? "text-[#999]" : "text-white")}>
+          <div className="aspect-[16/10]">{missing ? <Placeholder /> : <Cover path={path} />}</div>
+          <div className="p-4">
+            <div className={cn("flex items-center gap-1.5 text-base font-semibold", missing ? "text-[var(--ui-text-999999)]" : "text-foreground")}>
               {missing && <FolderSearch className="size-3 shrink-0 text-[#f2b84d]" />}
               <span className="truncate">{baseName(path)}</span>
             </div>
-            <div className="mt-1 truncate text-[11px] text-[#737373]">{missing ? "Not where it was — click to find it" : path}</div>
+            <div className="mt-1.5 truncate text-xs text-[var(--ui-text-737373)]">{missing ? "Not where it was — click to find it" : path}</div>
           </div>
           <button
             type="button"
@@ -260,7 +314,7 @@ function FolderCard({
             }}
             className={cn("absolute left-2.5 top-2.5 rounded-full bg-black/50 drop-shadow", selected ? "block" : "hidden group-hover:block")}
           >
-            {selected ? <CircleCheck className="size-5 fill-[#5999ff] text-white" /> : <Circle className="size-5 text-[#e6e6e6]" />}
+            {selected ? <CircleCheck className="size-5 fill-[#5999ff] text-white" /> : <Circle className="size-5 text-[var(--ui-text-e6e6e6)]" />}
           </button>
         </div>
       </ContextMenuTrigger>
@@ -277,8 +331,8 @@ function FolderCard({
 
 function Placeholder() {
   return (
-    <div className="flex size-full items-center justify-center bg-[#262626]">
-      <Images className="size-9 text-[#4d4d4d]" />
+    <div className="flex size-full items-center justify-center bg-[var(--ui-surface-262626)]">
+      <Images className="size-9 text-[var(--ui-text-4d4d4d)]" />
     </div>
   );
 }
@@ -300,7 +354,7 @@ function Cover({ path }: { path: string }) {
   const tile = (image: Scanned, size: number) => <img key={image.path} src={api.url("thumb", image, size)} alt="" draggable={false} className="min-h-0 w-full flex-1 object-cover" />;
 
   return (
-    <div className="flex size-full gap-0.5 bg-[#262626]">
+    <div className="flex size-full gap-0.5 bg-[var(--ui-surface-262626)]">
       <div className={cn("flex h-full", rest.length > 0 ? "w-3/5" : "w-full")}>{tile(first, 640)}</div>
       {rest.length > 0 && <div className="flex h-full w-2/5 flex-col gap-0.5">{rest.slice(0, 3).map((image) => tile(image, 320))}</div>}
     </div>

@@ -13,7 +13,7 @@ export function ExifPanel() {
   const photo = useStore((s) => (s.current >= 0 ? s.photos[s.current] : undefined));
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-panel">
+    <div className="metadata-panel flex h-full min-h-0 w-full flex-col bg-panel">
       <div className="flex items-center gap-2 bg-toolbar px-3.5 py-3">
         <Info className="size-3.5 fill-brand text-toolbar" />
         <span className="flex-1 text-[13px] font-bold text-foreground">EXIF Data</span>
@@ -45,7 +45,7 @@ function Details({ photo }: { photo: Photo }) {
   const ext = (path: string) => path.split(".").pop()?.toUpperCase() ?? "";
 
   return (
-    <div className="flex-1 space-y-4 overflow-y-auto p-3.5 select-text">
+    <div className="metadata-details flex-1 space-y-4 overflow-y-auto p-3.5 select-text">
       <Section title="Exposure">
         <div className="grid grid-cols-2 gap-2">
           <Badge title="Shutter" value={fmt.shutter(e?.shutter)} icon={<Timer />} />
@@ -83,12 +83,12 @@ function Details({ photo }: { photo: Photo }) {
   );
 }
 
-const Rule = () => <div className="h-px bg-[var(--ui-surface-262626)]" />;
+const Rule = () => <div className="metadata-rule h-px bg-[var(--ui-surface-262626)]" />;
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-2.5">
-      <div className="text-[10px] font-bold uppercase text-[var(--ui-text-737373)]">{title}</div>
+    <div className="metadata-section space-y-2.5">
+      <div className="metadata-heading text-[10px] font-bold uppercase text-[var(--ui-text-737373)]">{title}</div>
       {children}
     </div>
   );
@@ -96,23 +96,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function Badge({ title, value, icon }: { title: string; value: string | null; icon: ReactNode }) {
   return (
-    <div className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-2">
-      <div className="flex items-center gap-1 text-[9px] font-medium uppercase text-[var(--ui-text-737373)] [&_svg]:size-2.5 [&_svg]:text-[var(--ui-text-808080)]">
+    <div className="metadata-badge rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-2">
+      <div className="metadata-label flex items-center gap-1 text-[9px] font-medium uppercase text-[var(--ui-text-737373)] [&_svg]:size-2.5 [&_svg]:text-[var(--ui-text-808080)]">
         {icon}
         {title}
       </div>
-      <div className="mt-1 truncate font-mono text-[13px] font-bold text-foreground">{value ?? "—"}</div>
+      <div className="metadata-value mt-1 truncate font-mono text-[13px] font-bold text-foreground">{value ?? "—"}</div>
     </div>
   );
 }
 
 function Row({ icon, title, value }: { icon: ReactNode; title: string; value: string }) {
   return (
-    <div className="flex items-start gap-2">
-      <span className="mt-0.5 flex w-3.5 justify-center [&_svg]:size-[11px] [&_svg]:text-brand">{icon}</span>
+    <div className="metadata-row flex items-start gap-2">
+      <span className="metadata-icon mt-0.5 flex w-3.5 justify-center [&_svg]:size-[11px] [&_svg]:text-brand">{icon}</span>
       <div className="min-w-0">
-        <div className="text-[10px] font-medium text-[var(--ui-text-737373)]">{title}</div>
-        <div className="break-words font-mono text-[11px] text-[var(--ui-text-d9d9d9)]">{value}</div>
+        <div className="metadata-label text-[10px] font-medium text-[var(--ui-text-737373)]">{title}</div>
+        <div className="metadata-value break-words font-mono text-[11px] text-[var(--ui-text-d9d9d9)]">{value}</div>
       </div>
     </div>
   );

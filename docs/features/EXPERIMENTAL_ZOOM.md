@@ -1,0 +1,3 @@
+Settings → Zoom → Experimental Features → Smooth click zoom. Disabled by default. Click/keyboard/face/marquee zoom uses a fast-start, slow-stop cubic curve with 280–340 ms durations. Reduced motion disables these transitions. Wheel zoom and dragging remain immediate. Existing sharp rerasterization after motion is retained. This is an experimental motion option, not a promise of native macOS performance.
+
+The current photo's decoded full-resolution layer stays mounted through repeated zooms, avoiding a preview swap at fit. Moving to another photo releases that layer. Linux users seeing previous frames flash in both zoom and Settings should also see the [NVIDIA compositor workaround](NVIDIA_GRAPHICS.md).

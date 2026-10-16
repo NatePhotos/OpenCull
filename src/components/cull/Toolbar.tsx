@@ -93,13 +93,13 @@ export function Toolbar() {
   const s = useStore.getState();
 
   return (
-    <div data-tauri-drag-region className={cn("relative z-10 flex h-[50px] shrink-0 items-center border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[78px]" : "pl-3")}>
+    <div data-tauri-drag-region className={cn("relative z-10 flex min-h-[50px] flex-wrap shrink-0 items-center gap-y-1 py-1 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[78px]" : "pl-3")}>
       <Tool label="Back to Home" onClick={() => s.closeFolder()} className="w-9">
         <ChevronLeft className="size-[17px]!" strokeWidth={2.5} />
       </Tool>
 
       <Divider className="ml-0 mr-2" />
-      <span data-tauri-drag-region className="flex min-w-0 max-w-[210px] shrink items-center gap-1.5 text-[13px] font-medium text-[var(--ui-text-bfbfbf)]" title={name}>
+      <h1 data-tauri-drag-region className="flex min-w-0 max-w-[210px] shrink items-center gap-1.5 text-base font-semibold text-[var(--ui-text-bfbfbf)]" title={name}>
         <Folder className="size-3.5 shrink-0 text-[var(--ui-text-808080)]" />
         <span className="truncate">{name}</span>
         {kinds !== "both" && (
@@ -107,7 +107,7 @@ export function Toolbar() {
             {kinds === "raw" ? "RAW only" : "JPEG only"}
           </span>
         )}
-      </span>
+      </h1>
       <Status />
 
       <Divider className="mx-2" />
@@ -217,6 +217,11 @@ function Status() {
   const toPrepare = useStore((s) => s.warmTotal);
   const analysing = useStore((s) => s.aiRunning);
   const analysed = useStore((s) => s.aiDone);
+  const cached = useStore((s) => s.aiCached);
+  const pending = useStore((s) => s.aiPending);
+  const motionPending = useStore((s) => s.aiMotionPending);
+  const grouping = useStore((s) => s.aiGroupingBusy);
+  const groupingError = useStore((s) => s.aiGroupingError);
   const chip = "ml-3 flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2 py-1 text-[11px] font-medium";
 
   if (loading) {
@@ -229,8 +234,10 @@ function Status() {
   }
   if (total === 0) return null;
   if (progress < 1) return <Working label="Reading photo info…" fraction={progress} className={cn(chip, "text-[#66b3ff]")} title="Reading capture times, ratings and camera details" />;
+  if (groupingError) return <span role="status" className={cn(chip, "text-red-400")} title={groupingError}>Visual grouping unavailable</span>;
+  if (grouping > 0) return <span role="status" className={cn(chip, "text-[#66b3ff]")}><Loader2 className="size-3 animate-spin" />Grouping with MobileCLIP…</span>;
   // Never shown as finished while it is still going.
-  if (analysing) return <Working label="AI scanning…" fraction={Math.min(0.99, analysed / total)} className={cn(chip, "text-[#66b3ff]")} title="Finding and judging faces. Stands aside while you move between photos." />;
+  if (analysing) return <Working label={pending === null ? "Checking AI cache…" : pending === 0 ? "Loading cached AI…" : motionPending === pending ? "Checking motion blur…" : "AI scanning…"} fraction={Math.min(0.99, analysed / total)} className={cn(chip, "text-[#66b3ff]")} title={`${cached.toLocaleString()} complete cached results; ${pending === null ? "checking for" : (pending - motionPending).toLocaleString()} new face analyses; ${motionPending.toLocaleString()} motion-only checks using cached faces. Stands aside while you move between photos.`} />;
   if (preparing > 0) {
     // Counted from how many there were when this round began. Never shown
     // as finished while any are left.

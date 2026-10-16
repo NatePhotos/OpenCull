@@ -1,3 +1,4 @@
+import { PhotoTransition } from "./InterfaceMotion";
 import { isVideo } from "@/lib/media";
 import { VideoPlayer } from "./VideoPlayer";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import { Flag, Loader2, X } from "lucide-react";
 import { api, bucket, FIT_SIZES } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { framingKey, magnified, placement, shownSize, uprightToShown } from "@/lib/framing";
+import { faceZoomTarget, firstVisibleFace, highestScoringFace } from "@/lib/face-target";
 import { hold, holdFull, isHeld } from "@/lib/held";
 import { load, save } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
@@ -15,6 +17,7 @@ import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
 import { CropView } from "./Crop";
 import { PhotoMenu } from "./PhotoMenu";
+import { FaceOverlays } from "./FaceOverlays";
 
 /** Zoom and pan: how many times larger than fit, and how far off centre. */
 interface Zoom {
@@ -44,7 +47,7 @@ const MAX_ZOOM = 20;
 const SHARPEN_MS = 120;
 
 /** How long each zoom takes to glide into place, in milliseconds. */
-const GLIDE = { in: 220, out: 200, box: 250 };
+
 
 /** A press that travels no further than this is a click, not a drag. */
 const CLICK_SLOP = 3;
@@ -128,9 +131,9 @@ export function Loupe() {
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
       {photo && isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : photo && cropping ? (
-        <CropView photo={photo} />
+        <PhotoTransition identity={`${photo.display}:${photo.version}:crop`}><CropView photo={photo} /></PhotoTransition>
       ) : photo ? (
-        <Canvas photo={photo} />
+        <PhotoTransition identity={`${photo.display}:${photo.version}:view`}><Canvas photo={photo} /></PhotoTransition>
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-2 text-sm text-[var(--ui-text-666666)]">
           {loading && <Loader2 className="size-4 animate-spin" />}
@@ -144,6 +147,21 @@ export function Loupe() {
 }
 
 function Canvas({ photo }: { photo: Photo }) {
+  const smoothZoom = useStore((s) => s.experimentalSmoothZoom);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    query.addEventListener("change", update);
+    update();
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const GLIDE = smoothZoom
+    ? reducedMotion ? { in: 0, out: 0, box: 0 } : { in: 320, out: 280, box: 340 }
+    : { in: 220, out: 200, box: 250 };
+  const zoomCurve = smoothZoom ? "cubic-bezier(0.22, 1, 0.36, 1)" : "ease-in-out";
+
+
   const frame = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -152,6 +170,7 @@ function Canvas({ photo }: { photo: Photo }) {
   const [screenReady, setScreenReady] = useState<string | null>(null);
   const [fitReady, setFitReady] = useState<string | null>(null);
   const [fullReady, setFullReady] = useState<string | null>(null);
+  const [fullRequested, setFullRequested] = useState<string | null>(null);
   // While a zoom is gliding or being pinched, the size the picture was drawn
   // at when that began. Otherwise null, and it is drawn at the size it is.
   const [drawnAt, setDrawnAt] = useState<number | null>(null);
@@ -348,9 +367,9 @@ function Canvas({ photo }: { photo: Photo }) {
    * `point` to the middle of the frame. Brought to the middle, not held under
    * the pointer: held there, what was aimed at ends up off in a corner.
    */
-  const zoomInOn = (point: { x: number; y: number }) => {
+  const zoomInOn = (point: { x: number; y: number }, face = false) => {
     const scale = lastLevel > 1.01 ? level(lastLevel) : actual;
-    glideTo(tight({ scale, x: -point.x * scale, y: -point.y * scale }), GLIDE.in);
+    glideTo(tight(face ? faceZoomTarget(point, scale, box.h) : { scale, x: -point.x * scale, y: -point.y * scale }), GLIDE.in);
   };
   const backToFit = () => shrinkTo(FIT, GLIDE.out);
 
@@ -381,13 +400,19 @@ function Canvas({ photo }: { photo: Photo }) {
     if (command.nonce === seen.current) return;
     seen.current = command.nonce;
     const z = now.current;
-    if (command.kind === "centre") {
-      // The middle of the photo and back, whatever was looked at before.
+    if (command.kind === "centre" || command.kind === "face") {
+      // Separate centre and face commands; preserve saved shortcut bindings.
       if (z.scale > 1.001) {
         rememberLevel(z.scale);
         backToFit();
       } else {
-        zoomInOn({ x: 0, y: 0 });
+        const s = useStore.getState();
+        const faces = s.ai[photo.index]?.faces ?? [];
+        const face = command.kind === "face" && s.aiEnabled
+          ? (s.spaceZoomToFace ? highestScoringFace(faces, photo) : null) ?? firstVisibleFace(faces, photo)
+          : null;
+        const at = face ? uprightToShown(photo, { x: face.x + face.w / 2, y: face.y + face.h / 2 }) : { x: 0.5, y: 0.5 };
+        zoomInOn({ x: (at.x - 0.5) * shown.w, y: (at.y - 0.5) * shown.h }, face !== null);
       }
       return;
     }
@@ -421,8 +446,8 @@ function Canvas({ photo }: { photo: Photo }) {
     const at = uprightToShown(photo, faceZoom);
     const point = { x: (Math.min(1, Math.max(0, at.x)) - 0.5) * shown.w, y: (Math.min(1, Math.max(0, at.y)) - 0.5) * shown.h };
     const z = now.current;
-    if (z.scale > 1.001) glideTo(tight({ scale: z.scale, x: -point.x * z.scale, y: -point.y * z.scale }), GLIDE.in);
-    else zoomInOn(point);
+    if (z.scale > 1.001) glideTo(tight(faceZoomTarget(point, z.scale, box.h)), GLIDE.in);
+    else zoomInOn(point, true);
   }, [faceZoom]);
 
   const zoomed = zoom.scale > 1.001;
@@ -569,6 +594,12 @@ function Canvas({ photo }: { photo: Photo }) {
   // than the window-sized rendering was made to go. The full-size picture is
   // the file's own, so drawing from it makes nothing.
   const wantFull = zoomed || (known && magnified(photo) > WORTH_FULL);
+  // Keep this photo's decoded full layer through zoom-out and the next zoom-in.
+  // Unmounting it at fit replaced it with a different preview mid-animation and
+  // made WebKit decode/promote it again on every click. Never retain another photo.
+  useLayoutEffect(() => {
+    if (wantFull) setFullRequested(fullUrl);
+  }, [wantFull, fullUrl]);
 
   // A self-test times these pictures arriving cold, so nothing is held for it.
   const holding = !useStore((s) => s.selfTest);
@@ -641,7 +672,7 @@ function Canvas({ photo }: { photo: Photo }) {
               marginLeft: -laid.w / 2,
               marginTop: -laid.h / 2,
               transform,
-              transition: glide > 0 ? `transform ${glide}ms ease-in-out` : undefined,
+              transition: glide > 0 ? `transform ${glide}ms ${zoomCurve}` : undefined,
             }}
           >
             {/* The pictures, in one box that is always here: for a photo with
@@ -682,17 +713,24 @@ function Canvas({ photo }: { photo: Photo }) {
                 onLoad={() => setFitReady(fitUrl)}
               />
             )}
-            {wantFull && (
+            {(wantFull || fullRequested === fullUrl) && (
               <img
                 key={fullUrl}
                 src={fullUrl}
                 alt=""
                 draggable={false}
-                className={cn(layer, "transition-opacity duration-150", fullReady === fullUrl ? "opacity-100" : "opacity-0")}
-                onLoad={() => setFullReady(fullUrl)}
+                decoding="sync"
+                className={cn(layer, fullReady === fullUrl ? "opacity-100" : "opacity-0")}
+                onLoad={(e) => {
+                  const image = e.currentTarget;
+                  void image.decode().then(() => {
+                    if (image.isConnected) setFullReady(fullUrl);
+                  }).catch(() => { /* Keep the already visible preview if decoding fails. */ });
+                }}
               />
             )}
             </div>
+            <FaceOverlays photo={photo} />
           </div>
         )}
         {marquee && <MarqueeBox marquee={marquee} frame={box} />}

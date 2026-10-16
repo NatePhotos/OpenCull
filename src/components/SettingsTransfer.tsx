@@ -16,7 +16,7 @@ export function SettingsTransfer() {
   const exportFile = async () => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const contents = exportSettings({ ...useStore.getState(), theme: load("theme", "dark"), visualTheme: load("visualTheme", "default"), visualThemeFont: load("visualThemeFont", true), font: load("font", { choice: "system", family: "" }), interfaceScale: load("interfaceScale", 1), homeLayout: load("homeLayout", "spacious"), shortcuts: load("shortcuts", DEFAULTS), ...snapshotPreferences() });
+      const contents = exportSettings({ ...useStore.getState(), theme: load("theme", "dark"), showFeaturedImage: load("showFeaturedImage", false), font: load("font", { choice: "system", family: "" }), interfaceScale: load("interfaceScale", 1), homeLayout: load("homeLayout", "spacious"), shortcuts: load("shortcuts", DEFAULTS), ...snapshotPreferences() });
       if (inTauri) {
         if (await invoke<boolean>("config_export_file", { contents })) setMessage("Settings exported.");
       } else {

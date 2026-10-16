@@ -15,7 +15,7 @@ type Region = { x: number; y: number; w: number; h: number };
 /** What the panel draws: one photo's faces, and the pictures to cut them from. */
 interface Showing {
   photo: Photo;
-  faces: { face: AiFace; eyes: number | null }[];
+  faces: { face: AiFace; eyes: number | null; index: number }[];
   /** With no faces: the part of the photo it is about, shown in their place. */
   key: Region | null;
   /** The camera's screen-sized preview, if it is decoded and waiting. */
@@ -96,7 +96,7 @@ export function FacePanel() {
   }, []);
 
   const faces = (result?.faces ?? [])
-    .map((face, i) => ({ face, eyes: compared?.eyes[i] ?? null }))
+    .map((face, i) => ({ face, eyes: compared?.eyes[i] ?? null, index: i }))
     .filter(({ face }) => background || face.subject)
     .sort((a, b) => Number(b.face.subject) - Number(a.face.subject) || a.face.x - b.face.x);
 
@@ -163,10 +163,10 @@ export function FacePanel() {
         {showing && grid ? (
           <div className="flex flex-wrap content-start" style={{ gap: GAP, padding: `0 ${PAD}px ${PAD}px` }}>
             {showing.key && <KeyCell region={showing.key} photo={showing.photo} width={grid.cellW} height={grid.cellH} softSrc={showing.soft} sharpSrc={showing.sharp} fullSrc={sharpest} />}
-            {showing.faces.map(({ face, eyes }, at) => (
+            {showing.faces.map(({ face, eyes, index }, at) => (
               // Kept by place, not by face: the cell stays and its picture
               // changes, rather than every cell being built again per photo.
-              <FaceCell key={at} face={face} eyes={eyes} photo={showing.photo} width={grid.cellW} height={grid.cellH} softSrc={showing.soft} sharpSrc={showing.sharp} fullSrc={sharpest} />
+              <FaceCell key={at} face={face} faceIndex={index} eyes={eyes} photo={showing.photo} width={grid.cellW} height={grid.cellH} softSrc={showing.soft} sharpSrc={showing.sharp} fullSrc={sharpest} />
             ))}
           </div>
         ) : (
@@ -244,13 +244,35 @@ function Cut({ region, fill, closer = false, photo, width, height, softSrc, shar
  * `eyes` is how open this person's eyes are as a share of their own best in
  * the burst, or null where there is nothing to compare them with.
  */
-function FaceCell({ face, eyes, photo, width, height, softSrc, sharpSrc, fullSrc }: { face: AiFace; eyes: number | null; photo: Photo; width: number; height: number; softSrc: string | null; sharpSrc: string | null; fullSrc: string | null }) {
+function FaceCell({ face, faceIndex, eyes, photo, width, height, softSrc, sharpSrc, fullSrc }: { face: AiFace; faceIndex: number; eyes: number | null; photo: Photo; width: number; height: number; softSrc: string | null; sharpSrc: string | null; fullSrc: string | null }) {
+  const spotlight = useStore((s) => s.experimentalFaceSpotlight);
+  const clear = () => {
+    const s = useStore.getState();
+    if (s.hoveredFace?.face === face && s.hoveredFace.photoIndex === photo.index && s.hoveredFace.display === photo.display && s.hoveredFace.version === photo.version) s.set("hoveredFace", null);
+  };
+  useEffect(() => () => clear(), [face, photo.index, photo.display, photo.version, spotlight]);
+  const highlight = () => {
+    const s = useStore.getState();
+    const current = s.photos[s.current];
+    if (s.experimentalFaceSpotlight && s.aiEnabled && s.showFaces && s.current === photo.index && current?.display === photo.display && current.version === photo.version && s.ai[photo.index]?.faces.includes(face)) {
+      s.set("hoveredFace", { photoIndex: photo.index, display: photo.display, version: photo.version, face });
+    }
+  };
   return (
     <button
       type="button"
+      aria-label={`Face ${faceIndex + 1}, ${face.subject ? "subject" : "background"}${face.sharpness !== null ? `, sharpness ${Math.round(face.sharpness)} out of 100` : ""}`}
       title={face.reason ?? "Zoom to this face"}
-      onClick={() => useStore.getState().zoomToFace(face)}
-      className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[var(--ui-surface-333333)]", !face.subject && "opacity-40")}
+      onClick={() => {
+        const s = useStore.getState();
+        const current = s.photos[s.current];
+        if (s.current === photo.index && current?.display === photo.display && current.version === photo.version) s.zoomToFace(face);
+      }}
+      onPointerEnter={highlight}
+      onPointerLeave={clear}
+      onFocus={highlight}
+      onBlur={clear}
+      className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[var(--ui-surface-333333)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand", !face.subject && "opacity-40")}
       style={{ width, height }}
     >
       <Cut region={face} fill={FILL} photo={photo} width={width} height={height} softSrc={softSrc} sharpSrc={sharpSrc} fullSrc={fullSrc} />

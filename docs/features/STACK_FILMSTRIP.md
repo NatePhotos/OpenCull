@@ -1,0 +1,1 @@
+Stack view always puts the group overview in the full-width bottom row, with the active stack's frames above it beneath the photo. Both strips retain their own resize control and height. The existing show-filmstrip preference hides both. The Classic layout and placement setting have been removed; old saved placement preferences are ignored.

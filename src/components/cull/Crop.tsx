@@ -4,7 +4,7 @@ import { FlipHorizontal2, FlipVertical2, Grid3x3, Lock, LockOpen, Repeat2, Rotat
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
-import { CUSTOM, dragged, MOST_TILT, OVERLAY_NAMES, OVERLAYS, SHAPES, useCrop, type Overlay } from "@/lib/crop";
+import { CUSTOM, dragged, scrolledCrop, MOST_TILT, OVERLAY_NAMES, OVERLAYS, SHAPES, useCrop, type Overlay } from "@/lib/crop";
 import { MIRROR_ACROSS, MIRROR_DOWN, QUARTER_LEFT, QUARTER_RIGHT, slidOn, turnTransform } from "@/lib/framing";
 import { isMac } from "@/lib/shortcuts";
 import { useStore } from "@/lib/store";
@@ -67,6 +67,27 @@ export function CropView({ photo }: { photo: Photo }) {
 
   // Where the picture is held while a handle is dragged; null when it follows the crop.
   const [held, setHeld] = useState<{ s: number; cx: number; cy: number } | null>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    let lastWheel = -Infinity;
+    const wheel = (event: WheelEvent) => {
+      if (held || (event.target instanceof Element && event.target.closest("[data-crop-controls], input, button, [role=slider]"))) return;
+      const state = useCrop.getState();
+      if (state.index !== photo.index || state.lining || !event.deltaY) return;
+      event.preventDefault();
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? el.clientHeight : 1);
+      const next = scrolledCrop(state.crop, delta, state.view);
+      if (Math.abs(next.w - state.crop.w) < .001 && Math.abs(next.h - state.crop.h) < .001) return;
+      const now = performance.now();
+      if (now - lastWheel > 180) state.mark();
+      lastWheel = now;
+      state.set(next);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, [photo.index, held]);
+
   const [settling, setSettling] = useState(false);
   const [line, setLine] = useState<{ from: Point; to: Point } | null>(null);
   const settle = useRef<number | undefined>(undefined);
@@ -168,6 +189,7 @@ export function CropView({ photo }: { photo: Photo }) {
   return (
     <div
       ref={stage}
+      data-crop-stage=""
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => {
         const within = stage.current!.getBoundingClientRect();
@@ -321,6 +343,7 @@ function CropBar() {
 
   return (
     <div
+      data-crop-controls=""
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       className="absolute bottom-5 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-2.5 rounded-xl border border-white/10 bg-[var(--ui-surface-2a2a30)]/90 px-3 py-2 text-xs text-[var(--ui-text-d9d9d9)] shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"

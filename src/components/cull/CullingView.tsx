@@ -1,8 +1,10 @@
+import { AiAccelerationError } from "./AiAccelerationError";
+import { MotionRegion } from "./InterfaceMotion";
 import { FolderSearch, Images } from "lucide-react";
 
 import { ReviewBar } from "@/components/ingest/ReviewBar";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/store";
+import { filmstripVisible, useStore } from "@/lib/store";
 import { useFaceScan } from "@/lib/faces";
 import { useWarmAhead } from "@/lib/warm";
 import { ExifPanel } from "./ExifPanel";
@@ -10,7 +12,7 @@ import { FacePanel } from "./FacePanel";
 import { Filmstrip } from "./Filmstrip";
 import { Grid } from "./Grid";
 import { Loupe } from "./Loupe";
-import { SceneView } from "./SceneView";
+import { SceneOverview, SceneView } from "./SceneView";
 import { Toolbar } from "./Toolbar";
 
 /** How narrow and how wide each side panel may be, as a share of the workspace. */
@@ -37,7 +39,7 @@ const held = (panel: PanelWidth, width: number) => `clamp(${PANEL_LIMITS[panel].
 export function CullingView() {
   const viewMode = useStore((s) => s.viewMode);
   const showExif = useStore((s) => s.showExif);
-  const showFilmstrip = useStore((s) => s.showFilmstrip);
+  const showFilmstrip = useStore(filmstripVisible);
   const showFaces = useStore((s) => s.showFaces);
   const exifPanelWidth = useStore((s) => s.exifPanelWidth);
   const facePanelWidth = useStore((s) => s.facePanelWidth);
@@ -49,6 +51,7 @@ export function CullingView() {
     <div className="flex size-full flex-col bg-canvas">
       <ReviewBar />
       <Toolbar />
+      <AiAccelerationError />
       <div className="flex min-h-0 flex-1">
         {empty ? (
           <EmptyFolder />
@@ -58,34 +61,32 @@ export function CullingView() {
           </div>
         ) : (
           <>
-            {showExif && (
-              <div
+            {(
+              <MotionRegion open={showExif} width={held("exifPanelWidth", exifPanelWidth)}
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
-                style={{ width: held("exifPanelWidth", exifPanelWidth) }}
               >
                 <ExifPanel />
-              </div>
+              </MotionRegion>
             )}
             {showExif && <PanelHandle panel="exifPanelWidth" direction={1} />}
             <div className="min-w-0 flex-1 overflow-hidden">
               {viewMode === "scene" ? <SceneView /> : <Loupe />}
             </div>
             {showFaces && <PanelHandle panel="facePanelWidth" direction={-1} />}
-            {showFaces && (
-              <div
+            {(
+              <MotionRegion open={showFaces} width={held("facePanelWidth", facePanelWidth)}
                 className="h-full min-h-0 shrink-0 overflow-hidden bg-panel"
-                style={{ width: held("facePanelWidth", facePanelWidth) }}
               >
                 <FacePanel />
-              </div>
+              </MotionRegion>
             )}
           </>
         )}
       </div>
-      {showFilmstrip && viewMode === "loupe" && !empty && (
-        <div className="border-t border-[var(--ui-line-333333)]">
-          <Filmstrip />
-        </div>
+      {(viewMode === "loupe" || viewMode === "scene") && !empty && (
+        <MotionRegion open={showFilmstrip}><div className="border-t border-[var(--ui-line-333333)]">
+          {viewMode === "scene" ? <SceneOverview /> : <Filmstrip />}
+        </div></MotionRegion>
       )}
     </div>
   );

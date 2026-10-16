@@ -1,0 +1,13 @@
+# Experimental motion-blur checks
+
+Settings → AI → Motion blur enables detection, a visible **Motion blur** thumbnail label, and a counted **Motion blur** filter in the filter bar. Detected frames' group scores are multiplied by 0.3 before ranking. Existing Basic/Advanced face judgments remain intact.
+
+**Mark motion blur one star + Reject** is enabled by default but acts only when detection is enabled. It gives currently unrated photos one star and Reject together, preserves explicit picks/colours/existing star ratings, and does not advance Speed Cull. Changes use the normal undo and sidecar writer. In card review they remain session decisions; source files are untouched. Manual rating edits and undo suppress further automatic ratings for those photos during the current session. Disabling detection does not undo marks already applied. Existing rated photos are not retroactively rejected.
+
+This is a conservative pixel heuristic, not a new trained neural model or a calibrated probability. It checks directional-gradient autocorrelation and anisotropy across several native-resolution patches of up to three main faces, or the subject region of a photo with no faces. Direction and streak scale must agree across at least three patches. Low sharpness alone is not labelled motion blur. Small/flat regions can be inconclusive; repeated textures, panning and artistic blur can be misclassified. Synthetic tests cover horizontal, vertical and diagonal streaks, sharp/noisy texture, isotropic blur, flat regions, lines and blur outside the subject. Accuracy on a representative real shoot has not been established.
+
+Face analysis and motion evidence are cached separately in the same records. Enabling this feature enriches existing face results by reading the pixels once, without running their ONNX models again or invalidating the face cache. Subsequent opens reuse both. The toolbar identifies motion-only checks separately. Preferences support Settings import/export; transient filters and manual-session exclusions are not exported.
+
+References informing the approach: [Shi, Xu and Jia, Discriminative Blur Detection Features](https://www.cse.cuhk.edu.hk/leojia/projects/dblurdetect/papers/blurdetect_cvpr14.pdf) and [OpenCV's linear motion-blur model](https://docs.opencv.org/4.13.0/d1/dfd/tutorial_motion_deblur_filter.html). This detector is an independent heuristic, not an implementation of the paper's trained system.
+
+The version 2 detector checks sampling scales 1, 2, and 3 to catch longer directional streaks. Older motion results are enriched again without rerunning face inference. This remains an experimental heuristic, not a calibrated probability of blur.
