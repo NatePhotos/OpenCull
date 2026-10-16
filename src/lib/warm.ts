@@ -1,3 +1,4 @@
+import { isVideo } from "./media";
 // Prepares a folder's loupe previews in the background, so that any photo
 // opens at once and not only the ones next to the one being looked at.
 
@@ -54,9 +55,9 @@ export function useWarmAhead(): void {
       const near: { path: string; version: string }[] = [];
       for (let d = 1; near.length < REACH && (at + d < view.length || at - Math.floor(d / 2) >= 0); d++) {
         const ahead = photos[view[at + d]];
-        if (ahead) near.push({ path: ahead.display, version: ahead.version });
+        if (ahead && !isVideo(ahead.path)) near.push({ path: ahead.display, version: ahead.version });
         const behind = d % 2 === 0 ? photos[view[at - d / 2]] : undefined;
-        if (behind) near.push({ path: behind.display, version: behind.version });
+        if (behind && !isVideo(behind.path)) near.push({ path: behind.display, version: behind.version });
       }
       centre.current = { view, at, size: fitSize };
       void api.warm(near, fitSize).then((n) => useStore.setState({ warmRemaining: n, warmTotal: n }));

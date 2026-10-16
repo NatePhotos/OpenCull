@@ -14,16 +14,21 @@ pub mod faces;
 pub mod framing;
 pub mod graphics;
 pub mod ingest;
+pub mod multicard;
 pub mod pool;
 pub mod preview;
 pub mod raw;
+pub mod review;
 pub mod scan;
 pub mod serve;
 pub mod sidecar;
+pub mod settings;
 pub mod times;
 pub mod transfer;
 pub mod update;
 pub mod xmp;
+#[cfg(target_os = "linux")]
+pub mod video_stream;
 
 use std::sync::Arc;
 
@@ -35,10 +40,11 @@ use serve::Previews;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let graphics = graphics::initialize();
+
     if ai::acceleration::requested() {
         eprintln!("[ai] CUDA requested; one shared model worker, CPU fallback on failure");
     }
-    let graphics = graphics::initialize();
     let launch = Launch::from_args();
     let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_updater::Builder::new().build());
     if !launch.self_test {
@@ -52,6 +58,13 @@ pub fn run() {
     builder
         .manage(graphics)
         .setup(move |app| {
+            // The dev page is HTTP, while previews use a custom scheme.
+            // WebKitGTK otherwise rejects those cross-origin image requests.
+            #[cfg(all(target_os = "linux", dev))]
+            app.get_webview_window("main").expect("main window").with_webview(|webview| {
+                use webkit2gtk::WebViewExt;
+                webview.inner().set_cors_allowlist(&["opencull://localhost/*"]);
+            })?;
             #[cfg(target_os = "linux")]
             if graphics.effective != graphics::Profile::Auto {
                 app.get_webview_window("main").expect("main window").with_webview(move |webview| {
@@ -118,6 +131,7 @@ pub fn run() {
                 // painting.
                 window.show().ok();
             }
+            app.manage(settings::Settings(std::sync::Mutex::new(settings::location(app.handle())?)));
             app.manage(launch);
 
             // Bring the cache back under its limit, well away from startup.
@@ -159,8 +173,19 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            ai::acceleration::ai_acceleration_info,
+            review::review_save,
+            review::review_list,
+            review::review_remove,
+            review::review_load,
+            commands::review_copy,
+            settings::config_load,
+            settings::config_set,
+            settings::config_set_many,
+            settings::config_export_file,
+            commands::video_source,
             graphics::graphics_info,
+
+            ai::acceleration::ai_acceleration_info,
             commands::app_info,
             commands::report,
             commands::finish_self_test,
@@ -191,6 +216,7 @@ pub fn run() {
             commands::ingest_volumes,
             commands::ingest_browse,
             commands::ingest_scan,
+            commands::ingest_sources,
             commands::ingest_details,
             commands::ingest_conflicts,
             commands::ingest_copy,

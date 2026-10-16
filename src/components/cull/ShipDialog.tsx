@@ -119,7 +119,7 @@ export function ShipDialog() {
   const open = useStore((s) => s.shipOpen);
   return (
     <Dialog open={open} onOpenChange={(o) => useStore.getState().set("shipOpen", o)}>
-      <DialogContent showCloseButton={false} className="h-[520px] gap-0 overflow-hidden border-0 bg-[#1a1a21] p-0 sm:max-w-[840px]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DialogContent showCloseButton={false} className="h-[520px] gap-0 overflow-hidden border-0 bg-[var(--ui-surface-1a1a21)] p-0 sm:max-w-[840px]" onOpenAutoFocus={(e) => e.preventDefault()}>
         {/* Only exists while Ship is open, so it reads the folder's ratings
             when asked to and not on every change while culling. */}
         <Ship />
@@ -292,13 +292,13 @@ function Ship() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-white">
+    <div className="flex h-full min-h-0 flex-col text-foreground">
       <header className="flex items-center px-6 py-4">
         <div className="flex-1">
           <DialogTitle className="text-lg font-bold">Ship</DialogTitle>
-          <DialogDescription className="mt-0.5 text-xs text-[#737373]">Export, copy, or open images in your editing app</DialogDescription>
+          <DialogDescription className="mt-0.5 text-xs text-[var(--ui-text-737373)]">Export, copy, or open images in your editing app</DialogDescription>
         </div>
-        <button type="button" aria-label="Close" onClick={close} className="rounded-full bg-[#4d4d4d] p-1 text-[#1a1a21] hover:bg-[#666]">
+        <button type="button" aria-label="Close" onClick={close} className="rounded-full bg-[var(--ui-surface-4d4d4d)] p-1 text-[var(--ui-text-1a1a21)] hover:bg-[var(--ui-surface-666666)]">
           <X className="size-3" strokeWidth={3.5} />
         </button>
       </header>
@@ -314,9 +314,9 @@ function Ship() {
                 key={mode}
                 type="button"
                 onClick={() => change({ mode })}
-                className={cn("flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px]", settings.mode === mode ? "bg-[#59a6ff]/15 text-white" : "text-[#b3b3b3] hover:bg-white/[0.04]")}
+                className={cn("flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px]", settings.mode === mode ? "bg-[#59a6ff]/15 text-white" : "text-[var(--ui-text-b3b3b3)] hover:bg-white/[0.04]")}
               >
-                <span className={cn("size-3.5 rounded-full border-[1.5px]", settings.mode === mode ? "border-[#59a6ff] bg-[#59a6ff] shadow-[inset_0_0_0_2.5px_#1a1a21]" : "border-[#595959]")} />
+                <span className={cn("size-3.5 rounded-full border-[1.5px]", settings.mode === mode ? "border-[#59a6ff] bg-[#59a6ff] shadow-[inset_0_0_0_2.5px_#1a1a21]" : "border-[var(--ui-line-595959)]")} />
                 {label}
               </button>
             ))}
@@ -324,7 +324,7 @@ function Ship() {
 
           {settings.mode === "ratings" && (
             <div className="mx-5 mt-3.5 space-y-2.5 border-t border-white/[0.07] pt-3.5">
-              <div className="text-[11px] text-[#808080]">Select ratings to include</div>
+              <div className="text-[11px] text-[var(--ui-text-808080)]">Select ratings to include</div>
               <div className="flex gap-1.5">
                 {/* The filter bar's symbols, in the filter bar's order. */}
                 {(["pick", "none", "reject"] as Flag[]).map((flag) => (
@@ -348,7 +348,7 @@ function Ship() {
                     count={count((p) => p.rating === r)}
                     onClick={() => change({ ratings: toggleIn(settings.ratings, r) })}
                   >
-                    <RatingSymbol rating={r} lit={settings.ratings.includes(r)} behind={settings.ratings.includes(r) ? "bg-[#27384f]" : "bg-[#28282e]"} />
+                    <RatingSymbol rating={r} lit={settings.ratings.includes(r)} behind={settings.ratings.includes(r) ? "bg-[#27384f]" : "bg-[var(--ui-surface-28282e)]"} />
                   </Chip>
                 ))}
               </div>
@@ -364,7 +364,7 @@ function Ship() {
 
           <div className="flex-1" />
           <Rule />
-          <div className="flex items-center gap-2 px-5 py-3 text-xs text-[#8c8c8c]">
+          <div className="flex items-center gap-2 px-5 py-3 text-xs text-[var(--ui-text-8c8c8c)]">
             <Images className="size-3.5" />
             {images.length.toLocaleString()} of {everything.length.toLocaleString()} selected
             <span className="flex-1" />
@@ -384,7 +384,7 @@ function Ship() {
               {apps.map((app) => (
                 <DropdownMenuItem key={app.id} disabled={!app.installed} onSelect={() => change({ editor: app.id, choseEditor: true })}>
                   {app.name}
-                  {!app.installed && <span className="ml-auto pl-4 text-[11px] text-[#737373]">not installed</span>}
+                  {!app.installed && <span className="ml-auto pl-4 text-[11px] text-[var(--ui-text-737373)]">not installed</span>}
                 </DropdownMenuItem>
               ))}
             </Choice>
@@ -407,11 +407,11 @@ function Ship() {
               <DropdownMenuItem onSelect={() => change({ operation: "move" })}>Move files to…</DropdownMenuItem>
             </Choice>
             <div className="flex items-center gap-2">
-              <span className={cn("min-w-0 flex-1 truncate rounded-md bg-black/25 px-3 py-2 text-xs", settings.destination ? "text-[#d9d9d9]" : "text-[#737373]")} title={settings.destination ?? undefined} dir="rtl">
+              <span className={cn("min-w-0 flex-1 truncate rounded-md bg-black/25 px-3 py-2 text-xs", settings.destination ? "text-[var(--ui-text-d9d9d9)]" : "text-[var(--ui-text-737373)]")} title={settings.destination ?? undefined} dir="rtl">
                 {/* Cut from the left, so the folder's own name is what stays in view. */}
                 <bdi>{settings.destination ?? "Choose a destination folder"}</bdi>
               </span>
-              <button type="button" onClick={() => void browse()} className="shrink-0 rounded-md bg-white/[0.08] px-3 py-2 text-xs font-medium text-[#d9d9d9] hover:bg-white/[0.12]">
+              <button type="button" onClick={() => void browse()} className="shrink-0 rounded-md bg-white/[0.08] px-3 py-2 text-xs font-medium text-[var(--ui-text-d9d9d9)] hover:bg-white/[0.12]">
                 Browse
               </button>
             </div>
@@ -421,26 +421,26 @@ function Ship() {
 
       <Rule />
       <footer className="flex h-[60px] shrink-0 items-center gap-3 px-6">
-        {blocked ? <CircleAlert className="size-3.5 text-[#8c8c8c]" /> : <CircleCheck className="size-3.5 fill-[#4dd980] text-[#1a1a21]" />}
-        <span className={cn("text-xs", blocked ? "text-[#8c8c8c]" : "text-[#bfbfbf]")}>{blocked ?? `${images.length.toLocaleString()} image${images.length === 1 ? "" : "s"} ready to ship`}</span>
+        {blocked ? <CircleAlert className="size-3.5 text-[var(--ui-text-8c8c8c)]" /> : <CircleCheck className="size-3.5 fill-[#4dd980] text-[var(--ui-text-1a1a21)]" />}
+        <span className={cn("text-xs", blocked ? "text-[var(--ui-text-8c8c8c)]" : "text-[var(--ui-text-bfbfbf)]")}>{blocked ?? `${images.length.toLocaleString()} image${images.length === 1 ? "" : "s"} ready to ship`}</span>
         <span className="flex-1" />
         {shipping ? (
           <>
             <span className="h-1 w-40 overflow-hidden rounded-full bg-white/10">
               <span className="block h-full rounded-full bg-[#59a6ff] transition-[width] duration-150" style={{ width: `${Math.round(progress * 100)}%` }} />
             </span>
-            <span className="text-xs text-[#8c8c8c]">Shipping…</span>
+            <span className="text-xs text-[var(--ui-text-8c8c8c)]">Shipping…</span>
           </>
         ) : (
           <>
-            <button type="button" onClick={close} className="rounded-md px-3.5 py-2 text-[13px] text-[#b3b3b3] hover:bg-white/[0.06]">
+            <button type="button" onClick={close} className="rounded-md px-3.5 py-2 text-[13px] text-[var(--ui-text-b3b3b3)] hover:bg-white/[0.06]">
               Cancel
             </button>
             <button
               type="button"
               disabled={blocked !== null}
               onClick={() => void ship()}
-              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[#2e2e2e] text-[#737373]" : "bg-gradient-to-r from-[#618cfa] to-[#8c52eb] text-white hover:brightness-110")}
+              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[var(--ui-surface-2e2e2e)] text-[var(--ui-text-737373)]" : "bg-gradient-to-r from-[#618cfa] to-[#8c52eb] text-white hover:brightness-110")}
             >
               <Send className="size-3.5 fill-current" />
               Ship
@@ -505,7 +505,7 @@ function Told({ title, body, onClose }: { title: string; body: string | null; on
 const Rule = () => <div className="h-px shrink-0 bg-white/[0.08]" />;
 
 function PanelTitle({ children }: { children: ReactNode }) {
-  return <div className="px-5 pb-3 pt-[18px] text-xs font-semibold uppercase tracking-wider text-[#808080]">{children}</div>;
+  return <div className="px-5 pb-3 pt-[18px] text-xs font-semibold uppercase tracking-wider text-[var(--ui-text-808080)]">{children}</div>;
 }
 
 /** One thing Ship can do, with a switch; its options show only while it is on. */
@@ -513,7 +513,7 @@ function Action({ title, on, onChange, children }: { title: string; on: boolean;
   return (
     <div className="rounded-lg bg-white/[0.04] p-3.5">
       <div className="flex items-center">
-        <span className={cn("flex-1 text-[13px] font-medium", on ? "text-white" : "text-[#8c8c8c]")}>{title}</span>
+        <span className={cn("flex-1 text-[13px] font-medium", on ? "text-white" : "text-[var(--ui-text-8c8c8c)]")}>{title}</span>
         <Switch checked={on} onCheckedChange={onChange} />
       </div>
       {on && <div className="mt-3 space-y-2">{children}</div>}
@@ -526,9 +526,9 @@ function Choice({ label, children }: { label: string; children: ReactNode }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="flex w-full items-center rounded-md bg-black/25 px-3 py-2 text-left text-xs text-[#d9d9d9] hover:bg-black/35">
+        <button type="button" className="flex w-full items-center rounded-md bg-black/25 px-3 py-2 text-left text-xs text-[var(--ui-text-d9d9d9)] hover:bg-black/35">
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          <ChevronDown className="size-3.5 text-[#808080]" />
+          <ChevronDown className="size-3.5 text-[var(--ui-text-808080)]" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 min-w-[260px]">
@@ -548,7 +548,7 @@ function Chip({ title, on, count, onClick, children }: { title: string; on: bool
       className={cn("flex h-7 items-center gap-2 rounded-md border px-2 [&_svg]:size-[13px]", on ? "border-[#59a6ff] bg-[#59a6ff]/20" : "border-transparent bg-white/[0.06] hover:bg-white/[0.1]")}
     >
       {children}
-      <span className={cn("text-[10px] tabular-nums", on ? "text-[#bfdcff]" : "text-[#737373]")}>{count.toLocaleString()}</span>
+      <span className={cn("text-[10px] tabular-nums", on ? "text-[#bfdcff]" : "text-[var(--ui-text-737373)]")}>{count.toLocaleString()}</span>
     </button>
   );
 }

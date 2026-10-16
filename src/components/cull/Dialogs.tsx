@@ -1,6 +1,7 @@
+import { SettingsTransfer } from "@/components/SettingsTransfer";
 import { GraphicsSettings } from "@/components/GraphicsSettings";
 import { useEffect, useRef, useState } from "react";
-import { HardDrive, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
+import { HardDrive, PanelsTopLeft, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -12,6 +13,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { FontSettings } from "@/components/FontSettings";
+import { ThemeSettings } from "@/components/ThemeSettings";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -116,16 +119,16 @@ export function ShortcutsDialog({ bindings, onChange, onRecording }: { bindings:
         <div className="grid grid-cols-2 gap-x-8 gap-y-5">
           {SECTIONS.map((section) => (
             <div key={section.title} className="space-y-1.5">
-              <div className="text-[10px] font-bold uppercase text-[#737373]">{section.title}</div>
+              <div className="text-[10px] font-bold uppercase text-[var(--ui-text-737373)]">{section.title}</div>
               {section.actions.map(([action, label]) => (
-                <div key={action} className="flex items-center justify-between gap-3 text-[13px] text-[#d9d9d9]">
+                <div key={action} className="flex items-center justify-between gap-3 text-[13px] text-[var(--ui-text-d9d9d9)]">
                   {label}
                   <button
                     type="button"
                     onClick={() => setRecording(recording === action ? null : action)}
                     className={cn(
                       "min-w-12 rounded border px-2 py-0.5 font-mono text-[11px]",
-                      recording === action ? "border-brand bg-brand/15 text-brand" : "border-[#3a3a44] bg-white/[0.04] text-[#bfbfbf] hover:border-[#595959]",
+                      recording === action ? "border-brand bg-brand/15 text-brand" : "border-[var(--ui-line-3a3a44)] bg-white/[0.04] text-[var(--ui-text-bfbfbf)] hover:border-[var(--ui-line-595959)]",
                     )}
                   >
                     {recording === action ? "press…" : bindings[action].code ? comboLabel(bindings[action]) : "—"}
@@ -192,9 +195,10 @@ export function SettingsDialog() {
 /** How long the cache limit is left alone before it is acted on. */
 const LIMIT_SETTLE_MS = 800;
 
-type SettingsTab = "culling" | "zoom" | "ai" | "storage" | "keyboard";
+type SettingsTab = "layout" | "culling" | "zoom" | "ai" | "storage" | "keyboard";
 const SETTINGS_TABS: [SettingsTab, string, LucideIcon][] = [
   ["culling", "Culling", Star],
+  ["layout", "Layout", PanelsTopLeft],
   ["zoom", "Zoom", ZoomIn],
   ["ai", "AI", ScanFace],
   ["storage", "Storage", HardDrive],
@@ -280,7 +284,32 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
       {/* One height for every tab, so the window does not jump about as
           they are stepped through; a tab with more than fits scrolls. */}
       <div className="h-[430px] overflow-x-hidden overflow-y-auto pr-1">
+        <TabsContent value="layout" className="flex flex-col gap-4">
+          {([
+            ["showFilmstrip", "Filmstrip"], ["showFaces", "Face panel"],
+            ["showExif", "EXIF panel"], ["showHistogram", "Histogram in EXIF panel"],
+            ["showInfo", "Information overlay"], ["showRatingBar", "Rating bar"],
+            ["showFilterBar", "Filter bar"],
+          ] as const).map(([key, title]) => (
+            <Setting key={key} title={title} detail="Also follows the existing toolbar and keyboard controls."
+              control={<Switch aria-label={title} checked={s[key]} onCheckedChange={(on) => set(key, on)} />} />
+          ))}
+          {([
+            ["filmstripHeight", "Filmstrip height", 80, 300],
+            ["exifPanelWidth", "EXIF panel width", 160, 640],
+            ["facePanelWidth", "Face panel width", 160, 800],
+          ] as const).map(([key, title, min, max]) => (
+            <Setting key={key} title={title} detail="Pixels; side panels are constrained to fit the window. Dragging a panel updates this setting too."
+              control={<label className="flex items-center gap-2"><input aria-label={title} type="range" min={min} max={max} step={1}
+                value={s[key]} onChange={(e) => set(key, Number(e.target.value))} className="w-24 accent-primary" />
+                <output className="w-8 text-right text-xs">{s[key]}</output></label>} />
+          ))}
+        </TabsContent>
         <TabsContent value="culling" className="space-y-4">
+          <FontSettings />
+          <ThemeSettings />
+          <Setting title="Ignore videos" detail="Hide video files when opening folders and ingesting cards. Turn off to include playback where the system supports the codec."
+            control={<Switch aria-label="Ignore videos" checked={s.ignoreVideos} onCheckedChange={(on) => { set("ignoreVideos", on); useStore.getState().reloadForSubfolders(); }} />} />
           <Setting
             title="Speed cull"
             detail="Moves straight on to the next photo after you pick, reject or rate one. Its key — Caps Lock unless you change it — also turns it on, whatever is set here."
@@ -317,7 +346,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
                       // The folder on screen was listed under the old setting.
                       useStore.getState().reloadForSubfolders();
                     }}
-                    className={cn("whitespace-nowrap rounded px-2.5 py-1 text-xs font-medium", s.fileKinds === kinds ? "bg-white/[0.14] text-white" : "text-[#8c8c8c] hover:text-white")}
+                    className={cn("whitespace-nowrap rounded px-2.5 py-1 text-xs font-medium", s.fileKinds === kinds ? "bg-white/[0.14] text-white" : "text-[var(--ui-text-8c8c8c)] hover:text-white")}
                   >
                     {label}
                   </button>
@@ -395,7 +424,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           <Setting
             title="Zoom to a box"
             detail={`Hold ${boxKey} and drag a box over the photo to zoom into just that part.`}
-            control={<span className="text-xs text-[#808080]">{isMac ? "⌘ drag" : "Ctrl + drag"}</span>}
+            control={<span className="text-xs text-[var(--ui-text-808080)]">{isMac ? "⌘ drag" : "Ctrl + drag"}</span>}
           />
         </TabsContent>
         <TabsContent value="ai" className="space-y-4">
@@ -426,7 +455,8 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
         </TabsContent>
         <TabsContent value="storage" className="space-y-4">
-          <GraphicsSettings />
+<SettingsTransfer />
+<GraphicsSettings />
           <Setting
             title="Prepare previews ahead"
             detail="While you are not doing anything, gets the photos around the one you are on ready, so any of them opens at once. Uses about 1 MB of disk per photo."
@@ -440,7 +470,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
                 <Button variant="outline" size="sm" className="w-7 px-0" disabled={s.cacheLimitGb <= 1} onClick={() => setLimit(s.cacheLimitGb - (s.cacheLimitGb > 10 ? 5 : 1))}>
                   −
                 </Button>
-                <span className="w-12 text-center text-xs tabular-nums text-[#d9d9d9]">{s.cacheLimitGb} GB</span>
+                <span className="w-12 text-center text-xs tabular-nums text-[var(--ui-text-d9d9d9)]">{s.cacheLimitGb} GB</span>
                 <Button variant="outline" size="sm" className="w-7 px-0" disabled={s.cacheLimitGb >= 200} onClick={() => setLimit(s.cacheLimitGb + (s.cacheLimitGb >= 10 ? 5 : 1))}>
                   +
                 </Button>
@@ -501,8 +531,8 @@ function Setting({ title, detail, control }: { title: string; detail: string; co
   return (
     <div className="flex items-start justify-between gap-6">
       <div>
-        <div className="text-[13px] font-medium text-white">{title}</div>
-        <div className="mt-0.5 text-xs leading-relaxed text-[#8c8c8c]">{detail}</div>
+        <div className="text-[13px] font-medium text-foreground">{title}</div>
+        <div className="mt-0.5 text-xs leading-relaxed text-[var(--ui-text-8c8c8c)]">{detail}</div>
       </div>
       <div className="shrink-0 pt-0.5">{control}</div>
     </div>

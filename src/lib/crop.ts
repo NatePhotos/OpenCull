@@ -19,9 +19,8 @@ type Point = { x: number; y: number };
 export const SHAPES: readonly { name: string; ratio: number }[] = [
   { name: "Original", ratio: 0 },
   { name: "1 × 1", ratio: 1 },
-  { name: "4 × 5 / 8 × 10", ratio: 5 / 4 },
-  { name: "5 × 7", ratio: 7 / 5 },
-  { name: "2 × 3 / 4 × 6", ratio: 3 / 2 },
+  { name: "4 × 5", ratio: 5 / 4 },
+  { name: "2 × 3", ratio: 3 / 2 },
   { name: "4 × 3", ratio: 4 / 3 },
   { name: "16 × 9", ratio: 16 / 9 },
 ];

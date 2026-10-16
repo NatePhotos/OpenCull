@@ -1,6 +1,6 @@
-# GPU & performance idea bundle
+# Ingest & sessions idea bundle
 
-See [BUNDLE.md](BUNDLE.md) for scope, prerequisites, validation and clone instructions. This branch is a curated subset, not the full 0.5.0 release.
+See [BUNDLE.md](BUNDLE.md) for scope, dependencies, validation and clone instructions.
 
 <a id="readme-top"></a>
 

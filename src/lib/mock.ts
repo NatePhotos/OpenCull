@@ -5,6 +5,7 @@ import type { Backend } from "./api";
 import type { Exif, Meta, Scanned } from "./types";
 
 const COUNT = 240;
+let activeImages: Scanned[];
 
 const images: Scanned[] = Array.from({ length: COUNT }, (_, i) => {
   const name = `A7V${String(2751 + i).padStart(5, "0")}.ARW`;
@@ -55,7 +56,7 @@ export const mock: Backend = {
   appInfo: () => later({ platform: "macos", version: "dev", cacheDir: "/tmp/opencull", openPath: null, selfTest: false }),
   // Untimed, so the slower path — filename order first, shooting order once
   // the metadata is in — is the one a browser tab exercises.
-  openFolder: () => later({ session: 1, images, subfolderCount: 2, leftOut: 0, times: images.map(() => null), timed: false, groups: null }, 150),
+  openFolder: (_path, _include, _kinds, members) => { activeImages = members ?? images; return later({ session: 1, images: activeImages, subfolderCount: 2, leftOut: 0, times: activeImages.map(() => null), timed: false, groups: null }, 150); },
   closeFolder: () => later(undefined),
   loadMetadata: async (_session, onEvent) => {
     // Bursts of one to six frames, a few seconds apart.
@@ -64,9 +65,9 @@ export const mock: Backend = {
     const items: Meta[] = [];
     let i = 0;
     let group = 0;
-    while (i < COUNT) {
+    while (i < activeImages.length) {
       const run = 1 + ((i * 7) % 6);
-      for (let k = 0; k < run && i < COUNT; k++, i++) {
+      for (let k = 0; k < run && i < activeImages.length; k++, i++) {
         ms += k === 0 ? 4000 + (i % 5) * 3000 : 120;
         const portrait = i % 7 === 3;
         items.push({
@@ -199,11 +200,14 @@ export const mock: Backend = {
     ]),
   ingestBrowse: (path) =>
     later(
-      path.endsWith("100MSDCF")
-        ? { folders: [], imageCount: images.length }
-        : { folders: [{ path: `${path}/DCIM`, name: "DCIM", imageCount: 0 }, { path: `${path}/Weddings`, name: "Weddings", imageCount: 0 }], imageCount: 0 },
+      path.endsWith("DCIM")
+        ? { folders: [{ path: `${path}/100CANON`, name: "100CANON", imageCount: images.length }], imageCount: 0 }
+        : path.endsWith("100CANON") || path.endsWith("Weddings")
+          ? { folders: [], imageCount: images.length }
+          : { folders: [{ path: `${path}/DCIM`, name: "DCIM", imageCount: 0 }, { path: `${path}/Weddings`, name: "Weddings", imageCount: 0 }], imageCount: 0 },
       200,
     ),
+  ingestSources: (_sources) => later(images.slice(0, 60)),
   ingestScan: () => later(images, 300),
   ingestDetails: async (paths, onFound) => {
     for (let at = 0; at < paths.length; at += 64) {

@@ -1,26 +1,28 @@
-# GPU & performance bundle
+# Ingest & sessions bundle
 
-Base: upstream OpenCull 0.4.1 (`a8c7f32bb1bd1af89022147407ac16b2142110fb`). No other idea bundle is required.
+Prerequisite: `ideas/gpu-performance`. This branch contains that bundle plus one curated ingest/session commit. Merge GPU first to review separately, or merge this branch to obtain both.
 
-Includes Linux NVIDIA renderer selection, the stable fallback compositor, automatic CUDA detection, a shared ONNX CUDA worker with CPU fallback, renderer diagnostics, desktop launch commands, and packaging both ONNX provider libraries beside the Linux executable. macOS and Windows retain their native rendering and CPU inference paths; CUDA is Linux x86-64 only.
+Includes culling cards before copying, in-place review, multi-card sessions, subfolder selection, resumable imports, session history and deleting saved sessions, optional video review, and Linux video streaming. Source deletion remains a separate explicit action. Deleting a saved session does not delete source photos.
 
-Excludes MobileCLIP, motion blur, ingest/session changes, and Wisp. CUDA file-model support is infrastructure for consumers such as MobileCLIP; it does not download or run that model here.
+## Shared changes kept together
+
+Session restoration and video/card review share the store, native commands, preference hydration and scan protocol. Their earlier settings foundation is included: configurable controls, local preferences, fonts, and basic light/grey themes. The offline Space Grotesk font and its license are included. Later Wisp, interface animation, motion-blur and MobileCLIP features are excluded. Grouping stays at the earlier face/time behavior.
 
 ## Provenance
 
-Curated from `feature/cuda-inference` (`ae472cd`) and `feature/nvidia-gpu-acceleration` (`c53903a`), plus the final versions of GPU/runtime/build files at `a1aa61c`. Relevant later changes: fallback compositor `c845b36`, automatic NVIDIA selection `dbaaf37`, desktop commands `2ea2bd9`, Vite reuse `aad55c5`, automatic CUDA `876ade0`, provider packaging `b1ae8ee`, and cross-platform path fix `a1aa61c`. Unrelated ancestry is not part of this bundle.
+Shared frontend foundation: `e937d03`; session home/history controls: `c5403ea`; completed review/session libraries, ingest components and native modules: `d8dc8a8`. Original feature commits include `29612f1`, `6633231`, `0c4f95b`, `5fad15b` (card review), `aacac1a` (multi-card), `a9ae3c9` (subfolders), `b098294`, `a823f2f`, `c5403ea` (sessions), and `a8c291e`, `0bae754`, `7e2ef6a`, `25251bf`, `06fce92` (video). These are provenance references, not inherited commit history.
 
 ## Try or merge
 
 ```sh
-git clone --branch ideas/gpu-performance --single-branch https://github.com/wispdevon/OpenCull.git
+git clone --branch ideas/ingest-sessions --single-branch https://github.com/wispdevon/OpenCull.git
 cd OpenCull
 npm ci
 npm run desktop
 ```
 
-In an upstream checkout, fetch the branch and merge it. Later idea bundles document their additional prerequisites. Use `npm run desktop -- --cpu` to force CPU inference; see `docs/CUDA-TRIAL.md` for CUDA/cuDNN requirements. NVIDIA drivers, CUDA 13 and cuDNN 9 remain host dependencies.
+Fetch and merge this branch into upstream to obtain its explicit GPU prerequisite and the ingest/session bundle. Do not merge the old restored feature tips as a substitute: their history is preserved for reference, not reorganized.
 
 ## Validation
 
-Linux: TypeScript/production frontend build; 31 frontend tests; 11 launcher tests; 275 native library tests passed, one hardware benchmark ignored. CUDA-enabled native tests compiled with `--features turbo,cuda`. This curated bundle has not been run on macOS or Windows; the full 0.5.0 release has a separate cross-platform CI run.
+Linux production frontend build; 69 frontend tests and 11 launcher tests passed; 296 native tests passed with CUDA enabled, one hardware benchmark ignored. No macOS/Windows runtime test has been performed on this curated subset. The complete 0.5.0 release is checked separately in CI.

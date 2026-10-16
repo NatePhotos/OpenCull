@@ -178,7 +178,7 @@ describe("a crop in the making", () => {
   it("swaps wide for tall and back", () => {
     const c = useCrop.getState();
     c.setShape("1 × 1");
-    c.setShape("4 × 5 / 8 × 10");
+    c.setShape("4 × 5");
     expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(5 / 4);
     c.swap();
     expect(useCrop.getState().crop.w / useCrop.getState().crop.h).toBeCloseTo(4 / 5);

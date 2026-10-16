@@ -1,3 +1,4 @@
+import { isVideo } from "@/lib/media";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Aperture, Calendar, Camera, Clock, FileText, Folder, HardDrive, Image as ImageIcon, Info, Ratio, Sun, Target, Timer, X } from "lucide-react";
 
@@ -8,20 +9,21 @@ import type { Histogram as HistogramData, Photo } from "@/lib/types";
 
 /** The panel down the left: a histogram, then what the camera recorded. */
 export function ExifPanel() {
+  const showHistogram = useStore((s) => s.showHistogram);
   const photo = useStore((s) => (s.current >= 0 ? s.photos[s.current] : undefined));
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-panel">
       <div className="flex items-center gap-2 bg-toolbar px-3.5 py-3">
         <Info className="size-3.5 fill-brand text-toolbar" />
-        <span className="flex-1 text-[13px] font-bold text-white">EXIF Data</span>
-        <button type="button" title="Close Panel" onClick={() => useStore.getState().set("showExif", false)} className="rounded-full bg-white/[0.08] p-1 text-[#808080] hover:text-white">
+        <span className="flex-1 text-[13px] font-bold text-foreground">EXIF Data</span>
+        <button type="button" title="Close Panel" onClick={() => useStore.getState().set("showExif", false)} className="rounded-full bg-white/[0.08] p-1 text-[var(--ui-text-808080)] hover:text-white">
           <X className="size-2.5" strokeWidth={3} />
         </button>
       </div>
-      <div className="border-y border-[#2e2e2e]">
-        <Histogram photo={photo} />
-      </div>
+      {showHistogram && <div className="border-y border-[var(--ui-line-2e2e2e)]">
+        {photo && isVideo(photo.path) ? <p className="p-3 text-xs text-muted-foreground">Histogram unavailable for video</p> : <Histogram photo={photo} />}
+      </div>}
       {photo ? <Details photo={photo} /> : <Empty />}
     </div>
   );
@@ -29,8 +31,8 @@ export function ExifPanel() {
 
 function Empty() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-xs text-[#666]">
-      <ImageIcon className="size-7 text-[#4d4d4d]" />
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-xs text-[var(--ui-text-666666)]">
+      <ImageIcon className="size-7 text-[var(--ui-text-4d4d4d)]" />
       No image selected
     </div>
   );
@@ -51,7 +53,7 @@ function Details({ photo }: { photo: Photo }) {
           <Badge title="ISO" value={e?.iso ? `ISO ${e.iso}` : null} icon={<Sun />} />
           <Badge title="Focal Length" value={fmt.focal(e?.focalLength)} icon={<Target />} />
         </div>
-        {comp && comp !== "0 EV" && <div className="pt-0.5 font-mono text-[11px] text-[#cccccc]">± Exposure Comp: {comp}</div>}
+        {comp && comp !== "0 EV" && <div className="pt-0.5 font-mono text-[11px] text-[var(--ui-text-cccccc)]">± Exposure Comp: {comp}</div>}
       </Section>
       <Rule />
       <Section title="Equipment">
@@ -81,12 +83,12 @@ function Details({ photo }: { photo: Photo }) {
   );
 }
 
-const Rule = () => <div className="h-px bg-[#262626]" />;
+const Rule = () => <div className="h-px bg-[var(--ui-surface-262626)]" />;
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-2.5">
-      <div className="text-[10px] font-bold uppercase text-[#737373]">{title}</div>
+      <div className="text-[10px] font-bold uppercase text-[var(--ui-text-737373)]">{title}</div>
       {children}
     </div>
   );
@@ -95,11 +97,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Badge({ title, value, icon }: { title: string; value: string | null; icon: ReactNode }) {
   return (
     <div className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-2">
-      <div className="flex items-center gap-1 text-[9px] font-medium uppercase text-[#737373] [&_svg]:size-2.5 [&_svg]:text-[#808080]">
+      <div className="flex items-center gap-1 text-[9px] font-medium uppercase text-[var(--ui-text-737373)] [&_svg]:size-2.5 [&_svg]:text-[var(--ui-text-808080)]">
         {icon}
         {title}
       </div>
-      <div className="mt-1 truncate font-mono text-[13px] font-bold text-white">{value ?? "—"}</div>
+      <div className="mt-1 truncate font-mono text-[13px] font-bold text-foreground">{value ?? "—"}</div>
     </div>
   );
 }
@@ -109,8 +111,8 @@ function Row({ icon, title, value }: { icon: ReactNode; title: string; value: st
     <div className="flex items-start gap-2">
       <span className="mt-0.5 flex w-3.5 justify-center [&_svg]:size-[11px] [&_svg]:text-brand">{icon}</span>
       <div className="min-w-0">
-        <div className="text-[10px] font-medium text-[#737373]">{title}</div>
-        <div className="break-words font-mono text-[11px] text-[#d9d9d9]">{value}</div>
+        <div className="text-[10px] font-medium text-[var(--ui-text-737373)]">{title}</div>
+        <div className="break-words font-mono text-[11px] text-[var(--ui-text-d9d9d9)]">{value}</div>
       </div>
     </div>
   );
@@ -196,5 +198,5 @@ function Histogram({ photo }: { photo: Photo | undefined }) {
     draw(data.luma, "rgba(255, 255, 255, .16)");
   }, [data, rgb, width]);
 
-  return <canvas ref={canvas} className="block w-full bg-[#101014]" style={{ height: H }} />;
+  return <canvas ref={canvas} className="block w-full bg-[var(--ui-surface-101014)]" style={{ height: H }} />;
 }

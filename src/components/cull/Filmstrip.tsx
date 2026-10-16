@@ -103,7 +103,7 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
 
   return (
     <div className="relative flex shrink-0 flex-col bg-strip" style={{ height }}>
-      {resizable ? <ResizeHandle /> : <div style={{ height: HANDLE }} className="shrink-0 bg-[#262626]" />}
+      {resizable ? <ResizeHandle /> : <div style={{ height: HANDLE }} className="shrink-0 bg-[var(--ui-surface-262626)]" />}
       <div ref={scroller} onWheel={onWheel} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="relative h-full" style={{ width: length }}>
           {rows.slice(from, to).map((row, i) => {
@@ -113,7 +113,7 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
                 <div
                   className={cn(
                     "flex h-[calc(100%-12px)] items-center",
-                    row.burst && "bg-[#2e2e2e]",
+                    row.burst && "bg-[var(--ui-surface-2e2e2e)]",
                     row.burst && row.first && "rounded-l-lg",
                     row.burst && row.last && "rounded-r-lg",
                   )}
@@ -143,7 +143,7 @@ const Cell = memo(function Cell({ index, width, height, size }: { index: number;
       <button
         type="button"
         onClick={(e) => useStore.getState().select(index, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
-        className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[#141414] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
+        className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[var(--ui-surface-141414)] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
         style={{ width, height }}
       >
         <FramedThumb photo={photo} size={size} box={{ w: width, h: height }} className="size-full object-contain" />
@@ -175,10 +175,10 @@ function Counter() {
       {filtering && (
         <>
           <span className="text-[#73b8ff]">{shown} filtered</span>
-          <span className="text-[#666]">·</span>
+          <span className="text-[var(--ui-text-666666)]">·</span>
         </>
       )}
-      <span className="text-[#bfbfbf]">
+      <span className="text-[var(--ui-text-bfbfbf)]">
         {number} / {total}
       </span>
       {selected > 0 && <span className="text-[#73b8ff]">· {selected} selected</span>}
@@ -225,7 +225,7 @@ function ResizeHandle() {
   return (
     // Lit along its whole length while the pointer is on it, as the edges of
     // the side panels are: the line above it and the bar itself, five pixels.
-    <div onPointerDown={onPointerDown} className="group relative z-10 shrink-0 cursor-row-resize bg-[#262626]" style={{ height: HANDLE }}>
+    <div onPointerDown={onPointerDown} className="group relative z-10 shrink-0 cursor-row-resize bg-[var(--ui-surface-262626)]" style={{ height: HANDLE }}>
       <span className="absolute inset-x-0 -top-px bottom-0 group-hover:bg-[#4d8cff]/60 group-active:bg-[#4d8cff]/60" />
     </div>
   );

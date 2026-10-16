@@ -1,3 +1,4 @@
+import { isVideo } from "@/lib/media";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Focus, ScanFace } from "lucide-react";
 
@@ -169,9 +170,9 @@ export function FacePanel() {
             ))}
           </div>
         ) : (
-          <div className="flex size-full flex-col items-center justify-center gap-2 text-xs text-[#666]">
+          <div className="flex size-full flex-col items-center justify-center gap-2 text-xs text-[var(--ui-text-666666)]">
             <ScanFace className="size-7" strokeWidth={1.25} />
-            {!enabled ? "OpenCull AI is off" : result ? "No faces detected" : "Analyzing…"}
+            {photo && isVideo(photo.path) ? "Face analysis is unavailable for video" : !enabled ? "OpenCull AI is off" : result ? "No faces detected" : "Analyzing…"}
           </div>
         )}
       </div>
@@ -249,7 +250,7 @@ function FaceCell({ face, eyes, photo, width, height, softSrc, sharpSrc, fullSrc
       type="button"
       title={face.reason ?? "Zoom to this face"}
       onClick={() => useStore.getState().zoomToFace(face)}
-      className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[#333]", !face.subject && "opacity-40")}
+      className={cn("relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[var(--ui-surface-333333)]", !face.subject && "opacity-40")}
       style={{ width, height }}
     >
       <Cut region={face} fill={FILL} photo={photo} width={width} height={height} softSrc={softSrc} sharpSrc={sharpSrc} fullSrc={fullSrc} />
@@ -268,7 +269,7 @@ function KeyCell({ region, photo, width, height, softSrc, sharpSrc, fullSrc }: {
   const [hovering, setHovering] = useState(false);
   const k = Math.min(Math.max(Math.min(width, height) / 150, 0.62), 1);
   return (
-    <button type="button" title="Zoom to the subject" onClick={() => useStore.getState().zoomToFace(region)} className="relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[#333]" style={{ width, height }}>
+    <button type="button" title="Zoom to the subject" onClick={() => useStore.getState().zoomToFace(region)} className="relative shrink-0 cursor-pointer overflow-hidden rounded-md bg-[var(--ui-surface-333333)]" style={{ width, height }}>
       {/* The cell is tall and narrow where the subject's part of the photo
           is the photo's own shape. Shown whole, it came out as a full-height
           slice of the photo with the subject small in it, no closer than the
@@ -282,11 +283,11 @@ function KeyCell({ region, photo, width, height, softSrc, sharpSrc, fullSrc }: {
         title="Subject — the part of the photo it was marked on"
         className="absolute bottom-0 left-0 m-1 flex overflow-hidden rounded-[3px] shadow-[0_2px_3px_rgb(0_0_0/0.4)] ring-[0.5px] ring-[#4d4d4d]"
       >
-        <span className="flex items-center justify-center bg-[#262626] text-white" style={{ width: Math.round(28 * k), height: Math.round(22 * k) }}>
+        <span className="flex items-center justify-center bg-[var(--ui-surface-262626)] text-foreground" style={{ width: Math.round(28 * k), height: Math.round(22 * k) }}>
           <Focus style={{ width: Math.round(13 * k), height: Math.round(13 * k) }} strokeWidth={2.5} />
         </span>
         {hovering && (
-          <span className="flex items-center bg-[#262626] px-1.5 text-[10px] font-medium text-[#e6e6e6]" style={{ height: Math.round(22 * k) }}>
+          <span className="flex items-center bg-[var(--ui-surface-262626)] px-1.5 text-[10px] font-medium text-[var(--ui-text-e6e6e6)]" style={{ height: Math.round(22 * k) }}>
             Subject
           </span>
         )}
@@ -370,7 +371,7 @@ function FaceBadge({ face, eyes, width, height }: { face: AiFace; eyes: number |
   const label = (text: string, small: boolean) => (
     <span
       key={text}
-      className={cn("flex items-center overflow-hidden whitespace-nowrap bg-[#262626] text-left text-white", small ? "px-[3px] font-semibold" : "px-1.5 text-[11px] font-medium")}
+      className={cn("flex items-center overflow-hidden whitespace-nowrap bg-[var(--ui-surface-262626)] text-left text-foreground", small ? "px-[3px] font-semibold" : "px-1.5 text-[11px] font-medium")}
       style={{ height: cellH, ...(small ? { fontSize: width < 75 ? 7 : width < 95 ? 8 : 10 } : {}) }}
     >
       <span className="truncate">{text}</span>
@@ -393,7 +394,7 @@ function FaceBadge({ face, eyes, width, height }: { face: AiFace; eyes: number |
         </span>
       ) : (
         <>
-          <span className="flex flex-col gap-px text-white">
+          <span className="flex flex-col gap-px text-foreground">
             <span className="flex items-center justify-center" style={{ width: cellW, height: cellH, background: eye.colour }}>
               <EyeGlyph kind={eye.glyph} size={icon} colour={eye.colour} />
             </span>

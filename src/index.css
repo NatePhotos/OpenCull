@@ -7,7 +7,7 @@
 @theme inline {
     --font-heading: var(--font-sans);
     /* The system's own face, as the Mac app uses, rather than one shipped in. */
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-sans: var(--app-font, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
     --color-ring: var(--ring);
     --color-input: var(--input);
@@ -124,3 +124,155 @@
     scrollbar-width: thin;
     scrollbar-color: #3a3a44 transparent;
 }
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/SpaceGrotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+/* Neutral interface roles, keeping the original dark values. */
+:root {
+  --ui-line-2e2e2e: #2e2e2e;
+  --ui-line-333333: #333;
+  --ui-line-383838: #383838;
+  --ui-line-3a3a44: #3a3a44;
+  --ui-line-595959: #595959;
+  --ui-line-8c8c8c: #8c8c8c;
+  --ui-surface-101014: #101014;
+  --ui-surface-131318: #131318;
+  --ui-surface-141414: #141414;
+  --ui-surface-14141a: #14141a;
+  --ui-surface-17171c: #17171c;
+  --ui-surface-1a1a21: #1a1a21;
+  --ui-surface-1f1f1f: #1f1f1f;
+  --ui-surface-262626: #262626;
+  --ui-surface-28282e: #28282e;
+  --ui-surface-292929: #292929;
+  --ui-surface-2a2a30: #2a2a30;
+  --ui-surface-2e2e2e: #2e2e2e;
+  --ui-surface-333333: #333;
+  --ui-surface-383838: #383838;
+  --ui-surface-404040: #404040;
+  --ui-surface-4d4d4d: #4d4d4d;
+  --ui-surface-595959: #595959;
+  --ui-surface-666666: #666;
+  --ui-text-1a1a21: #1a1a21;
+  --ui-text-4d4d4d: #4d4d4d;
+  --ui-text-666666: #666;
+  --ui-text-737373: #737373;
+  --ui-text-808080: #808080;
+  --ui-text-8c8c8c: #8c8c8c;
+  --ui-text-999999: #999;
+  --ui-text-a6a6a6: #a6a6a6;
+  --ui-text-b3b3b3: #b3b3b3;
+  --ui-text-bdbdbd: #bdbdbd;
+  --ui-text-bfbfbf: #bfbfbf;
+  --ui-text-cccccc: #cccccc;
+  --ui-text-d9d9d9: #d9d9d9;
+  --ui-text-e6e6e6: #e6e6e6;
+}
+
+:root[data-theme="light"] {
+  --background: #f5f5f5; --foreground: #202020;
+  --card: #fff; --card-foreground: #202020; --popover: #fff; --popover-foreground: #202020;
+  --secondary: #e7e7e7; --secondary-foreground: #202020;
+  --muted: #e5e5e5; --muted-foreground: #555; --accent: #dedede; --accent-foreground: #202020;
+  --border: #929292; --input: #858585; --ring: #1765bc;
+  --primary: #1765bc; --primary-foreground: #fff;
+  --opencull-canvas: #e0e0e0; --opencull-toolbar: #f5f5f5; --opencull-strip: #ededed;
+  --opencull-panel: #fafafa; --opencull-cell: #d4d4d4;
+  --ui-line-2e2e2e: #929292;
+  --ui-line-333333: #929292;
+  --ui-line-383838: #929292;
+  --ui-line-3a3a44: #929292;
+  --ui-line-595959: #929292;
+  --ui-line-8c8c8c: #929292;
+  --ui-surface-101014: #eeeeee;
+  --ui-surface-131318: #ededed;
+  --ui-surface-141414: #ededed;
+  --ui-surface-14141a: #ececec;
+  --ui-surface-17171c: #ebebeb;
+  --ui-surface-1a1a21: #eaeaea;
+  --ui-surface-1f1f1f: #e9e9e9;
+  --ui-surface-262626: #e6e6e6;
+  --ui-surface-28282e: #e5e5e5;
+  --ui-surface-292929: #e5e5e5;
+  --ui-surface-2a2a30: #e4e4e4;
+  --ui-surface-2e2e2e: #e3e3e3;
+  --ui-surface-333333: #e1e1e1;
+  --ui-surface-383838: #dfdfdf;
+  --ui-surface-404040: #dcdcdc;
+  --ui-surface-4d4d4d: #d7d7d7;
+  --ui-surface-595959: #d2d2d2;
+  --ui-surface-666666: #cdcdcd;
+  --ui-text-1a1a21: #595959;
+  --ui-text-4d4d4d: #595959;
+  --ui-text-666666: #595959;
+  --ui-text-737373: #595959;
+  --ui-text-808080: #252525;
+  --ui-text-8c8c8c: #252525;
+  --ui-text-999999: #252525;
+  --ui-text-a6a6a6: #252525;
+  --ui-text-b3b3b3: #252525;
+  --ui-text-bdbdbd: #252525;
+  --ui-text-bfbfbf: #252525;
+  --ui-text-cccccc: #252525;
+  --ui-text-d9d9d9: #252525;
+  --ui-text-e6e6e6: #252525;
+}
+:root[data-theme="grey"] {
+  --background: #303030; --foreground: #fff;
+  --card: #303030; --card-foreground: #fff; --popover: #303030; --popover-foreground: #fff;
+  --secondary: #404040; --secondary-foreground: #fff;
+  --muted: #393939; --muted-foreground: #c4c4c4; --accent: #444; --accent-foreground: #fff;
+  --border: #909090; --input: #929292;
+  --opencull-canvas: #767676; --opencull-toolbar: #303030; --opencull-strip: #252525;
+  --opencull-panel: #303030; --opencull-cell: #444;
+  --ui-line-2e2e2e: #909090;
+  --ui-line-333333: #909090;
+  --ui-line-383838: #909090;
+  --ui-line-3a3a44: #909090;
+  --ui-line-595959: #909090;
+  --ui-line-8c8c8c: #909090;
+  --ui-surface-101014: #101014;
+  --ui-surface-131318: #131318;
+  --ui-surface-141414: #141414;
+  --ui-surface-14141a: #14141a;
+  --ui-surface-17171c: #17171c;
+  --ui-surface-1a1a21: #1a1a21;
+  --ui-surface-1f1f1f: #1f1f1f;
+  --ui-surface-262626: #262626;
+  --ui-surface-28282e: #28282e;
+  --ui-surface-292929: #292929;
+  --ui-surface-2a2a30: #2a2a30;
+  --ui-surface-2e2e2e: #2e2e2e;
+  --ui-surface-333333: #333;
+  --ui-surface-383838: #383838;
+  --ui-surface-404040: #404040;
+  --ui-surface-4d4d4d: #4d4d4d;
+  --ui-surface-595959: #595959;
+  --ui-surface-666666: #666;
+  --ui-text-1a1a21: #c4c4c4;
+  --ui-text-4d4d4d: #c4c4c4;
+  --ui-text-666666: #c4c4c4;
+  --ui-text-737373: #c4c4c4;
+  --ui-text-808080: #fff;
+  --ui-text-8c8c8c: #fff;
+  --ui-text-999999: #fff;
+  --ui-text-a6a6a6: #fff;
+  --ui-text-b3b3b3: #fff;
+  --ui-text-bdbdbd: #fff;
+  --ui-text-bfbfbf: #fff;
+  --ui-text-cccccc: #fff;
+  --ui-text-d9d9d9: #fff;
+  --ui-text-e6e6e6: #fff;
+}
+@media (forced-colors: active) {
+  :root { --background: Canvas; --foreground: CanvasText; --border: ButtonText;
+    --opencull-canvas: Canvas; --opencull-panel: Canvas; --opencull-toolbar: Canvas; --opencull-strip: Canvas; }
+}
+
+:root { --home-from: #12121a; --home-to: #1a1a26; }
+:root[data-theme="light"] { --home-from: #fafafa; --home-to: #eee; }
+:root[data-theme="grey"] { --home-from: #303030; --home-to: #303030; }

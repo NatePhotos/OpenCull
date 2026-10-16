@@ -115,7 +115,7 @@ export type Tier = "thumb" | "fit" | "screen" | "full";
 
 export interface Backend {
   appInfo(): Promise<AppInfo>;
-  openFolder(path: string, includeSubfolders: boolean, kinds: FileKinds): Promise<FolderReply>;
+  openFolder(path: string, includeSubfolders: boolean, kinds: FileKinds, members?: Scanned[], ignoreVideos?: boolean): Promise<FolderReply>;
   closeFolder(session: number): Promise<void>;
   loadMetadata(session: number, onEvent: (e: MetaEvent) => void): Promise<void>;
   prefetch(items: { path: string; version: string }[], size: number): Promise<void>;
@@ -169,8 +169,9 @@ export interface Backend {
   /** Opens a release's page in the browser, or the list of releases. */
   openReleasePage(version: string | null): Promise<void>;
   ingestVolumes(): Promise<Volume[]>;
-  ingestBrowse(path: string): Promise<{ folders: IngestFolder[]; imageCount: number }>;
-  ingestScan(path: string): Promise<Scanned[]>;
+  ingestBrowse(path: string, ignoreVideos?: boolean): Promise<{ folders: IngestFolder[]; imageCount: number }>;
+  ingestScan(path: string, ignoreVideos?: boolean): Promise<Scanned[]>;
+  ingestSources(sources: string[], ignoreVideos?: boolean): Promise<Scanned[]>;
   /** Reads capture times and in-camera stars, in batches. Asking again stops the last asking. */
   ingestDetails(paths: string[], onFound: (found: IngestDetail[]) => void): Promise<void>;
   ingestConflicts(items: { path: string; display: string }[], destination: string): Promise<number>;
@@ -209,7 +210,7 @@ const previewBase = /Windows|Android/.test(navigator.userAgent) ? "http://opencu
 
 const tauri: Backend = {
   appInfo: () => invoke("app_info"),
-  openFolder: (path, includeSubfolders, kinds) => invoke("open_folder", { path, includeSubfolders, kinds }),
+  openFolder: (path, includeSubfolders, kinds, members, ignoreVideos) => invoke("open_folder", { path, includeSubfolders, kinds, members, ignoreVideos }),
   closeFolder: (session) => invoke("close_folder", { session }),
   loadMetadata: (session, onEvent) => {
     const channel = new Channel<MetaEvent>();
@@ -253,8 +254,9 @@ const tauri: Backend = {
   },
   openReleasePage: (version) => invoke("open_release_page", { version }),
   ingestVolumes: () => invoke("ingest_volumes"),
-  ingestBrowse: (path) => invoke("ingest_browse", { path }),
-  ingestScan: (path) => invoke("ingest_scan", { path }),
+  ingestBrowse: (path, ignoreVideos) => invoke("ingest_browse", { path, ignoreVideos }),
+  ingestScan: (path, ignoreVideos) => invoke("ingest_scan", { path, ignoreVideos }),
+  ingestSources: (sources, ignoreVideos) => invoke("ingest_sources", { sources, ignoreVideos }),
   ingestDetails: (paths, onFound) => {
     const found = new Channel<IngestDetail[]>();
     found.onmessage = onFound;

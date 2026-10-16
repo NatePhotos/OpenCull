@@ -5,7 +5,6 @@ import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Circle, CircleCheck, Fol
 import {
   AlertDialog,
   AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -14,9 +13,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ThumbImage } from "@/components/cull/Thumb";
-import { api, bucket, THUMB_SIZES, type IngestFolder, type IngestPolicy, type IngestProgress, type Volume } from "@/lib/api";
+import { api, bucket, THUMB_SIZES, type IngestFolder, type Volume } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { isMac } from "@/lib/shortcuts";
+import { newReview } from "@/lib/review";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Scanned } from "@/lib/types";
@@ -37,7 +37,7 @@ interface Item extends Scanned {
   rating: number;
 }
 
-type Phase = { is: "idle" | "scanning" | "ready" | "copying" } | { is: "conflict"; count: number; items: Item[] } | { is: "failed"; message: string };
+type Phase = { is: "idle" | "scanning" | "ready" } | { is: "failed"; message: string };
 
 /** Where the source browser is: each folder gone into, outermost first. */
 interface Level {
@@ -47,12 +47,6 @@ interface Level {
 
 /** The way a file browser orders names: `IMG_9` before `IMG_10`. */
 const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
-/** The folders a camera makes at the top of its card. Chosen whole, not gone into. */
-function isCameraMedia(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.startsWith("dcim") || lower === "m4root" || lower === "private" || lower === "misc";
-}
 
 /**
  * When a photo was taken, for sorting and for showing. The camera's own time
@@ -67,33 +61,14 @@ function timeLabel(item: Item, long = false): string {
   return new Date(takenAt(item)).toLocaleString(undefined, item.captureMs === null ? options : { ...options, timeZone: "UTC" });
 }
 
-function rateText(bytesPerSecond: number): string {
-  const mb = bytesPerSecond / 1_000_000;
-  if (mb >= 1000) return `${(mb / 1000).toFixed(1)} GB/s`;
-  if (mb >= 100) return `${mb.toFixed(0)} MB/s`;
-  if (mb >= 1) return `${mb.toFixed(1)} MB/s`;
-  return `${(bytesPerSecond / 1000).toFixed(0)} KB/s`;
-}
-
-function timeLeftText(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 90) return "about a minute";
-  return `about ${Math.round(seconds / 60)} min`;
-}
-
-/** How long a burst of speed is remembered for, in seconds, and how often the speed is measured. */
-const RATE_MEMORY = 3;
-const RATE_SAMPLE = 0.4;
-
+/**
+ * Choose card files, then review them in the existing culling workspace.
+ * Import selection and destination are decided after culling.
+ */
 const SELECTED_ROW = "bg-[#4073f2]/45";
 
-/**
- * Ingest: choose photos on a card, choose where they go, copy them there.
- *
- * Takes over the window while it is open. When the copy finishes it closes
- * and the destination opens for culling.
- */
 export function IngestView() {
+  const ignoreVideos = useStore((s) => s.ignoreVideos);
   const startAt = useStore((s) => s.ingestFrom);
   const platform = useStore((s) => s.platform);
 
@@ -102,26 +77,20 @@ export function IngestView() {
   const [children, setChildren] = useState<IngestFolder[]>([]);
   const [browsing, setBrowsing] = useState(false);
   const [source, setSource] = useState<string | null>(null);
+  const [sources, setSources] = useState<string[]>([]);
+  const sourceList = useRef<string[]>([]);
 
   const [items, setItems] = useState<Item[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [phase, setPhase] = useState<Phase>({ is: "idle" });
   const [sort, setSort] = useState<Sort>(() => load<Sort>("ingestSort", "captureTime"));
   const [ascending, setAscending] = useState(() => load("ingestSortAscending", true));
-  const [destination, setDestination] = useState<string | null>(() => load<string | null>("ingestDestination", null));
-
-  const [progress, setProgress] = useState<IngestProgress | null>(null);
-  const [fraction, setFraction] = useState(0);
-  const [rate, setRate] = useState<number | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
   /** Where a shift-click's range starts from, as a place in the sorted list. */
   const anchor = useRef(0);
   /** Which listing of a folder is the wanted one; an older one arriving late is dropped. */
   const listing = useRef(0);
   const browse = useRef(0);
-  const copying = phase.is === "copying";
-  const busy = copying || phase.is === "scanning";
+  const busy = phase.is === "scanning";
 
   const close = useCallback(() => useStore.setState({ ingestOpen: false, ingestFrom: null }), []);
 
@@ -139,29 +108,24 @@ export function IngestView() {
     };
   }, []);
 
-  // A destination remembered from last time may have been moved or deleted.
-  useEffect(() => {
-    if (!destination) return;
-    void api.pathsExist([destination]).then(([there]) => !there && setDestination(null));
-    // Once, as ingest opens.
-  }, []);
-
   useEffect(() => save("ingestSort", sort), [sort]);
   useEffect(() => save("ingestSortAscending", ascending), [ascending]);
-  useEffect(() => save("ingestDestination", destination), [destination]);
 
   /** Lists the photos in a folder and makes it the one being ingested from. */
-  const choose = useCallback((path: string) => {
+  const scanSources = useCallback((paths: string[]) => {
+    sourceList.current = paths; setSources(paths);
+    const path = paths[paths.length - 1] ?? null;
     const mine = ++listing.current;
     setSource(path);
     setSelected(new Set());
     anchor.current = 0;
     setItems([]);
     setPhase({ is: "scanning" });
-    void api.ingestScan(path).then(
+    void api.ingestSources(paths, ignoreVideos).then(
       (found) => {
         if (listing.current !== mine) return;
         setItems(found.map((f) => ({ ...f, captureMs: null, rating: 0 })));
+        setSelected(new Set(found.map((_, i) => i)));
         setPhase({ is: "ready" });
         // Capture times and in-camera stars are read afterwards, so the
         // card's photos are on screen without waiting for either.
@@ -178,7 +142,10 @@ export function IngestView() {
       },
       (e) => listing.current === mine && setPhase({ is: "failed", message: String(e) }),
     );
-  }, []);
+  }, [ignoreVideos]);
+  useEffect(() => { if (source) choose(source); }, [ignoreVideos]);
+
+  const choose = useCallback((path: string) => scanSources([...new Set([...sourceList.current, path])]), [scanSources]);
 
   /** Shows the folders inside `path`, one level further into the browser. */
   const goInto = useCallback((path: string, title: string, known?: IngestFolder[]) => {
@@ -195,7 +162,7 @@ export function IngestView() {
     }
     setChildren([]);
     setBrowsing(true);
-    void api.ingestBrowse(path).then(
+    void api.ingestBrowse(path, ignoreVideos).then(
       (found) => {
         if (browse.current !== mine) return;
         setChildren(found.folders);
@@ -207,25 +174,21 @@ export function IngestView() {
 
   const openVolume = useCallback(
     (volume: Volume) => {
-      // A camera's card is listed whole straight away, and can still be
-      // looked through for one folder of it. A drive is only looked through:
-      // listing all of an archive would take minutes nobody asked for.
-      if (volume.cameraCard) choose(volume.path);
+      // Browse first so CARD → DCIM → 100CANON can be chosen precisely.
       goInto(volume.path, volume.name);
     },
-    [choose, goInto],
+    [goInto],
   );
 
   const openFolder = (folder: IngestFolder) => {
-    if (isCameraMedia(folder.name)) return choose(folder.path);
     const mine = ++browse.current;
     setBrowsing(true);
-    void api.ingestBrowse(folder.path).then(
+    void api.ingestBrowse(folder.path, ignoreVideos).then(
       (found) => {
         if (browse.current !== mine) return;
         setBrowsing(false);
-        // A folder of folders is gone into; a folder of photos is chosen.
-        if (found.folders.length > 0 && found.imageCount === 0) goInto(folder.path, folder.name, found.folders);
+        // Mixed folders may also contain a more specific source to choose.
+        if (found.folders.length > 0) goInto(folder.path, folder.name, found.folders);
         else choose(folder.path);
       },
       () => browse.current === mine && setBrowsing(false),
@@ -241,7 +204,7 @@ export function IngestView() {
 
   const browseForFolder = async () => {
     const picked = await api.pickFolder("Choose a folder of photos to ingest");
-    if (picked) choose(picked);
+    if (picked) openFolder({ path: picked, name: picked.split(/[\\/]/).filter(Boolean).pop() ?? picked, imageCount: 0 });
   };
 
   // Opened from "card detected": go straight to that card once it is listed.
@@ -312,101 +275,36 @@ export function IngestView() {
 
   // ── Copying ───────────────────────────────────────────────────────────────
 
-  const chooseDestination = async () => {
-    const picked = await api.pickFolder("Where should OpenCull copy the selected photos?", destination ?? undefined);
-    if (picked) setDestination(picked);
-  };
-
-  const canIngest = selected.size > 0 && destination !== null && !busy;
-  const sample = useRef({ at: 0, bytes: 0, rate: null as number | null });
+  const canIngest = selected.size > 0 && !busy;
 
   const requestIngest = async () => {
-    if (!canIngest || !destination) return;
+    if (!canIngest || !source) return;
+    close();
     const chosen = order.filter((i) => selected.has(i)).map((i) => items[i]);
-    const taken = await api.ingestConflicts(chosen.map(({ path, display }) => ({ path, display })), destination).catch(() => 0);
-    if (taken > 0) setPhase({ is: "conflict", count: taken, items: chosen });
-    // Nothing is in the way, so the answer to "what if something is" is
-    // never used — but if it were, it must not be to replace it.
-    else void copy(chosen, "uniqueName");
+    await useStore.getState().openFolder(source, newReview(sources, chosen));
+
   };
-
-  const copy = async (chosen: Item[], policy: IngestPolicy) => {
-    if (!destination) return;
-    setPhase({ is: "copying" });
-    setProgress({ done: 0, total: chosen.length, bytesCopied: 0, bytesSettled: 0, bytesTotal: 0 });
-    setFraction(0);
-    setRate(null);
-    setSecondsLeft(null);
-    sample.current = { at: performance.now() / 1000, bytes: 0, rate: null };
-
-    const onProgress = (p: IngestProgress) => {
-      setProgress(p);
-      // By bytes, so a card of large files does not sit still and then
-      // jump. Never backwards: reports from copies running side by side can
-      // arrive a little out of order.
-      const now = p.bytesTotal > 0 ? p.bytesSettled / p.bytesTotal : p.total > 0 ? p.done / p.total : 0;
-      setFraction((was) => Math.min(1, Math.max(was, now)));
-
-      const s = sample.current;
-      const t = performance.now() / 1000;
-      const elapsed = t - s.at;
-      if (elapsed < RATE_SAMPLE) return;
-      const measured = (p.bytesCopied - s.bytes) / elapsed;
-      // Smoothed, so one slow file does not swing the estimate about.
-      const weight = 1 - Math.exp(-elapsed / RATE_MEMORY);
-      const smoothed = s.rate === null ? measured : s.rate + weight * (measured - s.rate);
-      sample.current = { at: t, bytes: p.bytesCopied, rate: smoothed };
-      setRate(smoothed);
-      setSecondsLeft(smoothed > 0 ? Math.max(0, p.bytesTotal - p.bytesSettled) / smoothed : null);
-    };
-
-    let result;
-    try {
-      result = await api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, onProgress);
-    } catch (e) {
-      result = { status: "failed" as const, message: String(e) };
-    }
-    setProgress(null);
-    if (result.status === "failed") return setPhase({ is: "failed", message: result.message ?? "Something went wrong while copying." });
-    setPhase({ is: "ready" });
-    if (result.status === "success") {
-      // Straight on to culling what was just copied.
-      close();
-      void useStore.getState().openFolder(destination);
-    }
-  };
-
-  const cancelCopy = () => {
-    void api.ingestCancel();
-    setPhase((p) => (p.is === "copying" ? { is: "ready" } : p));
-    setProgress(null);
-  };
-
-  const status = (() => {
-    if (!progress) return "";
-    const parts = [`Copying ${progress.done}/${progress.total}`];
-    if (rate !== null && rate > 0) parts.push(rateText(rate));
-    if (secondsLeft !== null && Number.isFinite(secondsLeft) && secondsLeft >= 1) parts.push(`${timeLeftText(secondsLeft)} left`);
-    return parts.length === 1 ? `${parts[0]}…` : parts.join(" · ");
-  })();
 
   const cards = volumes.filter((v) => v.cameraCard);
   const drives = volumes.filter((v) => !v.cameraCard);
   const current = levels[levels.length - 1];
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-[#17171c] text-white">
-      <header data-tauri-drag-region className={cn("flex h-[52px] shrink-0 items-center bg-[#14141a] px-5", platform === "macos" && "pl-[84px]")}>
-        <span data-tauri-drag-region className="flex-1 text-[15px] font-semibold">
-          Ingest from Card
-        </span>
+    <div className="fixed inset-0 z-40 flex flex-col bg-[var(--ui-surface-17171c)] text-foreground">
+      <header data-tauri-drag-region className={cn("flex shrink-0 items-start gap-6 bg-[var(--ui-surface-14141a)] px-5 py-5", platform === "macos" && "pl-[84px]")}>
+        <div data-tauri-drag-region className="min-w-0 flex-1">
+          <h1 data-tauri-drag-region className="text-2xl font-semibold leading-tight tracking-tight">Ingest from Card <span className="text-sm font-normal text-muted-foreground">· {sources.length} source{sources.length === 1 ? "" : "s"}</span></h1>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            <strong className="font-semibold text-foreground">Review first.</strong>{" "}
+            Cull the card in the normal workspace. At the end, choose files to copy or import in place. Nothing is copied or deleted now.
+          </p>
+        </div>
         <button
           type="button"
           onClick={() => {
-            if (copying) cancelCopy();
             close();
           }}
-          className="rounded-md px-3 py-1.5 text-[13px] text-[#b3b3b3] hover:bg-white/[0.07] hover:text-white"
+          className="rounded-md px-3 py-1.5 text-[13px] text-[var(--ui-text-b3b3b3)] hover:bg-white/[0.07] hover:text-white"
         >
           Cancel
         </button>
@@ -414,15 +312,22 @@ export function IngestView() {
       <Rule />
 
       <div className="flex min-h-0 flex-1">
-        {/* Where from. */}
-        <aside className="flex w-[260px] shrink-0 flex-col bg-[#131318]">
+        {/* Each selected source contributes to the same session. */}
+        <aside className="flex w-[260px] shrink-0 flex-col bg-[var(--ui-surface-131318)]">
+          <div className="flex shrink-0 flex-col gap-1 border-b border-border p-3 text-xs">
+            <p className="text-muted-foreground">Choose cards or folders to add them to this shoot.</p>
+            {sources.map((path) => <div key={path} className="flex items-center gap-1"><span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
+              <button type="button" aria-label={`Remove source ${path}`} disabled={busy} className="rounded px-2 py-1 hover:bg-accent"
+                onClick={() => scanSources(sourceList.current.filter((p) => p !== path))}>×</button></div>)}
+          </div>
           {current ? (
             <div className="flex items-center gap-2 px-3 pb-2 pt-3.5">
-              <button type="button" aria-label="Back" onClick={goBack} className="flex size-6 items-center justify-center rounded-md bg-white/[0.07] text-[#bfbfbf] hover:text-white">
+              <button type="button" aria-label="Back" onClick={goBack} className="flex size-6 items-center justify-center rounded-md bg-white/[0.07] text-[var(--ui-text-bfbfbf)] hover:text-white">
                 <ChevronLeft className="size-3.5" />
               </button>
-              <button type="button" title="Show all photos in this folder" onClick={() => choose(current.path)} className="min-w-0 truncate text-left text-[13px] font-semibold text-white hover:underline">
+              <button type="button" aria-label={`Use ${current.title} as source`} title="Select this folder and its photos" onClick={() => choose(current.path)} className="min-w-0 truncate text-left text-[13px] font-semibold text-foreground hover:underline">
                 {current.title}
+                <span className="block text-[11px] font-normal text-muted-foreground">Use this folder</span>
               </button>
             </div>
           ) : (
@@ -432,7 +337,7 @@ export function IngestView() {
             {current ? (
               browsing ? (
                 <div className="flex justify-center py-6">
-                  <Loader2 className="size-4 animate-spin text-[#808080]" />
+                  <Loader2 className="size-4 animate-spin text-[var(--ui-text-808080)]" />
                 </div>
               ) : children.length === 0 ? (
                 <Hint>No photo folders here</Hint>
@@ -441,16 +346,16 @@ export function IngestView() {
                   <Row key={folder.path} selected={source === folder.path} onClick={() => openFolder(folder)}>
                     <Folder className="size-3.5 shrink-0 fill-[#73a6ff] text-[#73a6ff]" />
                     <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                    {folder.imageCount > 0 && <span className="text-[11px] tabular-nums text-[#808080]">{folder.imageCount.toLocaleString()}</span>}
-                    {!isCameraMedia(folder.name) && <ChevronRight className="size-3 shrink-0 text-[#666]" />}
+                    {folder.imageCount > 0 && <span className="text-[11px] tabular-nums text-[var(--ui-text-808080)]">{folder.imageCount.toLocaleString()}</span>}
+                    <ChevronRight className="size-3 shrink-0 text-[var(--ui-text-666666)]" />
                   </Row>
                 ))
               )
             ) : (
               <>
-                <Label className="px-2 pb-1 pt-1 text-[10px]">Memory Cards</Label>
+                <Label className="px-2 pb-1 pt-1 text-xs">Memory Cards</Label>
                 {cards.length === 0 ? <Hint>No memory cards detected</Hint> : cards.map((v) => <VolumeRow key={v.path} volume={v} selected={source === v.path} onClick={() => openVolume(v)} />)}
-                {drives.length > 0 && <Label className="px-2 pb-1 pt-4 text-[10px]">Drives</Label>}
+                {drives.length > 0 && <Label className="px-2 pb-1 pt-4 text-xs">Drives</Label>}
                 {drives.map((v) => (
                   <VolumeRow key={v.path} volume={v} selected={source === v.path} onClick={() => openVolume(v)} />
                 ))}
@@ -473,13 +378,13 @@ export function IngestView() {
             <TextButton disabled={selected.size === 0} onClick={deselectAll}>
               Deselect All
             </TextButton>
-            <span className="font-mono text-[11px] text-[#8c8c8c]">
+            <span className="font-mono text-[11px] text-[var(--ui-text-8c8c8c)]">
               {selected.size}/{items.length}
             </span>
             <span className="flex-1" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button type="button" className="rounded-md bg-white/[0.07] px-2.5 py-1 text-[11px] text-[#d9d9d9] hover:bg-white/[0.11]">
+                <button type="button" className="rounded-md bg-white/[0.07] px-2.5 py-1 text-[11px] text-[var(--ui-text-d9d9d9)] hover:bg-white/[0.11]">
                   {SORTS[sort].title}
                 </button>
               </DropdownMenuTrigger>
@@ -493,12 +398,12 @@ export function IngestView() {
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button type="button" title="Reverse the sort order" onClick={() => setAscending((a) => !a)} className="flex items-center gap-1 rounded-md bg-white/[0.07] px-2.5 py-1 text-[11px] text-[#d9d9d9] hover:bg-white/[0.11]">
+            <button type="button" title="Reverse the sort order" onClick={() => setAscending((a) => !a)} className="flex items-center gap-1 rounded-md bg-white/[0.07] px-2.5 py-1 text-[11px] text-[var(--ui-text-d9d9d9)] hover:bg-white/[0.11]">
               {ascending ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
               <span className="whitespace-nowrap">{ascending ? SORTS[sort].up : SORTS[sort].down}</span>
             </button>
           </div>
-          <div className="shrink-0 px-4 pb-2 text-[11px] text-[#737373]">Files to be copied (ingested) to destination folder</div>
+          <div className="shrink-0 px-4 pb-2 text-[11px] text-[var(--ui-text-737373)]">Review these files before choosing what to import</div>
 
           {phase.is === "scanning" ? (
             <Centre>
@@ -511,71 +416,25 @@ export function IngestView() {
             <Grid items={items} order={order} selected={selected} onToggle={toggle} />
           )}
 
-          {copying && progress && (
-            <div className="shrink-0 space-y-1.5 border-t border-white/[0.09] px-4 py-3 text-center">
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-[#408cf2] transition-[width] duration-100 ease-linear" style={{ width: `${fraction * 100}%` }} />
-              </div>
-              <div className="text-xs tabular-nums text-[#bfbfbf]">{status}</div>
-              <button type="button" onClick={cancelCopy} className="text-[11px] font-medium text-[#f28080] hover:underline">
-                Cancel Copy
-              </button>
-            </div>
-          )}
         </section>
-        <span className="w-px bg-white/[0.09]" />
-
-        {/* Where to. */}
-        <aside className="flex w-[280px] shrink-0 flex-col gap-4 bg-[#131318] p-4">
-          <Label>Destination</Label>
-          <button type="button" onClick={() => void chooseDestination()} className="rounded-lg bg-white/[0.09] px-3 py-2.5 text-[11px] font-bold tracking-wide text-white hover:bg-white/[0.13]">
-            {destination ? "CHANGE DESTINATION" : "CHOOSE DESTINATION FOLDER"}
-          </button>
-          {destination ? <div className="select-text break-all font-mono text-[11px] leading-relaxed text-[#b3b3b3]">{destination}</div> : <div className="text-xs text-[#737373]">Where do you want to copy your images?</div>}
-          <span className="flex-1" />
+      </div>
+      <footer className="flex shrink-0 items-center justify-end border-t border-border bg-[var(--ui-surface-131318)] px-5 py-3">
           <button
             type="button"
             disabled={!canIngest}
             onClick={() => void requestIngest()}
-            className={cn("rounded-lg py-3 text-[13px] font-bold tracking-wide", canIngest ? "bg-[#408cf2] text-white hover:brightness-110" : "bg-[#404040] text-[#8c8c8c]")}
+            className={cn("min-w-48 rounded-lg px-6 py-3 text-[13px] font-bold tracking-wide", canIngest ? "bg-[#408cf2] text-white hover:brightness-110" : "bg-[var(--ui-surface-404040)] text-[var(--ui-text-8c8c8c)]")}
           >
-            INGEST
+            START CULLING
           </button>
-        </aside>
-      </div>
-
-      <AlertDialog open={phase.is === "conflict"} onOpenChange={(open) => !open && setPhase((p) => (p.is === "conflict" ? { is: "ready" } : p))}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Files Already Exist</AlertDialogTitle>
-            <AlertDialogDescription>
-              {phase.is === "conflict" &&
-                `${phase.count} selected file${phase.count === 1 ? "" : "s"} already exist in the destination, or share a name with another selected file. Apply one action to all conflicts.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
-            {(
-              [
-                ["uniqueName", "Copy with Unique Name"],
-                ["overwrite", "Overwrite"],
-                ["skip", "Skip Existing"],
-              ] as [IngestPolicy, string][]
-            ).map(([policy, label]) => (
-              <AlertDialogAction key={policy} variant={policy === "uniqueName" ? "default" : "outline"} className="w-full" onClick={() => phase.is === "conflict" && void copy(phase.items, policy)}>
-                {label}
-              </AlertDialogAction>
-            ))}
-            <AlertDialogCancel className="w-full">Cancel</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      </footer>
 
       <AlertDialog open={phase.is === "failed"} onOpenChange={(open) => !open && setPhase({ is: "ready" })}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Ingest Failed</AlertDialogTitle>
+            <AlertDialogTitle>Could not open card</AlertDialogTitle>
             <AlertDialogDescription className="whitespace-pre-line">
-              {phase.is === "failed" && `${phase.message}\n\nKeep the card as it is. Photos copied before this one are in the destination; nothing after it was started.`}
+              {phase.is === "failed" && `${phase.message}\n\nKeep the card as it is. No files were copied or deleted.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -590,20 +449,20 @@ export function IngestView() {
 const Rule = () => <div className="h-px shrink-0 bg-white/[0.09]" />;
 
 function Label({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("text-[11px] font-bold uppercase tracking-wider text-[#737373]", className)}>{children}</div>;
+  return <div className={cn("text-sm font-semibold text-muted-foreground", className)}>{children}</div>;
 }
 
 function Hint({ children }: { children: ReactNode }) {
-  return <div className="px-2 py-1.5 text-xs text-[#666]">{children}</div>;
+  return <div className="px-2 py-1.5 text-xs text-[var(--ui-text-666666)]">{children}</div>;
 }
 
 function Centre({ children }: { children: ReactNode }) {
-  return <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-sm text-[#737373]">{children}</div>;
+  return <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-sm text-[var(--ui-text-737373)]">{children}</div>;
 }
 
 function TextButton({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={cn("text-[11px] font-bold uppercase tracking-wide", disabled ? "text-[#4d4d4d]" : "text-[#8cb8ff] hover:text-white")}>
+    <button type="button" disabled={disabled} onClick={onClick} className={cn("text-[11px] font-bold uppercase tracking-wide", disabled ? "text-[var(--ui-text-4d4d4d)]" : "text-[#8cb8ff] hover:text-white")}>
       {children}
     </button>
   );
@@ -611,7 +470,7 @@ function TextButton({ disabled, onClick, children }: { disabled: boolean; onClic
 
 function Row({ selected, onClick, className, children }: { selected?: boolean; onClick: () => void; className?: string; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-[#d9d9d9]", selected ? SELECTED_ROW : "hover:bg-white/[0.05]", className)}>
+    <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--ui-text-d9d9d9)]", selected ? SELECTED_ROW : "hover:bg-white/[0.05]", className)}>
       {children}
     </button>
   );
@@ -620,9 +479,9 @@ function Row({ selected, onClick, className, children }: { selected?: boolean; o
 function VolumeRow({ volume, selected, onClick }: { volume: Volume; selected: boolean; onClick: () => void }) {
   return (
     <Row selected={selected} onClick={onClick}>
-      {volume.cameraCard ? <CardIcon /> : <HardDrive className="size-3.5 shrink-0 text-[#a6a6a6]" />}
+      {volume.cameraCard ? <CardIcon /> : <HardDrive className="size-3.5 shrink-0 text-[var(--ui-text-a6a6a6)]" />}
       <span className="min-w-0 flex-1 truncate">{volume.name}</span>
-      {!volume.cameraCard && <ChevronRight className="size-3 shrink-0 text-[#666]" />}
+      <ChevronRight className="size-3 shrink-0 text-[var(--ui-text-666666)]" />
     </Row>
   );
 }
@@ -722,15 +581,15 @@ const Cell = memo(function Cell({
 }) {
   return (
     <button type="button" title={timeLabel(item, true)} onClick={(e) => onToggle(index, { add: isMac ? e.metaKey : e.ctrlKey, range: e.shiftKey })} className="block text-left" style={{ width }}>
-      <span className={cn("relative block overflow-hidden rounded-md bg-[#1f1f1f] outline-[2.5px] -outline-offset-[2.5px]", selected ? "outline outline-[#4d99ff]" : "outline-none")} style={{ height }}>
+      <span className={cn("relative block overflow-hidden rounded-md bg-[var(--ui-surface-1f1f1f)] outline-[2.5px] -outline-offset-[2.5px]", selected ? "outline outline-[#4d99ff]" : "outline-none")} style={{ height }}>
         <ThumbImage photo={item} size={size} className="size-full object-contain" />
         <span className="absolute left-1.5 top-1.5 drop-shadow-[0_1px_2px_rgba(0,0,0,.7)]">
-          {selected ? <CircleCheck className="size-[18px] fill-[#4d99ff] text-white" /> : <Circle className="size-[18px] text-white/75" />}
+          {selected ? <CircleCheck className="size-[18px] fill-[#4d99ff] text-foreground" /> : <Circle className="size-[18px] text-foreground/75" />}
         </span>
         {item.rating > 0 && <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 py-0.5 text-[9px] leading-none text-[#ffcc1a]">{"★".repeat(item.rating)}</span>}
-        <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1 py-0.5 font-mono text-[9px] leading-none text-[#d9d9d9]">{timeLabel(item)}</span>
+        <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1 py-0.5 font-mono text-[9px] leading-none text-[var(--ui-text-d9d9d9)]">{timeLabel(item)}</span>
       </span>
-      <span className="mt-1.5 block truncate text-center font-mono text-[10px] text-[#a6a6a6]">{item.name}</span>
+      <span className="mt-1.5 block truncate text-center font-mono text-[10px] text-[var(--ui-text-a6a6a6)]">{item.name}</span>
     </button>
   );
 });

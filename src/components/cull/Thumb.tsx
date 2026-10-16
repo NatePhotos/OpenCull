@@ -1,3 +1,5 @@
+import { Film } from "lucide-react";
+import { isVideo } from "@/lib/media";
 import { memo, useEffect, useState, type CSSProperties } from "react";
 import { Crop, Flag, X } from "lucide-react";
 
@@ -15,7 +17,12 @@ import type { Photo } from "@/lib/types";
  * a folder closed — and a cell that gave up at the first refusal would stay
  * blank for as long as it was on screen.
  */
-export function ThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
+export function ThumbImage(props: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
+  if (isVideo(props.photo.display)) return <div className={cn("flex items-center justify-center bg-cell", props.className)} style={props.style} role="img" aria-label="Video"><Film className="size-8 text-muted-foreground" /></div>;
+  return <StillThumbImage {...props} />;
+}
+
+function StillThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
 
@@ -82,7 +89,7 @@ export function FramedThumb({ photo, size, box, inset = 0, cover = false, classN
       </span>
       {photo.framing.crop && (
         <span className="absolute left-1 top-1 rounded-[3px] bg-black/55 p-[2px]" title="Cropped">
-          <Crop className="size-2.5 text-white/85" strokeWidth={2.5} />
+          <Crop className="size-2.5 text-foreground/85" strokeWidth={2.5} />
         </span>
       )}
     </>
@@ -126,7 +133,7 @@ export function FlagBadge({ flag, small }: { flag: Photo["flag"]; small?: boolea
   return (
     <span className="rounded bg-black/45 p-1">
       {flag === "pick" ? (
-        <Flag className={cn(size, "fill-white text-white")} />
+        <Flag className={cn(size, "fill-white text-foreground")} />
       ) : (
         <X className={cn(size, "text-[#ff5959]")} strokeWidth={4} />
       )}
@@ -139,7 +146,7 @@ export function StarRow({ rating, small }: { rating: number; small?: boolean }) 
   return (
     <span className={cn("flex gap-px rounded bg-black/60 leading-none", small ? "px-1 py-0.5 text-[8px]" : "px-1.5 py-1 text-[9px]")}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <span key={n} className={n <= rating ? "text-star" : "text-white/20"}>
+        <span key={n} className={n <= rating ? "text-star" : "text-foreground/20"}>
           ★
         </span>
       ))}

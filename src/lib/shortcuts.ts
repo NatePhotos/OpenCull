@@ -297,7 +297,7 @@ export function installShortcuts(bindings: () => Record<Action, Combo>, recordin
     if (e.type !== "keydown" || recording()) return;
     const s = useStore.getState();
     // A dialog is open, or someone is typing: keys belong to that.
-    if (s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending || s.updateOpen) return;
+    if (s.overviewOpen || s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending || s.updateOpen) return;
 
     // Where every program on the system keeps its settings.
     if (e.code === "Comma" && (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey) {

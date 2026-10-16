@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import App from "./App";
+import { initializePreferences } from "./lib/prefs";
 import "./index.css";
 
 // The view's own right-click menu offers "Reload" and "Inspect Element",
@@ -28,6 +28,8 @@ window.addEventListener(
   true,
 );
 
+await initializePreferences();
+const { default: App } = await import("./App");
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />

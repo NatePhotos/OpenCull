@@ -80,7 +80,7 @@ export function UpdateDialog() {
             <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
               <span className="block h-full rounded-full bg-[#59a6ff] transition-[width] duration-150" style={{ width: `${Math.round(progress * 100)}%` }} />
             </div>
-            <div className="text-xs text-[#8c8c8c]">{progress < 1 ? `Downloading… ${Math.round(progress * 100)}%` : "Installing…"}</div>
+            <div className="text-xs text-[var(--ui-text-8c8c8c)]">{progress < 1 ? `Downloading… ${Math.round(progress * 100)}%` : "Installing…"}</div>
           </div>
         )}
         <AlertDialogFooter>

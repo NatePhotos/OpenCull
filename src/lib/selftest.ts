@@ -407,6 +407,7 @@ export async function runSelfTest(folder: string): Promise<void> {
     say(`navigation ${moved ? "moves" : "DOES NOT MOVE"}; histogram ${(await api.histogram(sample[0].display, sample[0].version)).luma.length === 256 ? "ok" : "BAD"}`);
     if (!moved) throw new Error("the arrow keys' action did not change the photo");
 
+    await (await import("./linux-features.selftest")).checkLinuxFeatures(folder, scratch);
     say("PASSED");
     api.finishSelfTest(true);
   } catch (e) {

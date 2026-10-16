@@ -224,7 +224,7 @@ const TIME_BUDGET: Duration = Duration::from_millis(1500);
 /// on screen before either — but the capture times are read here, by the
 /// short route, because the order of the folder depends on them.
 #[tauri::command]
-pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bool, kinds: Option<scan::Kinds>) -> Result<FolderReply, String> {
+pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bool, kinds: Option<scan::Kinds>, members: Option<Vec<Scanned>>, ignore_videos: Option<bool>) -> Result<FolderReply, String> {
     let kinds = kinds.unwrap_or_default();
     let folder = PathBuf::from(&path);
     if !folder.is_dir() {
@@ -234,7 +234,18 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
     let scanned_folder = folder.clone();
     let (result, read) = tauri::async_runtime::spawn_blocking(move || {
         let folder = scanned_folder;
-        let result = scan::scan_folder_of(&folder, include_subfolders, kinds);
+        let result = match members {
+            Some(images) => {
+                for image in &images {
+                    if !image.path.is_file() || !image.display.is_file() { return Err(format!("Reconnect the source containing {}", image.name)); }
+                    let meta = image.path.metadata().map_err(|e| e.to_string())?;
+                    let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
+                    if meta.len() != image.size || modified != image.modified { return Err(format!("{} changed since this session was saved. Start a new card review to avoid applying marks to a different file.", image.name)); }
+                }
+                scan::ScanResult { images, subfolder_count: 0, left_out: 0 }
+            }
+            None => scan::scan_folder_media(&folder, include_subfolders, kinds, !ignore_videos.unwrap_or(true)),
+        };
         let known = shared.times.load(&folder);
         let deadline = Instant::now() + TIME_BUDGET;
 
@@ -246,7 +257,7 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
                 .par_iter()
                 .map(|image| {
                     times::remembered(&known, image)
-                        .or_else(|| (Instant::now() < deadline).then(|| raw::capture_time(&image.path)))
+                        .or_else(|| (Instant::now() < deadline).then(|| if scan::is_video(&raw::extension(&image.path)) { None } else { raw::capture_time(&image.path) }))
                 })
                 .collect()
         });
@@ -255,10 +266,10 @@ pub async fn open_folder(app: AppState<'_>, path: String, include_subfolders: bo
         if learned {
             shared.times.save(&folder, &result.images, &read);
         }
-        (result, read)
+        Ok((result, read))
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
 
     let timed = read.iter().all(Option::is_some);
     let times: Vec<Option<f64>> = read.into_iter().map(Option::flatten).collect();
@@ -309,6 +320,9 @@ pub enum MetaEvent {
 }
 
 fn read_meta(index: usize, image: &Scanned) -> Meta {
+    if scan::is_video(&raw::extension(&image.path)) {
+        return Meta { index, marks: xmp::read(&image.path, None), exif: Exif::default(), full_width: 0, full_height: 0, framing: framing::Framing::default(), framable: false };
+    }
     let owner = raw::probe(&image.path).ok();
     let sidecar = xmp::sidecar_text(&image.path);
     let marks = xmp::read_from(sidecar.as_deref(), owner.as_ref());
@@ -695,6 +709,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
         let mut ready = Vec::new();
         for index in order {
             let Some(image) = session.images.get(index) else { continue };
+            if scan::is_video(&raw::extension(&image.path)) { continue; }
             match ai::store::remembered(&known.lock().unwrap(), &image.display, &image.version) {
                 Some(record) => ready.push(Analysed { index, record }),
                 None => todo.push(index),
@@ -848,10 +863,10 @@ pub struct Browsed {
 
 /// What is inside a folder on a card or drive, for the source browser.
 #[tauri::command]
-pub async fn ingest_browse(path: String) -> Result<Browsed, String> {
+pub async fn ingest_browse(path: String, ignore_videos: Option<bool>) -> Result<Browsed, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
-        Browsed { folders: ingest::photo_folders(path), image_count: ingest::shallow_count(path) }
+        Browsed { folders: ingest::photo_folders_media(path, !ignore_videos.unwrap_or(true)), image_count: ingest::shallow_count_media(path, !ignore_videos.unwrap_or(true)) }
     })
     .await
     .map_err(|e| e.to_string())
@@ -859,8 +874,8 @@ pub async fn ingest_browse(path: String) -> Result<Browsed, String> {
 
 /// The photos a folder on a card has to offer.
 #[tauri::command]
-pub async fn ingest_scan(path: String) -> Result<Vec<Scanned>, String> {
-    tauri::async_runtime::spawn_blocking(move || ingest::scan(Path::new(&path))).await.map_err(|e| e.to_string())
+pub async fn ingest_scan(path: String, ignore_videos: Option<bool>) -> Result<Vec<Scanned>, String> {
+    tauri::async_runtime::spawn_blocking(move || ingest::scan_media(Path::new(&path), !ignore_videos.unwrap_or(true))).await.map_err(|e| e.to_string())
 }
 
 #[derive(Serialize, Clone)]
@@ -1092,4 +1107,97 @@ pub async fn set_cache_limit(app: AppState<'_>, limit: u64) -> Result<(), String
 pub async fn trim_cache(app: AppState<'_>, limit: u64) -> Result<u64, String> {
     let cache = app.previews.cache.clone();
     tauri::async_runtime::spawn_blocking(move || cache.trim(limit)).await.map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+pub struct ReviewCopyItem {
+    path: PathBuf, display: PathBuf, marks: Marks,
+    framing: framing::Framing, upright: (u32, u32),
+}
+
+fn copy_review_items(items: &[ReviewCopyItem], sources: &[PathBuf], destination: &Path, cancel: &AtomicBool, progress: impl Fn(usize)) -> Result<(transfer::Outcome, HashMap<String, String>), String> {
+    let destination = destination.canonicalize().map_err(|e| e.to_string())?;
+    for source in sources {
+        let root = source.canonicalize().map_err(|e| format!("Reconnect {}: {e}", source.display()))?;
+        if destination.starts_with(root) { return Err("Choose a destination outside the source cards".into()); }
+    }
+    let mut outcome = transfer::Outcome::default();
+    let mut completed = HashMap::new();
+    for (i, item) in items.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) { break; }
+        let job = transfer::Job { owner: item.path.clone(), companions: if item.display != item.path { vec![item.display.clone()] } else { vec![] } };
+        let mut result = transfer::run(&[job], &destination, false, transfer::Conflict::KeepBoth, |_| {});
+        if result.failed.is_empty() {
+            if let Some(target) = result.placed.first() {
+                if let Err(e) = xmp::write(target, item.marks) { result.sidecar_failed.push(format!("{}: {e}", target.display())); }
+                if !item.framing.is_plain() {
+                    let wanted = framing::Wanted { framing: item.framing, upright: item.upright, seed: item.marks };
+                    if let Err(e) = framing::write(target, Some(item.marks), &wanted) { result.sidecar_failed.push(format!("{}: {e}", target.display())); }
+                }
+            }
+        }
+        if result.failed.is_empty() && result.sidecar_failed.is_empty() {
+            if let Some(target) = result.placed.first() { completed.insert(item.path.to_string_lossy().into_owned(), target.to_string_lossy().into_owned()); }
+        }
+        outcome.placed.extend(result.placed); outcome.failed.extend(result.failed); outcome.sidecar_failed.extend(result.sidecar_failed);
+        progress(i + 1);
+    }
+    Ok((outcome, completed))
+}
+
+#[derive(Serialize)]
+pub struct ReviewCopied { #[serde(flatten)] result: Shipped, completed: HashMap<String, String> }
+
+#[tauri::command]
+pub async fn review_copy(app: AppState<'_>, items: Vec<ReviewCopyItem>, sources: Vec<PathBuf>, destination: String, progress: Channel<usize>) -> Result<ReviewCopied, String> {
+    let app = app.inner().clone();
+    if app.ingesting.swap(true, Ordering::SeqCst) { return Err("A copy is already running".into()); }
+    let running = Ingesting(app.clone());
+    let cancel = Arc::new(AtomicBool::new(false)); *app.ingest_cancel.lock().unwrap() = cancel.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _running = running;
+        copy_review_items(&items, &sources, Path::new(&destination), &cancel, |done| { progress.send(done).ok(); }).map(|(result, completed)| ReviewCopied { result: result.into(), completed })
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[cfg(test)] mod review_tests {
+    use super::*;
+    #[test] fn review_copy_keeps_sources_unchanged_and_writes_destination_marks() {
+        let root = std::env::temp_dir().join(format!("opencull-review-copy-{}", std::process::id()));
+        let source = root.join("card"); let dest = root.join("dest"); std::fs::create_dir_all(&source).unwrap(); std::fs::create_dir_all(&dest).unwrap();
+        let raw = source.join("A.RAW"); let jpeg = source.join("A.JPG");
+        std::fs::write(&raw, b"raw bytes").unwrap(); std::fs::write(&jpeg, b"jpeg bytes").unwrap();
+        let marks = Marks { rating: 4, ..Default::default() };
+        let item = ReviewCopyItem { path: raw.clone(), display: jpeg.clone(), marks, framing: framing::Framing::default(), upright: (0, 0) };
+        let (result, completed) = copy_review_items(&[item], &[source.clone()], &dest, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(result.failed.is_empty()); assert!(result.sidecar_failed.is_empty()); assert_eq!(completed.len(), 1);
+        assert_eq!(std::fs::read(raw).unwrap(), b"raw bytes"); assert_eq!(std::fs::read(jpeg).unwrap(), b"jpeg bytes");
+        assert!(!source.join("A.xmp").exists()); assert_eq!(xmp::read(&dest.join("A.RAW"), None).rating, 4);
+        assert_eq!(std::fs::read_dir(&source).unwrap().count(), 2); std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn destination_on_a_source_card_is_refused() {
+        let root = std::env::temp_dir().join(format!("opencull-review-same-{}", std::process::id())); std::fs::create_dir_all(&root).unwrap();
+        assert!(copy_review_items(&[], &[root.clone()], &root, &AtomicBool::new(false), |_| {}).is_err()); std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// Selected cards are scanned as one shoot; disconnected sources are reported.
+#[tauri::command]
+pub async fn ingest_sources(sources: Vec<PathBuf>, ignore_videos: Option<bool>) -> Result<Vec<Scanned>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::multicard::scan_sources_media(&sources, !ignore_videos.unwrap_or(true))).await.map_err(|e| e.to_string())?
+}
+
+/// Grant only the requested video already belonging to an open session.
+#[tauri::command]
+pub fn video_source(handle: tauri::AppHandle, app: AppState, path: String) -> Result<String, String> {
+    use tauri::Manager;
+    let requested = PathBuf::from(path).canonicalize().map_err(|e| e.to_string())?;
+    if !scan::is_video(&raw::extension(&requested)) { return Err("Not a supported video container".into()); }
+    let sessions = app.sessions.lock().map_err(|e| e.to_string())?;
+    if !sessions.values().any(|s| s.images.iter().any(|p| p.path.canonicalize().ok().as_ref() == Some(&requested))) { return Err("Video is not in the selected session".into()); }
+    handle.asset_protocol_scope().allow_file(&requested).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    { crate::video_stream::url(requested) }
+    #[cfg(not(target_os = "linux"))]
+    { Ok(requested.to_string_lossy().into_owned()) }
 }

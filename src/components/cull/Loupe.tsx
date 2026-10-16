@@ -1,3 +1,5 @@
+import { isVideo } from "@/lib/media";
+import { VideoPlayer } from "./VideoPlayer";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Loader2, X } from "lucide-react";
 
@@ -125,12 +127,12 @@ export function Loupe() {
 
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
-      {photo && cropping ? (
+      {photo && isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : photo && cropping ? (
         <CropView photo={photo} />
       ) : photo ? (
         <Canvas photo={photo} />
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-2 text-sm text-[#666]">
+        <div className="flex size-full flex-col items-center justify-center gap-2 text-sm text-[var(--ui-text-666666)]">
           {loading && <Loader2 className="size-4 animate-spin" />}
           {loading ? `Opening ${folder}…` : "No image selected"}
         </div>
@@ -620,7 +622,7 @@ function Canvas({ photo }: { photo: Photo }) {
         if (at + d < view.length) near.push(view[at + d]);
         if (d <= BEHIND && at - d >= 0) near.push(view[at - d]);
       }
-      void api.prefetch(near.map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
+      void api.prefetch(near.filter((i) => !isVideo(photos[i].path)).map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
     });
     return () => cancelAnimationFrame(handle);
   }, [photo.index, photo.display, photo.version, fitSize, box.w]);
@@ -723,7 +725,7 @@ function ZoomBadge({ percent, sharp, loading }: { percent: number | null; sharp:
     <div className="pointer-events-none absolute right-3 top-3 flex flex-col items-end gap-1">
       <span className="rounded-[5px] bg-black/55 px-2 py-1 font-mono text-[11px] font-semibold text-white">{percent === null ? "Fit" : `${percent}%`}</span>
       {loading && (
-        <span className="flex items-center gap-1 rounded bg-black/45 px-1.5 py-0.5 text-[9px] font-medium text-[#808080]">
+        <span className="flex items-center gap-1 rounded bg-black/45 px-1.5 py-0.5 text-[9px] font-medium text-[var(--ui-text-808080)]">
           <Loader2 className="size-2.5 animate-spin" /> HD
         </span>
       )}
@@ -738,7 +740,7 @@ function InfoOverlay({ photo }: { photo: Photo }) {
   return (
     <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/65 p-2.5 font-mono text-white">
       <div className="text-xs font-semibold">{fmt.displayName(photo)}</div>
-      {parts.length > 0 && <div className="mt-0.5 flex gap-2.5 text-[11px] text-[#bfbfbf]">{parts.map((p) => <span key={p}>{p}</span>)}</div>}
+      {parts.length > 0 && <div className="mt-0.5 flex gap-2.5 text-[11px] text-[var(--ui-text-bfbfbf)]">{parts.map((p) => <span key={p}>{p}</span>)}</div>}
     </div>
   );
 }
@@ -746,24 +748,24 @@ function InfoOverlay({ photo }: { photo: Photo }) {
 /** Flag, stars and colour for the photo in the loupe, along its bottom edge. */
 function RatingBar({ photo }: { photo: Photo }) {
   const s = useStore.getState();
-  const divider = <span className="h-5 w-px bg-[#595959]" />;
+  const divider = <span className="h-5 w-px bg-[var(--ui-surface-595959)]" />;
   return (
     <div
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-3.5 rounded-xl border border-white/10 bg-[#2a2a30]/80 px-4.5 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"
+      className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-3.5 rounded-xl border border-white/10 bg-[var(--ui-surface-2a2a30)]/80 px-4.5 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,.4)] backdrop-blur-md"
     >
       <span className="flex items-center gap-2">
         <button type="button" title="Pick (P)" onClick={() => s.setFlag(photo.flag === "pick" ? "none" : "pick", [photo.index])}>
-          <Flag className={cn("size-3.5", photo.flag === "pick" ? "fill-white text-white" : "fill-[#666] text-[#666]")} />
+          <Flag className={cn("size-3.5", photo.flag === "pick" ? "fill-white text-white" : "fill-[#666] text-[var(--ui-text-666666)]")} />
         </button>
         <button type="button" title="Reject (X)" onClick={() => s.setFlag(photo.flag === "reject" ? "none" : "reject", [photo.index])}>
-          <X className={cn("size-3.5", photo.flag === "reject" ? "text-[#e64d4d]" : "text-[#666]")} strokeWidth={3.5} />
+          <X className={cn("size-3.5", photo.flag === "reject" ? "text-[#e64d4d]" : "text-[var(--ui-text-666666)]")} strokeWidth={3.5} />
         </button>
       </span>
       {divider}
       <span className="flex gap-1 text-base leading-none">
         {[1, 2, 3, 4, 5].map((n) => (
-          <button key={n} type="button" onClick={() => s.setRating(photo.rating === n ? 0 : n, [photo.index])} className={photo.rating >= n ? "text-[#ffcc1a]" : "text-[#666]"}>
+          <button key={n} type="button" onClick={() => s.setRating(photo.rating === n ? 0 : n, [photo.index])} className={photo.rating >= n ? "text-[#ffcc1a]" : "text-[var(--ui-text-666666)]"}>
             {photo.rating >= n ? "★" : "☆"}
           </button>
         ))}
