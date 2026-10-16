@@ -1,6 +1,6 @@
 # AI & grouping bundle
 
-Prerequisite: `ideas/ingest-sessions`, which includes `ideas/gpu-performance`. This branch adds one curated AI commit to those two bundles. It carries three new commits beyond upstream 0.4.1, not MobileCLIP's 197 inherited commits.
+Prerequisite: `ideas/ingest-sessions`, which includes `ideas/gpu-performance`. This branch adds one curated AI commit to those two bundles. It carries six commits beyond upstream 0.4.1: three curated feature commits plus three documentation/dependency cleanup integrations, not MobileCLIP's 197 inherited commits.
 
 Includes MobileCLIP-S0 whole-image grouping, Loose >0.70 / Normal >0.80 / Tight >0.90 similarity, three-second group limits, motion-blur detection and filtering, optional one-star + Reject for currently unrated blur detections, cached AI results and embeddings, cached preview JPEG reuse, scaled decoding, shared CUDA inference, CPU fallback, and VRAM errors. Model download and the experimental toggle are in Settings → AI. Settings transfer preserves the AI options.
 
@@ -28,3 +28,11 @@ Enable OpenCull AI, download the MobileCLIP model once, then enable visual group
 Linux production frontend build; 87 frontend tests and 11 launcher tests passed; 312 native tests passed with CUDA enabled, two hardware benchmarks ignored. Tests cover grouping boundaries, motion rating/Reject preservation, caches, settings transfer and CPU/CUDA error handling. Cross-platform CI and native runtime measurements for the full release are separate from these curated-subset checks.
 
 Hardware checks also passed on the local NVIDIA GPU: concurrent CUDA callers matched CPU outputs; real MobileCLIP embeddings were computed on CUDA in 692 ms for two reference RAW files, and a reopened embedding cache was read in 49 µs without recomputation. These are correctness smoke-test timings, not a throughput benchmark.
+
+## Follow-up cleanup
+
+Published history is preserved. An append-only cleanup stack fixes branch-specific clone/build instructions and removes unused MobileCLIP download dependencies from GPU and Ingest. AI restores those dependencies because model installation needs them. The new branch tips retain the cumulative dependency order.
+
+Responsive browser checks passed at 320, 390, 768 and 1440 pixels: the settings dialog fits its viewport, tabs remain reachable through horizontal scrolling, and all MobileCLIP strengths fit in the AI bundle. Settings import/export and graphics diagnostics were exercised on desktop.
+
+Native Linux desktop build also passed: `npm run tauri build -- --debug --no-bundle --features cuda`, using a separate temporary target so the existing development executable was unchanged.

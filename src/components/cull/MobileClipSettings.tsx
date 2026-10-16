@@ -31,7 +31,7 @@ export function MobileClipSettings() {
     catch (e) { setError(String(e)); }
     finally { setDownloading(false); }
   }
-  return <fieldset className="experimental-section space-y-3 rounded-lg border p-4">
+  return <fieldset className="experimental-section w-full min-w-0 max-w-full space-y-3 rounded-lg border p-4">
     <legend className="px-1 text-sm font-semibold">MobileCLIP grouping · Experimental</legend>
     <div className="setting-toggle-row flex items-start justify-between gap-4">
       <div className="setting-copy">
@@ -42,7 +42,7 @@ export function MobileClipSettings() {
     </div>
     <fieldset aria-describedby="mobileclip-strength-help">
       <legend>Grouping strength</legend>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2">
+      <div className="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-2">
         {MOBILECLIP_GROUPINGS.map(option => <label key={option.value} htmlFor={`mobileclip-strength-${option.value}`} className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 ${strength === option.value ? "border-primary bg-primary/10" : "border-input bg-background"} ${!enabled || !ai ? "opacity-50" : ""}`}>
           <input id={`mobileclip-strength-${option.value}`} name="mobileclip-grouping-strength" type="radio" value={option.value} checked={strength === option.value} disabled={!enabled || !ai} onChange={() => useStore.getState().set("mobileClipGrouping",option.value)} className="accent-[var(--primary)]" />
           <span>{option.label}<span className="ml-1 text-muted-foreground">(&gt;{option.threshold.toFixed(2)})</span></span>
