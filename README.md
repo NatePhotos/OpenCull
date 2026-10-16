@@ -131,6 +131,15 @@ system, reports are very welcome.
   its model.
 * **Your workspace, your way.** Choose which panels show, where they sit and
   how photos are scaled, and try the new Wisp look in Settings.
+* **Videos.** Clips from your camera play in the app, including 10-bit log
+  footage that the system player handles, and show a first-frame picture in
+  the grid, filmstrip and home page. Space plays and pauses. Importing from a
+  card brings in the clips themselves, not the camera's proxy copies.
+* **Crop from anywhere on the edge.** Drag any part of the crop frame's edge,
+  not only the small tab.
+* **Easier on small screens and in light mode.** The interface scale never
+  goes larger than the window can hold, the toolbar wraps cleanly, and light
+  mode has readable tabs and darker text.
 * **Better with long folder paths**, and the buttons line up properly.
 
 ### Built With

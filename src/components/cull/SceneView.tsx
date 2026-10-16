@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { Filmstrip, FilmstripResizeHandle } from "./Filmstrip";
 import { Loupe } from "./Loupe";
 import { useStrip } from "./strip";
-import { FlagBadge, FramedThumb } from "./Thumb";
+import { FlagBadge, FramedThumb, ReviewedBadge } from "./Thumb";
 
 interface Scene {
   number: number;
@@ -138,7 +138,7 @@ function SceneCard({ scene, active, width, height, native }: { scene: Scene; act
       )}
       {(rejected || complete) && (
         <span className="absolute right-1 top-1 flex">
-          <FlagBadge flag={rejected ? "reject" : "pick"} small title={rejected ? "Rejected preview photo" : "All photos in group reviewed"} />
+          {rejected ? <FlagBadge flag="reject" small title="Rejected preview photo" /> : <ReviewedBadge small title="All photos in group reviewed" />}
         </span>
       )}
     </button>

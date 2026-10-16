@@ -439,7 +439,7 @@ function Ship() {
               type="button"
               disabled={blocked !== null}
               onClick={() => void ship()}
-              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[#2e2e2e] text-[#737373]" : "bg-gradient-to-r from-[#618cfa] to-[#8c52eb] text-white hover:brightness-110")}
+              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[#2e2e2e] text-[#737373]" : "accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] text-white hover:brightness-110")}
             >
               <Send className="size-3.5 fill-current" />
               Ship

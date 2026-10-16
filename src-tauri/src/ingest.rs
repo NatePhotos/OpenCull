@@ -199,6 +199,7 @@ fn subfolders(folder: &Path) -> Vec<PathBuf> {
         .filter(|e| e.file_name().to_str().is_some_and(|n| !hidden(n)))
         .filter(|e| e.file_type().is_ok_and(|k| k.is_dir()))
         .map(|e| e.path())
+        .filter(|p| !scan::camera_support_folder(p))
         .collect()
 }
 

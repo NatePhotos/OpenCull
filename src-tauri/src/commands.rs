@@ -976,7 +976,9 @@ pub async fn ingest_browse(path: String, ignore_videos: Option<bool>) -> Result<
 /// The photos a folder on a card has to offer.
 #[tauri::command]
 pub async fn ingest_scan(path: String, ignore_videos: Option<bool>) -> Result<Vec<Scanned>, String> {
-    tauri::async_runtime::spawn_blocking(move || ingest::scan_media(Path::new(&path), !ignore_videos.unwrap_or(true))).await.map_err(|e| e.to_string())
+    let found = tauri::async_runtime::spawn_blocking(move || ingest::scan_media(Path::new(&path), !ignore_videos.unwrap_or(true))).await.map_err(|e| e.to_string())?;
+    allow_shown_videos(&found);
+    Ok(found)
 }
 
 #[derive(Serialize, Clone)]
@@ -1161,10 +1163,24 @@ pub async fn histogram(app: AppState<'_>, path: String, version: String) -> Resu
 /// A few photos to stand for a folder on the home screen.
 #[tauri::command]
 pub async fn folder_cover(path: String) -> Result<Vec<Scanned>, String> {
-    tauri::async_runtime::spawn_blocking(move || scan::cover_images(Path::new(&path), 4))
+    let found = tauri::async_runtime::spawn_blocking(move || scan::cover_images(Path::new(&path), 4))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    allow_shown_videos(&found);
+    Ok(found)
 }
+
+/// Lets clips that were shown to the person, on the home page or in a card's contents, be opened for their still before any folder is open.
+fn allow_shown_videos(found: &[Scanned]) {
+    if let Ok(mut shown) = COVER_VIDEOS.lock() {
+        for image in found.iter().filter(|i| scan::is_video(&raw::extension(&i.path))) {
+            if let Ok(real) = Path::new(&image.path).canonicalize() { shown.insert(real); }
+        }
+    }
+}
+
+/// Clips just shown on the home page or in a card's contents: the only videos, besides an open folder's, that may be opened.
+static COVER_VIDEOS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> = std::sync::LazyLock::new(Default::default);
 
 /// Which of these folders are still where they were.
 #[tauri::command]
@@ -1310,7 +1326,9 @@ pub async fn review_copy(app: AppState<'_>, items: Vec<ReviewCopyItem>, sources:
 #[tauri::command]
 pub async fn ingest_sources(sources: Vec<PathBuf>, ignore_videos: Option<bool>) -> Result<Vec<Scanned>, String> {
     let include_videos = !ignore_videos.unwrap_or(true);
-    tauri::async_runtime::spawn_blocking(move || crate::multicard::scan_sources(&sources, include_videos)).await.map_err(|e| e.to_string())?
+    let found = tauri::async_runtime::spawn_blocking(move || crate::multicard::scan_sources(&sources, include_videos)).await.map_err(|e| e.to_string())??;
+    allow_shown_videos(&found);
+    Ok(found)
 }
 
 /// Grant only the requested video already belonging to an open session.
@@ -1320,10 +1338,8 @@ pub fn video_source(handle: tauri::AppHandle, app: AppState, path: String) -> Re
     let requested = PathBuf::from(path).canonicalize().map_err(|e| e.to_string())?;
     if !scan::is_video(&raw::extension(&requested)) { return Err("Not a supported video container".into()); }
     let sessions = app.sessions.lock().map_err(|e| e.to_string())?;
-    if !sessions.values().any(|s| s.images.iter().any(|p| p.path.canonicalize().ok().as_ref() == Some(&requested))) { return Err("Video is not in the selected session".into()); }
+    let on_cover = COVER_VIDEOS.lock().is_ok_and(|shown| shown.contains(&requested));
+    if !on_cover && !sessions.values().any(|s| s.images.iter().any(|p| p.path.canonicalize().ok().as_ref() == Some(&requested))) { return Err("Video is not in the selected session".into()); }
     handle.asset_protocol_scope().allow_file(&requested).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "linux")]
-    { crate::video_stream::url(requested) }
-    #[cfg(not(target_os = "linux"))]
-    { Ok(requested.to_string_lossy().into_owned()) }
+    crate::video_stream::url(requested)
 }

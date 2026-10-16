@@ -90,6 +90,15 @@ pub(crate) fn hidden(name: &str) -> bool {
     name.starts_with('.')
 }
 
+/// What a Sony card keeps beside its clips: low-resolution copies (SUB), a
+/// small picture for each clip (THMBNL), and the camera's own records. None
+/// of it is something the photographer shot, and importing it doubles every clip.
+pub(crate) fn camera_support_folder(path: &Path) -> bool {
+    let named = |p: &Path| p.file_name().and_then(|n| n.to_str()).map(str::to_lowercase);
+    named(path).is_some_and(|n| matches!(n.as_str(), "sub" | "thmbnl" | "general" | "take"))
+        && path.parent().and_then(named).is_some_and(|p| p == "m4root")
+}
+
 /// Compares the way a file browser does: runs of digits by their value, and
 /// letters without regard to case, so `IMG_9.ARW` comes before `IMG_10.ARW`.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
@@ -148,6 +157,9 @@ fn list(dir: &Path, recurse: bool, out: &mut Vec<Found>, subfolders: Option<&mut
         let is_dir = if kind.is_symlink() { path.is_dir() } else { kind.is_dir() };
 
         if is_dir {
+            if camera_support_folder(&path) {
+                continue;
+            }
             count += 1;
             if recurse && !PACKAGES.contains(&extension(&path).as_str()) {
                 dirs.push(path);
@@ -289,7 +301,19 @@ fn name_of(path: &Path) -> String {
 /// wall. Looks one level down when the folder itself holds none, since a card
 /// keeps its photos in a folder of its own.
 pub fn cover_images(folder: &Path, count: usize) -> Vec<Scanned> {
-    let mut images = scan_folder(folder, false).images;
+    let images = cover_pool(folder, false);
+    // A folder of nothing but clips has no photographs to show: its clips stand in.
+    let images = if images.is_empty() { cover_pool(folder, true).into_iter().filter(|i| is_video(&extension(&i.path))).collect() } else { images };
+    if images.len() <= count {
+        return images;
+    }
+    let step = images.len() as f64 / count as f64;
+    (0..count).map(|i| images[(i as f64 * step) as usize].clone()).collect()
+}
+
+/// What a folder, or failing that the first folder inside it that has any, holds.
+fn cover_pool(folder: &Path, videos: bool) -> Vec<Scanned> {
+    let mut images = scan_folder_media(folder, false, Kinds::Both, videos).images;
     if images.is_empty() {
         if let Ok(entries) = std::fs::read_dir(folder) {
             let mut subs: Vec<PathBuf> = entries
@@ -299,18 +323,14 @@ pub fn cover_images(folder: &Path, count: usize) -> Vec<Scanned> {
                 .collect();
             subs.sort_by(|a, b| natural_cmp(&name_of(a), &name_of(b)));
             for sub in subs.into_iter().take(8) {
-                images = scan_folder(&sub, false).images;
+                images = scan_folder_media(&sub, false, Kinds::Both, videos).images;
                 if !images.is_empty() {
                     break;
                 }
             }
         }
     }
-    if images.len() <= count {
-        return images;
-    }
-    let step = images.len() as f64 / count as f64;
-    (0..count).map(|i| images[(i as f64 * step) as usize].clone()).collect()
+    images
 }
 
 #[cfg(test)]
@@ -326,6 +346,27 @@ mod tests {
             std::fs::write(path, b"x").unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn a_folder_of_only_clips_uses_them_as_its_cover() {
+        let dir = scratch("clips-cover", &["a.MP4", "b.MP4"]);
+        assert_eq!(cover_images(&dir, 4).len(), 2);
+        let mixed = scratch("photo-cover", &["a.MP4", "b.JPG"]);
+        let cover = cover_images(&mixed, 4);
+        assert_eq!(cover.len(), 1);
+        assert!(!is_video(&extension(&cover[0].path)));
+    }
+
+    #[test]
+    fn a_sony_cards_proxies_and_thumbnails_are_not_imported_with_its_clips() {
+        let dir = scratch("sony-card", &["M4ROOT/CLIP/C0001.MP4", "M4ROOT/CLIP/C0002.MP4", "M4ROOT/SUB/C0001S03.MP4", "M4ROOT/THMBNL/C0001T01.JPG", "M4ROOT/GENERAL/SONYCARD.IND"]);
+        let found = scan_folder_media(&dir.join("M4ROOT"), true, Kinds::Both, true);
+        assert_eq!(found.images.len(), 2);
+        assert!(found.images.iter().all(|i| i.path.to_string_lossy().contains("CLIP")));
+        // Only M4ROOT's own folders are skipped: a folder called SUB elsewhere is a person's.
+        let other = scratch("own-sub", &["Shoot/SUB/A.JPG"]);
+        assert_eq!(scan_folder_media(&other, true, Kinds::Both, false).images.len(), 1);
     }
 
     fn names(result: &ScanResult) -> Vec<String> {

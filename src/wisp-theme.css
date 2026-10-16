@@ -65,7 +65,7 @@
 :root[data-theme="wisp"] [data-slot="switch-thumb"] { background: var(--foreground); }
 :root[data-theme="wisp"] [role="switch"][data-state="checked"] [data-slot="switch-thumb"] { background: var(--primary-foreground); }
 :root[data-theme="wisp"] :is(input[type="checkbox"],input[type="radio"],input[type="range"]) { accent-color: var(--primary); }
-:root[data-theme="wisp"] .home-open { background: var(--primary); color: var(--primary-foreground); box-shadow: none; }
+:root[data-theme="wisp"] :is(.home-open, .accent-action) { background: var(--primary); color: var(--primary-foreground); box-shadow: none; }
 
 /* Metadata is reading content: distinguish hierarchy by size, weight and surfaces,
    rather than dimming small type against the panel. */

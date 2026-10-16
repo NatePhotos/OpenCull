@@ -117,7 +117,7 @@ export function Toolbar() {
           </span>
         )}
         {kinds !== "both" && (
-          <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text-a6a6a6)]" title={`Showing only ${kinds === "raw" ? "RAW files" : "JPEGs"}. Change it in Settings, under Culling.`}>
+          <span className="shrink-0 rounded bg-foreground/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text-a6a6a6)]" title={`Showing only ${kinds === "raw" ? "RAW files" : "JPEGs"}. Change it in Settings, under Culling.`}>
             {kinds === "raw" ? "RAW only" : "JPEG only"}
           </span>
         )}
@@ -138,7 +138,7 @@ export function Toolbar() {
         </span>
       )}
 
-      <div className="flex shrink-0 overflow-hidden rounded-md bg-white/[0.06]">
+      <div className="flex shrink-0 overflow-hidden rounded-md bg-foreground/[0.07]">
         <Mode mode="loupe" label="Loupe View" current={viewMode}>
           <RectangleHorizontal className="fill-current" />
         </Mode>
@@ -185,7 +185,7 @@ export function Toolbar() {
               aria-label="Finish review"
               disabled={loading}
               onClick={() => useStore.setState({ reviewFinishOpen: true })}
-              className="ml-1.5 flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#618cfa] to-[#8c52eb] px-2.5 text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
+              className="ml-1.5 flex h-8 shrink-0 items-center gap-1.5 rounded-md accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] px-4 text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
             >
               <ClipboardCheck className="size-3.5" />
               Finish review
@@ -200,7 +200,7 @@ export function Toolbar() {
             type="button"
             aria-label="Ship"
             onClick={() => s.openShip()}
-            className="ml-1.5 flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#618cfa] to-[#8c52eb] px-2.5 text-[11px] font-semibold text-white hover:brightness-110"
+            className="ml-1.5 flex h-8 shrink-0 items-center gap-1.5 rounded-md accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] px-4 text-[11px] font-semibold text-white hover:brightness-110"
           >
             <Send className="size-3 fill-current" />
             Ship
@@ -230,7 +230,7 @@ function Mode({ mode, label, current, children }: { mode: ViewMode; label: strin
           aria-label={label}
           aria-pressed={current === mode}
           onClick={() => useStore.getState().set("viewMode", mode)}
-          className={cn("flex size-8 items-center justify-center rounded-md [&_svg]:size-[15px]", current === mode ? "bg-[var(--ui-surface-383838)] text-white" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]")}
+          className={cn("flex size-8 items-center justify-center rounded-md [&_svg]:size-[15px]", current === mode ? "bg-foreground/[0.13] text-foreground" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]")}
         >
           {children}
         </button>

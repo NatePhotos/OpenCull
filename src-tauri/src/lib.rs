@@ -27,7 +27,6 @@ pub mod times;
 pub mod transfer;
 pub mod update;
 pub mod xmp;
-#[cfg(target_os = "linux")]
 pub mod video_stream;
 
 use std::sync::Arc;

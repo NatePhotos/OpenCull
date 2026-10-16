@@ -2671,6 +2671,7 @@ name = "opencull"
 version = "0.5.0"
 dependencies = [
  "fast_image_resize",
+ "getrandom 0.3.4",
  "jpeg-decoder",
  "jpeg-encoder",
  "memchr",

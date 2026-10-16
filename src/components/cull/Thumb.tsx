@@ -1,7 +1,8 @@
 import { Film } from "lucide-react";
 import { isVideo } from "@/lib/media";
+import { videoThumb } from "@/lib/video-thumb";
 import { memo, useEffect, useState, type CSSProperties } from "react";
-import { CheckCircle2, Crop, X } from "lucide-react";
+import { CheckCircle2, Crop, Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { placement, shownSize } from "@/lib/framing";
@@ -19,8 +20,32 @@ import type { Photo } from "@/lib/types";
  * blank for as long as it was on screen.
  */
 export function ThumbImage(props: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
-  if (isVideo(props.photo.display)) return <div className={cn("flex items-center justify-center bg-cell", props.className)} style={props.style} role="img" aria-label="Video"><Film className="size-8 text-muted-foreground" /></div>;
+  if (isVideo(props.photo.display)) return <VideoStill path={props.photo.display} width={props.size} className={props.className} style={props.style} />;
   return <StillThumbImage {...props} />;
+}
+
+/** A clip's first frame when the system can open it; otherwise the film icon. */
+export function VideoStill({ path, width, badge = true, className, style }: { path: string; width: number; badge?: boolean; className?: string; style?: CSSProperties }) {
+  const [still, setStill] = useState<{ path: string; url: string | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void videoThumb(path, width, () => live).then((url) => live && setStill({ path, url }));
+    return () => {
+      live = false;
+    };
+  }, [path, width]);
+  const url = still?.path === path ? still.url : null;
+  if (!url) return <div className={cn("flex items-center justify-center bg-cell", className)} style={style} role="img" aria-label="Video"><Film className="size-8 text-muted-foreground" /></div>;
+  return (
+    <>
+      <img src={url} alt="" draggable={false} className={className} style={style} />
+      {badge && (
+        <span className="pointer-events-none absolute right-1 top-1 rounded-[3px] bg-black/55 p-[3px]" title="Video">
+          <Film className="size-2.5 text-white/85" strokeWidth={2.5} />
+        </span>
+      )}
+    </>
+  );
 }
 
 function StillThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
@@ -137,10 +162,19 @@ export function FlagBadge({ flag, small, title }: { flag: Photo["flag"]; small?:
   return (
     <span title={title} className="rounded bg-black/45 p-1">
       {flag === "pick" ? (
-        <CheckCircle2 className={cn(size, "text-[#33cc66]")} strokeWidth={3} />
+        <Flag className={cn(size, "fill-white text-white")} strokeWidth={2.5} />
       ) : (
         <X className={cn(size, "text-[#ff5959]")} strokeWidth={4} />
       )}
+    </span>
+  );
+}
+
+/** A group in the scene overview that has been gone through, kept apart from a flag by being a tick. */
+export function ReviewedBadge({ small, title }: { small?: boolean; title?: string }) {
+  return (
+    <span title={title} className="rounded bg-black/45 p-1">
+      <CheckCircle2 className={cn(small ? "size-2.5" : "size-3", "text-[#33cc66]")} strokeWidth={3} />
     </span>
   );
 }

@@ -7,12 +7,14 @@ import { useHomeLayout } from "@/components/HomeLayoutSettings";
 import { useFeaturedImage } from "@/components/HomeLayoutSettings";
 import { CardIcon } from "@/components/ingest/IngestView";
 import { api, type Volume } from "@/lib/api";
+import { VideoStill } from "@/components/cull/Thumb";
+import { isVideo } from "@/lib/media";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Scanned } from "@/lib/types";
 import { RecentSessions, ResumeLatestSession } from "./RecentSessions";
 
-const GRADIENT = "bg-gradient-to-r from-[#4d80ff] to-[#804dff]";
+const GRADIENT = "accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)]";
 const HOME_ACTION = "inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-0 text-[13px] font-medium leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 function baseName(path: string): string {
@@ -132,7 +134,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         <button
           type="button"
           onClick={() => void chooseFolder()}
-          className={cn("home-open bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] text-white hover:brightness-110", HOME_ACTION)}
+          className={cn("home-open accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] text-white hover:brightness-110", HOME_ACTION)}
         >
           <FolderPlus className="size-4" /> Open Folder
         </button>
@@ -351,7 +353,9 @@ function Cover({ path }: { path: string }) {
 
   if (!images || images.length === 0) return <Placeholder />;
   const [first, ...rest] = images;
-  const tile = (image: Scanned, size: number) => <img key={image.path} src={api.url("thumb", image, size)} alt="" draggable={false} className="min-h-0 w-full flex-1 object-cover" />;
+  const tile = (image: Scanned, size: number) => isVideo(image.path)
+    ? <VideoStill key={image.path} path={image.path} width={size} badge={false} className="min-h-0 w-full flex-1 object-cover" />
+    : <img key={image.path} src={api.url("thumb", image, size)} alt="" draggable={false} className="min-h-0 w-full flex-1 object-cover" />;
 
   return (
     <div className="flex size-full gap-0.5 bg-[var(--ui-surface-262626)]">

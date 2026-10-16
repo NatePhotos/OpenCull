@@ -1,5 +1,7 @@
-//! Linux WebKit's media backend cannot open Tauri custom schemes. Serve only
-//! explicitly selected videos over a token-protected loopback stream instead.
+//! Serve only explicitly selected videos over a token-protected loopback
+//! stream. Linux WebKit cannot open Tauri's custom schemes at all, and where
+//! it can, the asset protocol hands out about a megabyte per request: far
+//! short of the 30 MB a second a camera's 10-bit 4K footage needs.
 use std::{
     collections::HashMap,
     fs::File,
@@ -38,14 +40,13 @@ fn start() -> Result<Server, String> {
         TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let mut random = [0u8; 32];
-    File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut random))
-        .map_err(|e| e.to_string())?;
+    getrandom::fill(&mut random).map_err(|e| e.to_string())?;
     let secret: String = random.iter().map(|b| format!("{b:02x}")).collect();
     let files: Files = Default::default();
-    let (send, receive) = mpsc::sync_channel::<TcpStream>(8);
+    let (send, receive) = mpsc::sync_channel::<TcpStream>(32);
     let receive = Arc::new(Mutex::new(receive));
-    for n in 0..4 {
+    // A player holds a long request open while it buffers, and drops it to seek.
+    for n in 0..16 {
         let (receive, files, secret) = (receive.clone(), files.clone(), secret.clone());
         std::thread::Builder::new()
             .name(format!("opencull-video-{n}"))
@@ -166,7 +167,7 @@ fn respond(stream: &mut TcpStream, files: &Files, secret: &str) -> std::io::Resu
     } else {
         "200 OK"
     };
-    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {count}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n")?;
+    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {count}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n")?;
     if wanted.is_some() {
         write!(stream, "Content-Range: bytes {start}-{end}/{len}\r\n")?;
     }

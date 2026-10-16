@@ -212,7 +212,7 @@ function Finish() {
           <>
             <button type="button" onClick={close} className="rounded-md px-3.5 py-2 text-[13px] text-[#b3b3b3] hover:bg-white/[0.06]">Cancel</button>
             <button type="button" disabled={blocked !== null} onClick={() => void copy()}
-              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[#2e2e2e] text-[#737373]" : "bg-gradient-to-r from-[#618cfa] to-[#8c52eb] text-white hover:brightness-110")}>
+              className={cn("flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold", blocked ? "bg-[#2e2e2e] text-[#737373]" : "accent-action bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] text-white hover:brightness-110")}>
               <Copy className="size-3.5" />
               {blocked ? "Copy" : `Copy ${images.length.toLocaleString()} photo${images.length === 1 ? "" : "s"}`}
             </button>

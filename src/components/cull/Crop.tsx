@@ -32,6 +32,9 @@ const turnedBy = (p: Point, degrees: number): Point => {
 
 // The eight handles: which side each is on, across and down.
 const HANDLES: readonly (readonly [number, number])[] = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]];
+// The four sides, for the strips along them, and how wide each strip is: half inside the frame, half out.
+const EDGES: readonly (readonly [number, number])[] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+const EDGE_GRAB = 16;
 const CURSORS = ["nwse-resize", "ns-resize", "nesw-resize", "ew-resize", "nwse-resize", "ns-resize", "nesw-resize", "ew-resize"];
 
 /**
@@ -221,6 +224,21 @@ export function CropView({ photo }: { photo: Photo }) {
             style={{ left: frame.x - frame.w / 2, top: frame.y - frame.h / 2, width: frame.w, height: frame.h, transition: ease && `left ${ease}, top ${ease}, width ${ease}, height ${ease}` }}
           >
             <Guides overlay={c.overlay} turn={c.overlayTurn} w={frame.w} h={frame.h} />
+            {/* The whole of each edge takes a drag, not just the tab in its middle. Under the handles, so they win where they overlap. */}
+            {EDGES.map(([hx, hy]) => (
+              <span
+                key={`${hx},${hy}`}
+                data-handle={`${hx},${hy}`}
+                className="absolute"
+                style={{
+                  left: hx === -1 ? -EDGE_GRAB / 2 : hx === 1 ? `calc(100% - ${EDGE_GRAB / 2}px)` : 0,
+                  top: hy === -1 ? -EDGE_GRAB / 2 : hy === 1 ? `calc(100% - ${EDGE_GRAB / 2}px)` : 0,
+                  width: hx === 0 ? "100%" : EDGE_GRAB,
+                  height: hy === 0 ? "100%" : EDGE_GRAB,
+                  cursor: hx === 0 ? "ns-resize" : "ew-resize",
+                }}
+              />
+            ))}
             {HANDLES.map(([hx, hy], i) => (
               <span
                 key={i}

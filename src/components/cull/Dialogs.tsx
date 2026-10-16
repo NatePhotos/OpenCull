@@ -126,7 +126,7 @@ function ShortcutEditor({ bindings, onChange, onRecording }: ShortcutEditorProps
                     onClick={() => setRecording(recording === action ? null : action)}
                     className={cn(
                       "min-h-9 min-w-12 rounded border px-2 py-1 font-mono text-sm",
-                      recording === action ? "border-brand bg-brand/15 text-brand" : "border-[var(--ui-line-3a3a44)] bg-white/[0.04] text-[var(--ui-text-bfbfbf)] hover:border-[var(--ui-line-595959)]",
+                      recording === action ? "border-brand bg-brand/15 text-brand" : "border-[var(--ui-line-3a3a44)] bg-foreground/[0.05] text-[var(--ui-text-bfbfbf)] hover:border-[var(--ui-line-595959)]",
                     )}
                   >
                     {recording === action ? "press…" : bindings[action].code ? comboLabel(bindings[action]) : "—"}
@@ -354,7 +354,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
             title="Files to cull"
             detail="For a camera that saves every frame as both a RAW and a JPEG. RAW + JPEG shows each pair as one photo: one rating covers both, and both are moved, copied or binned together. RAW or JPEG shows only that kind and leaves the other files where they are. The folder on screen reloads when you change this."
             control={
-              <div className="flex rounded-md bg-white/[0.06] p-0.5">
+              <div className="flex rounded-md bg-foreground/[0.07] p-0.5">
                 {(
                   [
                     ["both", "RAW + JPEG"],
@@ -371,7 +371,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
                       // The folder on screen was listed under the old setting.
                       useStore.getState().reloadForSubfolders();
                     }}
-                    className={cn("whitespace-nowrap rounded px-2.5 py-1 text-xs font-medium", s.fileKinds === kinds ? "bg-white/[0.14] text-white" : "text-[var(--ui-text-8c8c8c)] hover:text-white")}
+                    className={cn("whitespace-nowrap rounded px-2.5 py-1 text-xs font-medium", s.fileKinds === kinds ? "bg-foreground/[0.14] text-foreground" : "text-[var(--ui-text-8c8c8c)] hover:text-foreground")}
                   >
                     {label}
                   </button>

@@ -13,16 +13,16 @@ function Cell({ count, active, title, onClick, children }: { count: number; acti
       type="button"
       title={title}
       onClick={onClick}
-      className={cn("flex h-8 min-w-[30px] flex-col items-center justify-center gap-px px-1.5 leading-none [&_svg]:size-[13px]", active ? "bg-brand/25" : "hover:bg-white/[0.06]")}
+      className={cn("flex h-8 min-w-[30px] flex-col items-center justify-center gap-px px-1.5 leading-none [&_svg]:size-[13px]", active ? "bg-brand/25" : "hover:bg-foreground/[0.08]")}
     >
       {children}
-      <span className={cn("font-mono text-[9px]", active ? "text-white" : count === 0 ? "text-[#4d4d4d]" : "text-[#8c8c8c]")}>{count}</span>
+      <span className={cn("font-mono text-[9px]", active ? "text-foreground" : count === 0 ? "text-[var(--ui-text-4d4d4d)]" : "text-[var(--ui-text-8c8c8c)]")}>{count}</span>
     </button>
   );
 }
 
 function Group({ children }: { children: ReactNode }) {
-  return <div className="flex shrink-0 gap-px overflow-hidden rounded-md bg-white/[0.04]">{children}</div>;
+  return <div className="flex shrink-0 gap-px overflow-hidden rounded-md bg-foreground/[0.07]">{children}</div>;
 }
 
 /**
@@ -82,7 +82,7 @@ export function FilterBar() {
       </Group>
       <Group>
         <Cell count={counts.colors.none ?? 0} active={colorFilters.has("none")} title="No colour label" onClick={() => s.toggleColorFilter("none")}>
-          <span className={cn("size-3 rounded-full border-[1.5px]", colorFilters.has("none") ? "border-white" : "border-[#8c8c8c]")} />
+          <span className={cn("size-3 rounded-full border-[1.5px]", colorFilters.has("none") ? "border-foreground" : "border-[var(--ui-text-8c8c8c)]")} />
         </Cell>
         {COLORS.map((c) => (
           <Cell key={c} count={counts.colors[c] ?? 0} active={colorFilters.has(c)} title={c[0].toUpperCase() + c.slice(1)} onClick={() => s.toggleColorFilter(c)}>
@@ -93,7 +93,7 @@ export function FilterBar() {
       {filtering && (
         <>
           {sep}
-          <button type="button" title="Clear Filters" onClick={() => s.clearFilters()} className="shrink-0 text-[#808080] hover:text-white">
+          <button type="button" title="Clear Filters" onClick={() => s.clearFilters()} className="shrink-0 text-[var(--ui-text-808080)] hover:text-foreground">
             <CircleX className="size-3.5" />
           </button>
         </>
