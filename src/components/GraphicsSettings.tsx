@@ -1,8 +1,16 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "@/lib/api";
+import { useStore } from "@/lib/store";
 
+/** The renderer check is for troubleshooting the Linux webview; other systems have nothing to choose. */
 export function GraphicsSettings() {
+  const platform = useStore((s) => s.platform);
+  if (platform !== "linux") return null;
+  return <LinuxGraphics />;
+}
+
+function LinuxGraphics() {
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
   const check = async () => {

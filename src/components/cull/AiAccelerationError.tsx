@@ -10,16 +10,19 @@ export function AiAccelerationError() {
 
   useEffect(() => {
     let live = true;
+    // Machines with no CUDA path answer null: ask once and stop asking.
     const read = () => {
       void api
         .aiAccelerationInfo()
         .then((value) => {
-          if (live) setInfo(value);
+          if (!live) return;
+          setInfo(value);
+          if (value === null) window.clearInterval(timer);
         })
         .catch(() => {});
     };
-    read();
     const timer = window.setInterval(read, 2000);
+    read();
     return () => {
       live = false;
       window.clearInterval(timer);
