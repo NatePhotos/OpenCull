@@ -4,6 +4,7 @@ import { CircleX } from "lucide-react";
 import { hasActiveFilter, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type FlagFilter } from "@/lib/types";
+import { hasMotionBlur } from "@/lib/motion-blur";
 import { FlagSymbol, RatingSymbol } from "./symbols";
 
 /** One filter: an icon over a count, lit while it is the one applied. */
@@ -38,6 +39,9 @@ export function FilterBar() {
   const ratingFilter = useStore((s) => s.ratingFilter);
   const colorFilters = useStore((s) => s.colorFilters);
   const filtering = useStore(hasActiveFilter);
+  const motionFilter = useStore((s) => s.motionBlurFilter);
+  const motionEnabled = useStore((s) => s.aiEnabled && s.aiMotionBlur);
+  const motionCount = useStore((s) => s.order.filter((i) => hasMotionBlur(s.ai[i])).length);
   const s = useStore.getState();
 
   const counts = useMemo(() => {
@@ -90,6 +94,9 @@ export function FilterBar() {
           </Cell>
         ))}
       </Group>
+      {motionEnabled && <button type="button" aria-pressed={motionFilter} title="Filter motion blur" onClick={() => s.setMotionBlurFilter(!motionFilter)} className={cn("shrink-0 rounded-md border border-border px-2 py-1 text-xs", motionFilter ? "bg-brand/25 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+        Motion blur <span className="font-mono">{motionCount}</span>
+      </button>}
       {filtering && (
         <>
           {sep}

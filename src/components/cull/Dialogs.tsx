@@ -1,5 +1,7 @@
 import { SettingsTransfer } from "@/components/SettingsTransfer";
 import { GraphicsSettings } from "@/components/GraphicsSettings";
+import { MobileClipSettings } from "./MobileClipSettings";
+import { MotionBlurSettings } from "./MotionBlurSettings";
 import { useEffect, useRef, useState } from "react";
 import { HardDrive, PanelsTopLeft, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
 
@@ -397,7 +399,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
           <Setting
             title="Check for updates"
-            detail={`Looks for a newer OpenCull each time the app opens, and offers to install it. It is the only thing OpenCull uses the internet for, and nothing about you or your photos is sent. ${
+            detail={`Looks for a newer OpenCull each time the app opens, and offers to install it. Nothing about you or your photos is sent. ${
               updates === "newest" ? `You have ${s.version}, the newest version.` : typeof updates === "object" ? `Could not check just now: ${updates.failed}` : `You have ${s.version}.`
             }`}
             control={
@@ -428,6 +430,8 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
         </TabsContent>
         <TabsContent value="ai" className="space-y-4">
+<MobileClipSettings />
+<MotionBlurSettings />
           <Setting
             title="OpenCull AI"
             detail="Finds the faces in each photo and judges them: eyes shut, looking away, how sharp, and who the photo is about. From that it marks each photo and ranks the frames of a burst, or of the same pose shot again. Runs on this computer; nothing is sent anywhere."

@@ -224,6 +224,8 @@ pub fn run() {
             commands::ai_scan,
             commands::ai_look_at,
             commands::ai_compare,
+            commands::mobileclip_status,
+            commands::mobileclip_install,
             commands::ai_stop,
             commands::ai_set_yield,
             commands::ai_cache_usage,

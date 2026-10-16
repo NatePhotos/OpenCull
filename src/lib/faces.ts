@@ -29,6 +29,14 @@ const LOOK_SETTLE_MS = 120;
 export function useFaceScan(): void {
   // A self-test decides for itself what is analysed and when.
   const enabled = useStore((s) => s.aiEnabled && !s.selfTest);
+  const motionBlur = useStore((s) => s.aiMotionBlur);
+  const autoRate = useStore((s) => s.autoRateMotionBlur);
+  useEffect(() => {
+    const s = useStore.getState();
+    if ((!motionBlur || !enabled) && s.motionBlurFilter) s.setMotionBlurFilter(false);
+    s.regroup();
+    s.rateMotionBlur();
+  }, [motionBlur, autoRate, enabled]);
   const session = useStore((s) => (s.session !== null && s.metaProgress >= 1 ? s.session.id : null));
   const pause = useStore((s) => s.aiPause);
   const advanced = useStore((s) => s.aiAdvanced);
@@ -38,12 +46,14 @@ export function useFaceScan(): void {
   // What counts as a group has changed: compare what is already analysed
   // again, under the new rule. Nothing is analysed again for this.
   const smart = useStore((s) => s.smartGroups);
-  const was = useRef(smart);
+  const mobileClip = useStore((s) => s.aiMobileClipGrouping);
+  const strength = useStore(s => s.mobileClipGrouping);
+  const was = useRef(`${smart}:${mobileClip}:${strength}`);
   useEffect(() => {
-    if (was.current === smart) return;
-    was.current = smart;
+    if (was.current === `${smart}:${mobileClip}:${strength}`) return;
+    was.current = `${smart}:${mobileClip}:${strength}`;
     useStore.getState().regroup();
-  }, [smart]);
+  }, [smart, mobileClip, strength]);
 
   // Listened for rather than read as the rest are: this runs on every photo
   // stepped to, and must not redraw the workspace each time.
@@ -82,6 +92,7 @@ export function useFaceScan(): void {
     if (judged.current === advanced) return;
     judged.current = advanced;
     useStore.setState({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0 });
+    useStore.getState().regroup();
   }, [advanced]);
 
   useEffect(() => {
@@ -91,7 +102,7 @@ export function useFaceScan(): void {
     const here = Math.max(0, order.indexOf(current));
     const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index).filter((i) => !isVideo(photos[i].path));
 
-    useStore.setState({ aiRunning: true });
+    useStore.setState({ aiRunning: true, aiCached: 0, aiPending: null, aiMotionPending: 0 });
     // A scan that has been stopped may still have answers on their way.
     // Judged by other rules, they must not be taken for this scan's.
     let live = true;
@@ -99,9 +110,10 @@ export function useFaceScan(): void {
       .aiScan(session, nearest, advanced, (event) => {
         const s = useStore.getState();
         if (!live || s.session?.id !== session) return; // stopped, or a folder since closed
-        if (event.type === "batch") s.addAnalysis(event.items);
+        if (event.type === "cache") useStore.setState({ aiCached: event.cached, aiPending: event.pending, aiMotionPending: event.motionOnly ?? 0 });
+        else if (event.type === "batch") s.addAnalysis(event.items);
         else s.set("aiRunning", false);
-      })
+      }, motionBlur)
       .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
 
     return () => {
@@ -109,5 +121,5 @@ export function useFaceScan(): void {
       void api.aiStop().catch(() => {});
       if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
     };
-  }, [enabled, session, advanced]);
+  }, [enabled, session, advanced, motionBlur]);
 }

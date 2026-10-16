@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{State, Manager};
 
 use crate::pool::Priority;
 use crate::preview::Tier;
@@ -61,6 +61,7 @@ pub struct App {
     /// Which face scan is the wanted one. An earlier one stops when it sees
     /// this has moved on.
     ai_scan: AtomicU64,
+    ai_grouping_epoch: Mutex<(u64,u64)>,
     /// Whether analysis stands aside while the photographer is moving about.
     ai_yields: AtomicBool,
     /// The photos being looked at now, nearest first: what the scan
@@ -87,6 +88,7 @@ impl App {
             ingest_reading: AtomicU64::new(0),
             faces,
             ai_scan: AtomicU64::new(0),
+            ai_grouping_epoch: Mutex::new((0,0)),
             ai_yields: AtomicBool::new(true),
             ai_front: Default::default(),
         }
@@ -672,6 +674,7 @@ pub struct Analysed {
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AiEvent {
+    Cache { cached: usize, pending: usize, #[serde(rename = "motionOnly")] motion_only: usize },
     Batch { items: Vec<Analysed> },
     /// The scan has ended. `finished` is false if it was stopped part way.
     Done { finished: bool },
@@ -689,7 +692,8 @@ const AI_SAVE_EVERY: usize = 150;
 /// through on spare time: whenever the photographer is being served, the
 /// scan waits. Asking again, or closing the folder, stops this one.
 #[tauri::command]
-pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, events: Channel<AiEvent>) -> Result<(), String> {
+pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, motion_blur: Option<bool>, events: Channel<AiEvent>) -> Result<(), String> {
+    let motion_blur = motion_blur.unwrap_or(false);
     let rules = if advanced { ai::Rules::Advanced } else { ai::Rules::Basic };
     let Some(session) = app.sessions.lock().unwrap().get(&session).cloned() else {
         return Err("that folder is no longer open".into());
@@ -702,23 +706,34 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
 
     tauri::async_runtime::spawn_blocking(move || {
         let wanted = || !session.closed.load(Ordering::SeqCst) && app.ai_scan.load(Ordering::SeqCst) == mine;
-        let known = Mutex::new(app.faces.load(&session.folder, rules));
+        let known = Mutex::new(app.faces.load_images(&session.folder, rules, session.images.iter().map(|image| (image.display.as_path(), image.version.as_str()))));
 
         // What is already known goes out at once.
         let mut todo = Vec::new();
         let mut ready = Vec::new();
+        let mut motion_only = 0;
         for index in order {
             let Some(image) = session.images.get(index) else { continue };
             if scan::is_video(&raw::extension(&image.path)) { continue; }
             match ai::store::remembered(&known.lock().unwrap(), &image.display, &image.version) {
-                Some(record) => ready.push(Analysed { index, record }),
+                Some(record) if !motion_blur || record.motion_version == ai::motion::VERSION => ready.push(Analysed { index, record }),
+                Some(_) => { motion_only += 1; todo.push(index); },
                 None => todo.push(index),
             }
         }
+        eprintln!("[ai-cache] restoring {} cached photos; {} new analyses; {} motion-only checks", ready.len(), todo.len() - motion_only, motion_only);
+        events.send(AiEvent::Cache { cached: ready.len(), pending: todo.len(), motion_only }).ok();
         for chunk in ready.chunks(256) {
             if events.send(AiEvent::Batch { items: chunk.to_vec() }).is_err() {
                 return;
             }
+        }
+
+        if todo.is_empty() {
+            // Populate per-source directories from older root-only caches.
+            app.faces.save(&session.folder, rules, &known.lock().unwrap());
+            events.send(AiEvent::Done { finished: wanted() }).ok();
+            return;
         }
 
         // A few at a time: enough to get through a folder in a minute or two,
@@ -746,7 +761,13 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                         let image = &session.images[index];
                         // A photo that cannot be analysed is remembered as
                         // having no faces, so it is not tried on every open.
-                        let record = ai::analyze(&image.display, rules).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
+                        let cached = ai::store::remembered(&known.lock().unwrap(), &image.display, &image.version);
+                        let record = if let Some(mut record) = cached {
+                            ai::motion::annotate_file(&image.display, &mut record);
+                            record
+                        } else {
+                            ai::analyze_record(&image.display, rules, motion_blur).unwrap_or_default()
+                        };
                         known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
                         if tx.send(Analysed { index, record }).is_err() {
                             return;
@@ -796,6 +817,8 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
 pub struct RunFrame {
     #[serde(flatten)]
     record: ai::store::Record,
+    #[serde(default)]
+    index: Option<usize>,
     time: Option<f64>,
     burst: Option<u32>,
     #[serde(default)]
@@ -806,10 +829,53 @@ pub struct RunFrame {
 /// Each run is photos taken one soon after another, in the order they were
 /// shot; it is split here into bursts and, if `poses`, poses shot again.
 #[tauri::command]
-pub fn ai_compare(runs: Vec<Vec<RunFrame>>, poses: bool) -> Vec<Vec<ai::series::Compared>> {
-    runs.iter()
-        .map(|run| ai::series::compare_run(&run.iter().map(|f| ai::series::Frame { record: &f.record, time: f.time, burst: f.burst, upright: f.upright }).collect::<Vec<_>>(), poses))
-        .collect()
+pub async fn ai_compare(app: AppState<'_>, handle: tauri::AppHandle, runs: Vec<Vec<RunFrame>>, poses: bool,
+    session: Option<u64>, revision: Option<u64>, mobile_clip: Option<bool>, mobile_clip_grouping: Option<ai::mobileclip::Grouping>) -> Result<Vec<Vec<ai::series::Compared>>, String> {
+    let app = app.inner().clone();
+    let source = if let Some(id) = session { Some(app.sessions.lock().unwrap().get(&id).cloned().ok_or("Session closed.")?) } else { None };
+    let epoch = (session.unwrap_or(0), revision.unwrap_or(0));
+    if session.is_some() {
+        let mut current = app.ai_grouping_epoch.lock().unwrap();
+        if current.0 == epoch.0 && current.1 > epoch.1 { return Err("Grouping cancelled.".into()); }
+        *current = epoch;
+    }
+    if runs.is_empty() { return Ok(Vec::new()); }
+    let root = mobileclip_root(&handle)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let wanted = || source.as_ref().is_none_or(|s| !s.closed.load(Ordering::SeqCst))
+            && (session.is_none() || *app.ai_grouping_epoch.lock().unwrap() == epoch);
+        let compare = |run: &[RunFrame], visual: Option<&[Vec<f32>]>| ai::series::compare_run_visual(
+            &run.iter().map(|f| ai::series::Frame { record: &f.record, time:f.time, burst:f.burst, upright:f.upright }).collect::<Vec<_>>(),poses,visual,mobile_clip_grouping.unwrap_or_default());
+        if !mobile_clip.unwrap_or(false) { return Ok(runs.iter().map(|run| compare(run,None)).collect()); }
+        let source = source.as_ref().ok_or("Open a session before using MobileCLIP.")?;
+        ai::mobileclip::with_model(&root, |model| {
+            let start = Instant::now(); let before = (model.cached,model.computed);
+            let result = runs.iter().map(|run| {
+                while wanted() && app.ai_yields.load(Ordering::Relaxed) && app.previews.pool.busy() { std::thread::sleep(Duration::from_millis(60)); }
+                if !wanted() { return Err("Grouping cancelled.".into()); }
+                let paths = run.iter().map(|frame| {
+                    let photo = frame.index.and_then(|i| source.images.get(i)).ok_or("Invalid grouping photo.")?;
+                    Ok((photo.display.as_path(),photo.version.as_str()))
+                }).collect::<Result<Vec<_>,String>>()?;
+                let visual = model.embeddings(&paths,&app.previews.cache,wanted)?;
+                Ok(compare(run,Some(&visual)))
+            }).collect();
+            eprintln!("[mobileclip] {} cached, {} new embeddings in {:?}",model.cached-before.0,model.computed-before.1,start.elapsed());
+            result
+        })
+    }).await.map_err(|e| e.to_string())?
+}
+
+fn mobileclip_root(handle: &tauri::AppHandle) -> Result<PathBuf,String> {
+    Ok(handle.path().app_cache_dir().map_err(|e| e.to_string())?.join("mobileclip-s0"))
+}
+#[tauri::command]
+pub fn mobileclip_status(handle: tauri::AppHandle) -> Result<ai::mobileclip::Status,String> {
+    Ok(ai::mobileclip::status(&mobileclip_root(&handle)?))
+}
+#[tauri::command]
+pub async fn mobileclip_install(handle: tauri::AppHandle) -> Result<ai::mobileclip::Status,String> {
+    ai::mobileclip::install(mobileclip_root(&handle)?).await
 }
 
 /// Tells the scan now running which photos are being looked at, nearest
@@ -833,17 +899,20 @@ pub fn ai_set_yield(app: AppState, on: bool) {
 
 /// How much is remembered of past analysis: bytes, and folders.
 #[tauri::command]
-pub async fn ai_cache_usage(app: AppState<'_>) -> Result<(u64, usize), String> {
+pub async fn ai_cache_usage(app: AppState<'_>, handle: tauri::AppHandle) -> Result<(u64, usize), String> {
     let store = app.faces.clone();
-    tauri::async_runtime::spawn_blocking(move || store.usage()).await.map_err(|e| e.to_string())
+    let root = mobileclip_root(&handle)?;
+    tauri::async_runtime::spawn_blocking(move || { let (bytes,count) = store.usage(); (bytes + ai::mobileclip::cache_bytes(&root),count) }).await.map_err(|e| e.to_string())
 }
 
 /// Forgets all past analysis. Folders are analysed again when next opened.
 #[tauri::command]
-pub async fn ai_clear_cache(app: AppState<'_>) -> Result<(), String> {
+pub async fn ai_clear_cache(app: AppState<'_>, handle: tauri::AppHandle) -> Result<(), String> {
     app.ai_scan.fetch_add(1, Ordering::SeqCst);
     let store = app.faces.clone();
-    tauri::async_runtime::spawn_blocking(move || store.clear()).await.map_err(|e| e.to_string())
+    *app.ai_grouping_epoch.lock().unwrap() = (0,0);
+    let root = mobileclip_root(&handle)?;
+    tauri::async_runtime::spawn_blocking(move || { store.clear(); ai::mobileclip::clear(&root); }).await.map_err(|e| e.to_string())
 }
 
 /// The cards and outside drives attached.

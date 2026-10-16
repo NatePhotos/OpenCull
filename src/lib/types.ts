@@ -134,6 +134,8 @@ export interface AiFace {
 
 /** What the analysis found in one photo. */
 export interface AiResult {
+  motionBlur?: number | null;
+  motionVersion?: number;
   faces: AiFace[];
   /** Out of 100, on its subjects; null for a photo with no faces. */
   score: number | null;
@@ -149,7 +151,7 @@ export interface AiResult {
 
 /** An analysed photo with when it was taken, as it is sent to be compared. */
 /** `upright`: taller than it is wide, the way up it is shown; null if its shape is not known. */
-export type RunFrame = AiResult & { time: number | null; burst: number | null; upright: boolean | null };
+export type RunFrame = AiResult & { index?: number; time: number | null; burst: number | null; upright: boolean | null };
 
 /** A photo marked again as one frame of its burst, or of a pose shot again. */
 export interface Compared {
@@ -168,7 +170,7 @@ export interface Compared {
   eyes: (number | null)[];
 }
 
-export type AiEvent = { type: "batch"; items: ({ index: number } & AiResult)[] } | { type: "done"; finished: boolean };
+export type AiEvent = { type: "cache"; cached: number; pending: number; motionOnly?: number } | { type: "batch"; items: ({ index: number } & AiResult)[] } | { type: "done"; finished: boolean };
 
 /** A photo's place among the frames it was compared with: 1 is the best of `count`. */
 export interface Rank {

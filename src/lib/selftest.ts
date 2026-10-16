@@ -310,6 +310,7 @@ export async function runSelfTest(folder: string): Promise<void> {
           api
             .aiScan(s().session!.id, some, advanced, (e) => {
               if (e.type === "done") return resolve(performance.now() - began);
+              if (e.type === "cache") return;
               for (const item of e.items) {
                 if (!advanced) {
                   basic.set(item.index, item);

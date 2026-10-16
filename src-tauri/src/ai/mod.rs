@@ -10,6 +10,8 @@ pub mod basic;
 pub mod eyes;
 pub mod finder;
 pub mod focus;
+pub mod motion;
+pub mod mobileclip;
 pub mod judge;
 pub mod key;
 pub mod onnx;
@@ -389,6 +391,14 @@ fn may_be_away(score: f32, eyes: f32) -> bool {
 pub fn analyze(path: &Path, rules: Rules) -> Result<Analysis, String> {
     let picture = preview::decode_upright(path, u32::MAX)?;
     analyze_pixels(&picture.rgb, picture.width, picture.height, rules)
+}
+
+/// Decode once for both the existing face models and optional blur evidence.
+pub fn analyze_record(path: &Path, rules: Rules, motion_blur: bool) -> Result<store::Record, String> {
+    let picture = preview::decode_upright(path, u32::MAX)?;
+    let mut record = store::Record::from(&analyze_pixels(&picture.rgb, picture.width, picture.height, rules)?);
+    if motion_blur { motion::annotate_pixels(&picture.rgb, picture.width, picture.height, &mut record); }
+    Ok(record)
 }
 
 #[cfg(test)]

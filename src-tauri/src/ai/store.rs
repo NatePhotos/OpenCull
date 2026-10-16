@@ -73,6 +73,10 @@ pub struct FaceRecord {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Record {
+    #[serde(default, rename = "motionBlur")]
+    pub motion_blur: Option<f32>,
+    #[serde(default, rename = "motionVersion")]
+    pub motion_version: u8,
     pub faces: Vec<FaceRecord>,
     pub score: Option<f32>,
     /// The parts of the mark that are not about how open the eyes are, each
@@ -118,7 +122,7 @@ impl From<&Analysis> for Record {
             })
             .collect();
         let key = a.key.map(|k| KeyRecord { x: k.x as f32, y: k.y as f32, w: k.w as f32, h: k.h as f32 });
-        Record { faces, score: a.score.map(|s| s as f32), focus: a.parts.map(|p| p.focus as f32), gaze: a.parts.map(|p| p.gaze as f32), key }
+        Record { faces, score: a.score.map(|s| s as f32), focus: a.parts.map(|p| p.focus as f32), gaze: a.parts.map(|p| p.gaze as f32), key, motion_blur: None, motion_version: 0 }
     }
 }
 
@@ -128,12 +132,13 @@ type Entry = (String, Record);
 #[derive(Clone)]
 pub struct Store {
     dir: PathBuf,
+    writer: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
-        std::fs::create_dir_all(&dir).ok();
-        Self { dir }
+        if let Err(error) = std::fs::create_dir_all(&dir) { eprintln!("[ai-cache] cannot create {}: {error}", dir.display()); }
+        Self { dir, writer: Default::default() }
     }
 
     fn file_for(&self, folder: &Path, rules: Rules) -> PathBuf {
@@ -144,14 +149,55 @@ impl Store {
     /// What is remembered about a folder's photos, by path. Empty for a
     /// folder never analysed, or one whose record cannot be read.
     pub fn load(&self, folder: &Path, rules: Rules) -> HashMap<String, Entry> {
-        std::fs::read(self.file_for(folder, rules)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+        let Some(values) = std::fs::read(self.file_for(folder, rules)).ok().and_then(|bytes| serde_json::from_slice::<HashMap<String, serde_json::Value>>(&bytes).ok()) else { return HashMap::new(); };
+        // One damaged entry must not discard a whole shoot's good analysis.
+        values.into_iter().filter_map(|(path, value)| serde_json::from_value(value).ok().map(|entry| (path, entry))).collect()
+    }
+
+    /// A session's root can change (card, DCIM, camera subfolder, multi-card
+    /// review). Reuse the same files' analysis through their containing folders.
+    pub fn load_images<'a>(&self, folder: &Path, rules: Rules, paths: impl IntoIterator<Item = (&'a Path, &'a str)>) -> HashMap<String, Entry> {
+        let requested: HashMap<_, _> = paths.into_iter().map(|(path, version)| (path.to_string_lossy().into_owned(), version)).collect();
+        let wanted = |path: &String, entry: &Entry| requested.get(path).is_some_and(|version| *version == entry.0);
+        let mut known = self.load(folder, rules);
+        known.retain(|path, entry| wanted(path, entry));
+        // Read older parent-root caches too, so the existing cache migrates
+        // without running the face models again after this update.
+        let parents: std::collections::HashSet<_> = requested.keys().flat_map(|p| Path::new(p).parent().into_iter().flat_map(|p| p.ancestors().take(4))).filter(|p| *p != folder).collect();
+        for parent in parents {
+            for (path, entry) in self.load(parent, rules).into_iter().filter(|(path, entry)| wanted(path, entry)) {
+                if known.get(&path).is_some_and(|old| old.1.motion_version > entry.1.motion_version) { continue; }
+                known.insert(path, entry);
+            }
+        }
+        known
     }
 
     pub fn save(&self, folder: &Path, rules: Rules, known: &HashMap<String, Entry>) {
+        let _guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        let mut folders: HashMap<PathBuf, HashMap<String, Entry>> = HashMap::new();
+        folders.insert(folder.to_path_buf(), known.clone());
+        for (path, entry) in known {
+            if let Some(parent) = Path::new(path).parent() { folders.entry(parent.to_path_buf()).or_default().insert(path.clone(), entry.clone()); }
+        }
+        for (parent, entries) in folders {
+            // Keep completed photos if a newer session contains only a subset.
+            let mut merged = self.load(&parent, rules);
+            for (path, entry) in entries {
+                // A cancelled older scan must not erase newer blur enrichment.
+                if merged.get(&path).is_some_and(|old| old.0 == entry.0 && old.1.motion_version > entry.1.motion_version) { continue; }
+                merged.insert(path, entry);
+            }
+            self.write(&parent, rules, &merged);
+        }
+    }
+
+    fn write(&self, folder: &Path, rules: Rules, known: &HashMap<String, Entry>) {
         let Ok(bytes) = serde_json::to_vec(known) else { return };
         let path = self.file_for(folder, rules);
         let temp = path.with_extension(format!("tmp{}", std::process::id()));
-        if std::fs::write(&temp, bytes).is_ok() && std::fs::rename(&temp, &path).is_err() {
+        if let Err(error) = std::fs::write(&temp, bytes).and_then(|_| std::fs::rename(&temp, &path)) {
+            eprintln!("[ai-cache] could not save {}: {error}", path.display());
             std::fs::remove_file(&temp).ok();
         }
     }
@@ -165,6 +211,7 @@ impl Store {
 
     /// Forgets everything. Folders are analysed again when next opened.
     pub fn clear(&self) {
+        let _guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
         for entry in entries.flatten() {
             std::fs::remove_file(entry.path()).ok();
@@ -182,9 +229,44 @@ pub fn remembered(known: &HashMap<String, Entry>, path: &Path, version: &str) ->
 mod tests {
     use super::*;
 
+    #[test]
+    fn cached_photos_survive_new_stores_and_different_session_roots() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-shared-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let photo = Path::new("/card/DCIM/100CAM/A.RAW");
+        let first = Store::new(dir.clone());
+        first.save(Path::new("/card"), Rules::Advanced, &HashMap::from([(photo.to_string_lossy().into_owned(), ("v1".into(), record(80.0)))]));
+        let reopened = Store::new(dir.clone());
+        let known = reopened.load_images(Path::new("/card/DCIM/100CAM"), Rules::Advanced, [(photo, "v1")]);
+        assert_eq!(remembered(&known, photo, "v1"), Some(record(80.0)));
+        assert_eq!(remembered(&known, photo, "v2"), None);
+        assert!(reopened.load_images(Path::new("/card"), Rules::Basic, [(photo, "v1")]).is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn legacy_root_cache_and_good_entries_are_reused_without_reanalysis() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-legacy-{}", std::process::id()));
+        let store = Store::new(dir.clone());
+        let root = Path::new("/card/DCIM");
+        let photo = Path::new("/card/DCIM/100CAM/A.RAW");
+        let known = HashMap::from([(photo.to_string_lossy().into_owned(), ("v2".into(), record(80.0)))]);
+        store.write(root, Rules::Advanced, &known);
+        let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(store.file_for(root, Rules::Advanced)).unwrap()).unwrap();
+        raw["/card/DCIM/100CAM/broken.RAW"] = serde_json::json!(["v2", { "faces": "bad" }]);
+        std::fs::write(store.file_for(root, Rules::Advanced), serde_json::to_vec(&raw).unwrap()).unwrap();
+        let back = store.load_images(photo.parent().unwrap(), Rules::Advanced, [(photo, "v2")]);
+        assert_eq!(remembered(&back, photo, "v2"), Some(record(80.0)));
+        store.save(root, Rules::Advanced, &back);
+        let empty: HashMap<String, Entry> = HashMap::new();
+        store.save(root, Rules::Advanced, &empty);
+        assert_eq!(remembered(&store.load(root, Rules::Advanced), photo, "v2"), Some(record(80.0)), "an incomplete scan must not erase completed work");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn record(score: f32) -> Record {
         let face = FaceRecord { x: 0.1, y: 0.2, w: 0.05, h: 0.07, subject: true, reason: None, eyes_shut: false, looking_away: true, maybe_away: false, sharpness: Some(80.0), eye: 0.28, eyes_read: true, state: Some("Looking Down".into()), concern: 0, excused: 0.85, open: false };
-        Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None }
+        Record { faces: vec![face], score: Some(score), focus: Some(0.5), gaze: Some(1.0), key: None, ..Default::default() }
     }
 
     #[test]

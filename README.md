@@ -1,4 +1,4 @@
-# Ingest & sessions idea bundle
+# AI & grouping idea bundle
 
 See [BUNDLE.md](BUNDLE.md) for scope, dependencies, validation and clone instructions.
 

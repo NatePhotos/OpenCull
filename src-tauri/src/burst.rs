@@ -1,12 +1,11 @@
 //! Which frames came from one press of the shutter.
 //!
-//! A burst is frames taken less than 0.45 seconds apart — the figure the Mac
-//! app arrived at by measurement. The Mac app then lets the picture veto that:
-//! frames close in time that look nothing alike are split. That second half
-//! leans on Apple's image analysis and is not here; this is the clock alone.
+//! Time-only candidates are deliberately conservative. Visual grouping can
+//! split these further when the composition changes during a rapid sequence.
 
-/// Longest gap between two frames of the same burst, in milliseconds.
-pub const BURST_WINDOW_MS: f64 = 450.0;
+/// Longest neighbour gap and total span of a time-only burst, in milliseconds.
+pub const BURST_WINDOW_MS: f64 = 300.0;
+pub const BURST_SPAN_MS: f64 = 3_000.0;
 
 /// Groups frames into bursts by capture time.
 ///
@@ -18,7 +17,7 @@ pub const BURST_WINDOW_MS: f64 = 450.0;
 /// answer does not change when the folder is sorted another way.
 pub fn group(times: &[Option<f64>]) -> Vec<Option<u32>> {
     let mut order: Vec<(usize, f64)> =
-        times.iter().enumerate().filter_map(|(i, t)| t.map(|t| (i, t))).collect();
+        times.iter().enumerate().filter_map(|(i, t)| t.filter(|t| t.is_finite()).map(|t| (i, t))).collect();
     // Ties keep folder order, so two frames stamped the same instant stay in
     // the order the camera numbered them.
     order.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
@@ -41,7 +40,7 @@ pub fn group(times: &[Option<f64>]) -> Vec<Option<u32>> {
     let mut previous: Option<f64> = None;
     for (index, time) in order {
         if let Some(prev) = previous {
-            if time - prev > BURST_WINDOW_MS {
+            if time - prev > BURST_WINDOW_MS || run.first().is_some_and(|&first| time - times[first].unwrap() > BURST_SPAN_MS) {
                 close(&mut run, &mut groups);
             }
         }
@@ -67,17 +66,16 @@ mod tests {
     }
 
     #[test]
-    fn the_window_is_between_neighbours_not_from_the_first_frame() {
-        // Each gap is 400 ms. The last frame is 1.2 s after the first and is
-        // still the same burst, because the shutter never let up.
-        let g = group(&times(&[0.0, 400.0, 800.0, 1200.0]));
+    fn short_sequences_use_neighbour_gaps_but_long_chains_are_capped() {
+        // A short continuous shutter press stays together.
+        let g = group(&times(&[0.0, 250.0, 500.0, 750.0]));
         assert_eq!(g, vec![Some(0); 4]);
     }
 
     #[test]
     fn a_gap_of_exactly_the_window_still_joins_and_just_over_does_not() {
-        assert_eq!(group(&times(&[0.0, 450.0])), vec![Some(0), Some(0)]);
-        assert_eq!(group(&times(&[0.0, 450.1])), vec![None, None]);
+        assert_eq!(group(&times(&[0.0, 300.0])), vec![Some(0), Some(0)]);
+        assert_eq!(group(&times(&[0.0, 300.1])), vec![None, None]);
     }
 
     #[test]
@@ -94,6 +92,15 @@ mod tests {
     fn a_frame_with_no_time_stands_alone_and_does_not_split_a_burst() {
         let g = group(&[Some(0.0), None, Some(100.0)]);
         assert_eq!(g, vec![Some(0), None, Some(0)]);
+    }
+
+    #[test]
+    fn a_long_chain_cannot_keep_unrelated_moments_in_one_burst() {
+        let g = group(&times(&(0..18).map(|i| i as f64 * 250.0).collect::<Vec<_>>()));
+        assert_eq!(g[0], g[12]);
+        assert_ne!(g[12], g[13]);
+        assert_eq!(g[13], g[17]);
+        assert_eq!(group(&[Some(f64::NAN), Some(f64::INFINITY)]), vec![None, None]);
     }
 
     #[test]

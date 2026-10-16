@@ -129,6 +129,7 @@ export const mock: Backend = {
   openInEditor: () => later(undefined),
   pathsExist: (paths) => later(paths.map(() => true)),
   aiScan: async (_session, order, advanced, onEvent) => {
+    onEvent({ type: "cache", cached: 0, pending: order.length });
     for (let at = 0; at < order.length; at += 12) {
       await later(null, 120);
       onEvent({
@@ -178,6 +179,9 @@ export const mock: Backend = {
         }),
       ),
     ),
+  aiAccelerationInfo: async () => null,
+  mobileClipStatus: async () => ({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" as const }),
+  mobileClipInstall: async () => { throw new Error("Model downloads are available in the desktop app."); },
   aiLookAt: () => later(undefined),
   aiStop: () => later(undefined),
   aiSetYield: () => later(undefined),

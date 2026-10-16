@@ -1,3 +1,4 @@
+import type { MobileClipGrouping } from "./mobileclip-grouping";
 // Everything the interface asks of the Rust backend, in one place.
 //
 // Two implementations sit behind it. Inside the app it is the real backend.
@@ -8,6 +9,13 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AiEvent, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
+
+export interface AiAccelerationInfo {
+  requested: boolean;
+  enabled: boolean;
+  failure: string | null;
+  failureKind: "memory" | "unavailable" | "runtime" | null;
+}
 
 export interface AppInfo {
   platform: string;
@@ -147,7 +155,7 @@ export interface Backend {
    * Finds and judges faces, `order` first to last; photos done before come at once. Asking again stops the last asking.
    * `advanced` judges them the newer way; otherwise as the last release did. Each remembers a folder separately.
    */
-  aiScan(session: number, order: number[], advanced: boolean, onEvent: (e: AiEvent) => void): Promise<void>;
+  aiScan(session: number, order: number[], advanced: boolean, onEvent: (e: AiEvent) => void, motionBlur?: boolean): Promise<void>;
   /** Tells the scan now running which photos are being looked at, nearest first: it analyses those before the rest. */
   aiLookAt(order: number[]): Promise<void>;
   /**
@@ -155,7 +163,10 @@ export interface Backend {
    * taken one soon after another, in the order they were shot; the backend
    * finds the poses in it — or, without `poses`, only the bursts.
    */
-  aiCompare(runs: RunFrame[][], poses: boolean): Promise<Compared[][]>;
+  aiCompare(runs: RunFrame[][], poses: boolean, options?: { session: number; revision: number; mobileClip: boolean; mobileClipGrouping?: MobileClipGrouping }): Promise<Compared[][]>;
+  aiAccelerationInfo(): Promise<AiAccelerationInfo | null>;
+  mobileClipStatus(): Promise<{ ready: boolean; bytes: number; model: string; backend: "CPU" | "CUDA" }>;
+  mobileClipInstall(): Promise<{ ready: boolean; bytes: number; model: string; backend: "CPU" | "CUDA" }>;
   aiStop(): Promise<void>;
   /** Whether analysis stands aside while the photographer moves between photos. */
   aiSetYield(on: boolean): Promise<void>;
@@ -235,12 +246,15 @@ const tauri: Backend = {
   lightroomCatalogs: () => invoke("lightroom_catalogs"),
   openInEditor: (editor, files, catalog) => invoke("open_in_editor", { editor, files, catalog }),
   pathsExist: (paths) => invoke("paths_exist", { paths }),
-  aiScan: (session, order, advanced, onEvent) => {
+  aiScan: (session, order, advanced, onEvent, motionBlur = false) => {
     const events = new Channel<AiEvent>();
     events.onmessage = onEvent;
-    return invoke("ai_scan", { session, order, advanced, events });
+    return invoke("ai_scan", { session, order, advanced, motionBlur, events });
   },
-  aiCompare: (runs, poses) => invoke("ai_compare", { runs, poses }),
+  aiCompare: (runs, poses, options) => invoke("ai_compare", { runs, poses, ...options }),
+  aiAccelerationInfo: () => invoke("ai_acceleration_info"),
+  mobileClipStatus: () => invoke("mobileclip_status"),
+  mobileClipInstall: () => invoke("mobileclip_install"),
   aiLookAt: (order) => invoke("ai_look_at", { order }),
   aiStop: () => invoke("ai_stop"),
   aiSetYield: (on) => invoke("ai_set_yield", { on }),
