@@ -186,7 +186,8 @@ More on building, including how to build without the JPEG library, is in
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-Open a folder, or choose **Ingest from Card** to copy a card first. Then go
+Open a folder, or choose **Ingest from Card** to cull a card where it is
+(**Cull first**) or copy it to a drive first (**Copy first**). Then go
 through the shoot from the keyboard:
 
 | Key | What it does |
