@@ -1,6 +1,6 @@
 [package]
 name = "opencull"
-version = "0.4.1"
+version = "0.5.0"
 description = "OpenCull — photo culling for macOS, Windows and Linux"
 authors = ["The OpenCull authors"]
 license = "GPL-3.0-or-later"
@@ -17,6 +17,9 @@ name = "opencull_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+# Optional NVIDIA AI runtime; detected by the desktop launcher on Linux x86_64.
+# The dependency is excluded from macOS/Windows.
+cuda = ["dep:opencull-cuda"]
 # The JPEG work — decoding a camera's preview and writing a smaller one — can
 # be done by libjpeg-turbo instead of the pure-Rust decoder and encoder.
 # MEASURED on a 7008-pixel frame, one core: 38 ms against 99 ms.
@@ -36,7 +39,7 @@ turbo-system = ["dep:turbojpeg", "turbojpeg/pkg-config"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -57,7 +60,16 @@ tauri-plugin-window-state = "2"
 ort = "=2.0.0-rc.13"
 ndarray = "0.17.2"
 tauri-plugin-updater = "2"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+sha2 = "0.10.9"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+opencull-cuda = { path = "cuda", optional = true }
 
 [dev-dependencies]
 # Only for `examples/bench.rs`, which measures it against the decoder the app

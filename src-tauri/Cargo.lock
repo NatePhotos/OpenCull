@@ -1624,6 +1624,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573"
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2662,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "opencull"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "fast_image_resize",
  "jpeg-decoder",
@@ -2670,13 +2676,17 @@ dependencies = [
  "memchr",
  "memmap2",
  "ndarray",
+ "opencull-cuda",
  "ort",
  "percent-encoding",
  "png 0.18.1",
  "rayon",
  "regex",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -2685,8 +2695,17 @@ dependencies = [
  "tauri-plugin-window-state",
  "trash",
  "turbojpeg",
+ "webkit2gtk",
  "xxhash-rust",
  "zune-jpeg",
+]
+
+[[package]]
+name = "opencull-cuda"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "ort",
 ]
 
 [[package]]
@@ -4042,6 +4061,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http",
+ "http-range",
  "jni 0.21.1",
  "libc",
  "log",
