@@ -51,7 +51,7 @@ export function MobileClipSettings() {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <label htmlFor="mobileclip-grouping" className="text-sm font-medium">Group visually similar photos</label>
-          <p id="mobileclip-help" className="mt-1 text-xs leading-relaxed text-muted-foreground">Compares whole images, including photos without faces. Groups span at most three seconds and keep portrait or landscape orientation. Uses cached previews and embeddings; photos stay on this computer.</p>
+          <p id="mobileclip-help" className="mt-1 text-xs leading-relaxed text-muted-foreground">Compares whole images, including photos without faces. Groups span at most five seconds and keep portrait or landscape orientation. Uses cached previews and embeddings; photos stay on this computer.</p>
         </div>
         <Switch id="mobileclip-grouping" aria-describedby="mobileclip-help" checked={enabled} disabled={!aiEnabled || !ready} onCheckedChange={(on) => useStore.getState().set("aiMobileClipGrouping", on)} />
       </div>

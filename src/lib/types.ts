@@ -145,8 +145,6 @@ export interface AiResult {
    * on. Left, top, width and height, as fractions of the upright photo.
    */
   key: { x: number; y: number; w: number; h: number } | null;
-  /** Experimental directional motion evidence, from 0 to 1; absent in old caches. */
-  motionBlur?: number | null;
 }
 
 /** An analysed photo with when it was taken, as it is sent to be compared. */

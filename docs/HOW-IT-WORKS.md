@@ -135,20 +135,11 @@ same answer as release 0.3 to the last figure for every one of 3,075 faces
 in 908 photos, and the same mark and rank for every frame; the basic rules
 take 22 ms a photo and the advanced 23.
 
-Two other checks are optional. **Motion blur** looks for repeated,
-directional streaks inside a subject or the main part of a photo; a low
-sharpness score by itself is not enough. Its evidence can lower a frame's
-group rank and appears in a separate filter. If automatic marking is enabled,
-detected photos are rejected and given one star only when unrated; existing
-ratings and Picks are kept. This result is added to the existing per-photo
-analysis record with its own detector version, so a changed blur detector can
-be rerun from a cached preview without running the face models again.
-
-**MobileCLIP visual grouping** is another experimental option. Its separately
+**MobileCLIP visual grouping** is an experimental option. Its licence is not settled: the model is published under the Apple Machine Learning Research Model License, which allows non-commercial research only, so this option must not ship until that is resolved or the model is replaced. Its separately
 downloaded MobileCLIP-S0 model compares whole-image embeddings, so frames can
 be grouped even when no faces were found. The loose, normal and tight settings
 use cosine-similarity cutoffs above 0.70, 0.80 and 0.90. Visual matches still
-must be adjacent in shooting order, within three seconds of the first frame,
+must be adjacent in shooting order, within five seconds of the first frame,
 and have the same portrait or landscape orientation. That adjacency and
 anchor test prevents a slow chain of unrelated frames from becoming one
 group. Before decoding, the
@@ -304,8 +295,8 @@ under 60% nearly every one is a blink, half a blink or eyes cast down; over
 
 The same is done for a pose shot again. A group lined up and photographed
 five times, a press at a time, is five bursts by the clock and one pose to
-the photographer: frames taken within twenty seconds of one another with the
-same people in the same places are compared, and ranked, as one, and are
+the photographer: frames no more than five seconds apart, and within five seconds of the
+pose's first frame, with the same people in the same places are compared, and ranked, as one, and are
 one scene in Scene View and one group in the filmstrip. An upright photo
 and one on its side are never grouped, however alike: turning the camera
 is making another picture. "Intelligent grouping" in Settings turns poses
@@ -326,8 +317,8 @@ ever replaced, and nothing is left there half written.
 
 Not here yet:
 
-- **Similar-photo grouping beyond three seconds** — MobileCLIP only compares
-  adjacent frames within its three-second window; later matches stay apart.
+- **Similar-photo grouping beyond five seconds** — MobileCLIP only compares
+  adjacent frames within its five-second window; later matches stay apart.
 - **RAW rendering and auto-exposure** — needs a real RAW decoder. Cameras that
   embed only a small preview (older bodies, mostly) therefore cannot be zoomed
   further than that preview goes.

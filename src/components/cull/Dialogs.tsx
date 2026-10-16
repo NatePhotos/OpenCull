@@ -21,7 +21,6 @@ import { CAPS_LOCK, comboLabel, comboOf, DEFAULTS, isMac, sameCombo, SECTIONS, t
 import { GIGABYTE, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { MobileClipSettings } from "./MobileClipSettings";
-import { MotionBlurSettings } from "./MotionBlurSettings";
 
 /** Asks before photos go to the trash. */
 export function TrashDialog() {
@@ -422,7 +421,6 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             control={toggle("smartGroups")}
           />
           <MobileClipSettings />
-          <MotionBlurSettings />
           <Setting
             title="Pause analysis while culling"
             detail="Holds the folder scan for a moment each time you move to another photo, so previews never wait behind analysis. Nothing is lost; the scan carries on as soon as you pause. Turn off to let a folder finish as fast as possible while you work."

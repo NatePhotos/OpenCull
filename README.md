@@ -95,15 +95,10 @@ deciding what to keep. OpenCull is built to make that fast.
 * **Groups visually similar frames, if you want.** The experimental
   MobileCLIP-S0 option compares the whole image, including photos without
   faces. Choose loose (above 0.70 similarity), normal (above 0.80) or tight
-  (above 0.90); visual groups span no more than three seconds and keep the
+  (above 0.90); visual groups span no more than five seconds and keep the
   same portrait or landscape orientation. Its 45.5 MB model is downloaded
   only when you choose **Download model** in Settings → AI. The model and its
   cached embeddings stay on your computer.
-* **Finds possible motion blur.** The experimental detector looks for
-  consistent directional streaks around a subject or the main part of the
-  photo. It affects group rankings and adds a filter. An optional setting
-  gives detected photos one star if they are unrated and marks them Reject;
-  existing ratings and Picks are kept.
 * **Keeps your photos yours.** Everything runs on your own computer. Nothing
   is uploaded, and there is no account. The app checks for updates and, only
   when you ask, downloads the optional MobileCLIP model. Neither sends your

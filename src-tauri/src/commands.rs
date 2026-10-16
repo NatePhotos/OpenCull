@@ -687,8 +687,7 @@ const AI_SAVE_EVERY: usize = 150;
 /// through on spare time: whenever the photographer is being served, the
 /// scan waits. Asking again, or closing the folder, stops this one.
 #[tauri::command]
-pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, motion_blur: Option<bool>, events: Channel<AiEvent>) -> Result<(), String> {
-    let motion_blur = motion_blur.unwrap_or(false);
+pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, events: Channel<AiEvent>) -> Result<(), String> {
     let rules = if advanced { ai::Rules::Advanced } else { ai::Rules::Basic };
     let Some(session) = app.sessions.lock().unwrap().get(&session).cloned() else {
         return Err("that folder is no longer open".into());
@@ -709,9 +708,8 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
         for index in order {
             let Some(image) = session.images.get(index) else { continue };
             match ai::store::remembered(&known.lock().unwrap(), &image.display, &image.version) {
-                Some(record) if !motion_blur || record.motion_version == ai::motion::VERSION => ready.push(Analysed { index, record }),
+                Some(record) => ready.push(Analysed { index, record }),
                 None => todo.push(index),
-                Some(_) => todo.push(index),
             }
         }
         for chunk in ready.chunks(256) {
@@ -745,14 +743,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                         let image = &session.images[index];
                         // A photo that cannot be analysed is remembered as
                         // having no faces, so it is not tried on every open.
-                        let mut record = known.lock().unwrap().get(&image.display.to_string_lossy().into_owned())
-                            .filter(|(version, _)| version == &image.version)
-                            .map(|(_, record)| record.clone())
-                            .filter(|record| motion_blur && record.motion_version != ai::motion::VERSION)
-                            .unwrap_or_else(|| ai::analyze(&image.display, rules).map(|a| ai::store::Record::from(&a)).unwrap_or_default());
-                        if motion_blur && record.motion_version != ai::motion::VERSION {
-                            ai::motion::annotate_file(&image.display, &image.version, &app.previews.cache, &mut record);
-                        }
+                        let record = ai::analyze(&image.display, rules).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
                         known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
                         if tx.send(Analysed { index, record }).is_err() {
                             return;

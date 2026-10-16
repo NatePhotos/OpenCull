@@ -31,7 +31,6 @@ export function useFaceScan(): void {
   const session = useStore((s) => (s.session !== null && s.metaProgress >= 1 ? s.session.id : null));
   const pause = useStore((s) => s.aiPause);
   const advanced = useStore((s) => s.aiAdvanced);
-  const motionBlur = useStore((s) => s.aiMotionBlur);
 
   useEffect(() => void api.aiSetYield(pause).catch(() => {}), [pause]);
 
@@ -103,7 +102,7 @@ export function useFaceScan(): void {
         if (!live || s.session?.id !== session) return; // stopped, or a folder since closed
         if (event.type === "batch") s.addAnalysis(event.items);
         else s.set("aiRunning", false);
-      }, motionBlur)
+      })
       .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
 
     return () => {
@@ -111,5 +110,5 @@ export function useFaceScan(): void {
       void api.aiStop().catch(() => {});
       if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
     };
-  }, [enabled, session, advanced, motionBlur]);
+  }, [enabled, session, advanced]);
 }

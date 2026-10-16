@@ -1,5 +1,13 @@
 //! Optional MobileCLIP-S0 image embeddings. One shared session, bounded RAM,
 //! versioned disk features; model installation never sends photographs out.
+//!
+//! LICENCE NOT CLEARED. The model is published under the Apple Machine
+//! Learning Research Model License, which grants use for non-commercial
+//! research only and excludes use in any commercial product or service; the
+//! converted copy downloaded here is a derivative under the same terms.
+//! Photographers culling paid work are outside that grant. Do not ship or
+//! enable this download until the licence question is settled or the model
+//! is replaced by one under a licence that allows this use.
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
