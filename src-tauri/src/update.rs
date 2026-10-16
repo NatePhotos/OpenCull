@@ -22,7 +22,7 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::commands::App;
 
 /// Where releases are read about and downloaded by hand.
-const RELEASES: &str = "https://github.com/wispdevon/OpenCull/releases";
+const RELEASES: &str = "https://github.com/NatePhotos/OpenCull/releases";
 
 /// How long the question "is there a newer version?" may take. It is asked
 /// as the app opens, of a server that may not be reachable.
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn only_a_release_page_is_ever_opened() {
-        assert_eq!(release_page(Some("0.2.5")), "https://github.com/wispdevon/OpenCull/releases/tag/v0.2.5");
+        assert_eq!(release_page(Some("0.2.5")), "https://github.com/NatePhotos/OpenCull/releases/tag/v0.2.5");
         assert_eq!(release_page(None), RELEASES);
         // Whatever the view sends, the address stays on the releases page.
         for odd in ["", "../../evil", "1.0/../..", "x?y=z", "a b", "1.0#frag"] {

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0
+## Unreleased
 
 ### Review and grouping
 
@@ -33,9 +33,3 @@
 - Automatically select the stable Linux NVIDIA renderer and fix interaction
   flicker; renderer selection remains independent of AI acceleration.
 - Simplify desktop commands and reuse an existing OpenCull development server.
-
-### Installation
-
-- Download the installer for your platform from this fork's GitHub release.
-- macOS installers are not notarized; Windows installers are not code-signed.
-- Install updates manually. Signed automatic updates are not configured for this fork.

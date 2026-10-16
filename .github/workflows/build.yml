@@ -134,7 +134,7 @@ jobs:
           releaseName: OpenCull ${{ github.ref_name }}
           releaseBody: See the README for what works, what does not yet, and how to open the app the first time.
           releaseDraft: true
-          prerelease: false
+          prerelease: true
 
       - name: Verify Linux CUDA provider packaging
         if: runner.os == 'Linux'

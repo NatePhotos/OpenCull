@@ -1,8 +1,8 @@
 # Try every OpenCull feature on macOS
 
-Share this link: https://github.com/wispdevon/OpenCull/tree/dev
+Share this link: https://github.com/NatePhotos/OpenCull
 
-The `dev` branch already combines the approved feature branches across platforms. Do not merge branches by hand or use fork main for the combined preview. Experimental features are available in Settings and remain opt-in. The discarded mountain welcome-page demo is excluded.
+These instructions cover native macOS development. Experimental features are available in Settings and remain opt-in.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Install Xcode Command Line Tools (`xcode-select --install`), Homebrew, Rust stab
 
 ```sh
 brew install jpeg-turbo pkgconf
-git clone --branch dev --single-branch https://github.com/wispdevon/OpenCull.git
+git clone https://github.com/NatePhotos/OpenCull.git
 cd OpenCull
 nvm install
 nvm use
@@ -26,7 +26,7 @@ macOS automatically uses the Homebrew libjpeg-turbo configuration. Do not set Li
 ## Things to try
 
 - Ingest from Card: navigate to a DCIM subfolder, add multiple cards to one review session, cull before copying, and resume through Recent Sessions.
-- Settings → Design: choose Wisp, OpenCull or RapidRAW inspired design, and Spacious or Classic action placement. Wisp separates setting rows and active controls with stronger contrast.
+- Settings → Design: choose the Wisp theme, optional featured home image, and Spacious or Classic action placement. Wisp separates setting rows and active controls with stronger contrast.
 - Settings → Design: choose colour mode, font and interface scale (80–200%).
 - Settings → Layout: default/remembered view and panel visibility. Stack view puts groups in the full-width bottom row and active stack frames above. Drag each strip's top edge to resize; F hides both stack strips. Resize edges support arrow keys as well.
 - Settings → Culling → Experimental Features: native-aspect strips, including the stack overview; decoded JPEG dimensions allow early sizing before complete metadata.
