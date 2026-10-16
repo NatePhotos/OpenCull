@@ -5,10 +5,13 @@
 
 pub mod basic;
 pub mod eyes;
+pub mod file_backend;
 pub mod finder;
 pub mod focus;
 pub mod judge;
 pub mod key;
+pub mod mobileclip;
+pub mod motion;
 pub mod onnx;
 pub mod queue;
 pub mod score;

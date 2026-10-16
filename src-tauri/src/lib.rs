@@ -173,6 +173,8 @@ pub fn run() {
             commands::ingest_copy,
             commands::ingest_cancel,
             commands::ai_scan,
+            commands::mobileclip_status,
+            commands::mobileclip_install,
             commands::ai_look_at,
             commands::ai_compare,
             commands::ai_stop,

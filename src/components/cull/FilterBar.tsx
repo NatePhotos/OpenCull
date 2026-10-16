@@ -1,10 +1,11 @@
 import { useMemo, type ReactNode } from "react";
-import { CircleX } from "lucide-react";
+import { Activity, CircleX } from "lucide-react";
 
 import { hasActiveFilter, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type FlagFilter } from "@/lib/types";
 import { FlagSymbol, RatingSymbol } from "./symbols";
+import { hasMotionBlur } from "@/lib/motion-blur";
 
 /** One filter: an icon over a count, lit while it is the one applied. */
 function Cell({ count, active, title, onClick, children }: { count: number; active: boolean; title: string; onClick: () => void; children: ReactNode }) {
@@ -37,6 +38,9 @@ export function FilterBar() {
   const flagFilter = useStore((s) => s.flagFilter);
   const ratingFilter = useStore((s) => s.ratingFilter);
   const colorFilters = useStore((s) => s.colorFilters);
+  const ai = useStore((s) => s.ai);
+  const aiMotionBlur = useStore((s) => s.aiMotionBlur);
+  const motionBlurFilter = useStore((s) => s.motionBlurFilter);
   const filtering = useStore(hasActiveFilter);
   const s = useStore.getState();
 
@@ -44,14 +48,16 @@ export function FilterBar() {
     const flags = { pick: 0, none: 0, reject: 0 };
     const ratings = [0, 0, 0, 0, 0, 0];
     const colors: Record<string, number> = {};
+    let motionBlur = 0;
     for (const i of order) {
       const p = photos[i];
+      if (hasMotionBlur(ai[i])) motionBlur += 1;
       flags[p.flag]++;
       ratings[p.rating]++;
       colors[p.color] = (colors[p.color] ?? 0) + 1;
     }
-    return { flags, ratings, colors };
-  }, [photos, order]);
+    return { flags, ratings, colors, motionBlur };
+  }, [photos, order, ai]);
 
   const flag = (filter: FlagFilter) => () => s.setFlagFilter(flagFilter === filter ? "all" : filter);
   const sep = <span className="h-[22px] w-px shrink-0 bg-[#383838]" />;
@@ -90,6 +96,16 @@ export function FilterBar() {
           </Cell>
         ))}
       </Group>
+      {(aiMotionBlur || motionBlurFilter) && (
+        <>
+          {sep}
+          <Group>
+            <Cell count={counts.motionBlur} active={motionBlurFilter} title="Motion blur" onClick={() => s.setMotionBlurFilter(!motionBlurFilter)}>
+              <Activity className={motionBlurFilter ? "text-white" : "text-[#8c8c8c]"} />
+            </Cell>
+          </Group>
+        </>
+      )}
       {filtering && (
         <>
           {sep}

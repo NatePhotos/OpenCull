@@ -135,6 +135,29 @@ same answer as release 0.3 to the last figure for every one of 3,075 faces
 in 908 photos, and the same mark and rank for every frame; the basic rules
 take 22 ms a photo and the advanced 23.
 
+Two other checks are optional. **Motion blur** looks for repeated,
+directional streaks inside a subject or the main part of a photo; a low
+sharpness score by itself is not enough. Its evidence can lower a frame's
+group rank and appears in a separate filter. If automatic marking is enabled,
+detected photos are rejected and given one star only when unrated; existing
+ratings and Picks are kept. This result is added to the existing per-photo
+analysis record with its own detector version, so a changed blur detector can
+be rerun from a cached preview without running the face models again.
+
+**MobileCLIP visual grouping** is another experimental option. Its separately
+downloaded MobileCLIP-S0 model compares whole-image embeddings, so frames can
+be grouped even when no faces were found. The loose, normal and tight settings
+use cosine-similarity cutoffs above 0.70, 0.80 and 0.90. Visual matches still
+must be adjacent in shooting order, within three seconds of the first frame,
+and have the same portrait or landscape orientation. That adjacency and
+anchor test prevents a slow chain of unrelated frames from becoming one
+group. Before decoding, the
+grouping code checks for a suitable cached thumbnail or loupe JPEG; embeddings
+are cached by model version and photo version, so reopening a session does not
+run ONNX again for unchanged files. The model downloads only after the
+photographer asks for it in Settings → AI. Once installed, image processing
+stays local and runs on the CPU in a plain build.
+
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
@@ -303,8 +326,8 @@ ever replaced, and nothing is left there half written.
 
 Not here yet:
 
-- **Burst grouping by picture** — the Mac app splits frames close in time that
-  look nothing alike. Here it is the clock alone.
+- **Similar-photo grouping beyond three seconds** — MobileCLIP only compares
+  adjacent frames within its three-second window; later matches stay apart.
 - **RAW rendering and auto-exposure** — needs a real RAW decoder. Cameras that
   embed only a small preview (older bodies, mostly) therefore cannot be zoomed
   further than that preview goes.
@@ -387,10 +410,12 @@ than the one running, the app offers it — on the home screen only, never over
 a folder being culled — and, if asked to, downloads the file, checks the
 signature, puts the new version in place of the old and reopens. A version
 can be skipped: it is not offered again unasked, the one after it is, and
-Check Now in Settings still finds it. Nothing is
-sent but the request itself. It is the only thing the app uses the internet
-for, it is done by the backend so the view has no leave to reach the network
-at all, and Settings has a switch for it.
+Check Now in Settings still finds it. Nothing is sent but the request itself.
+This update check is one internet use. The other is the optional MobileCLIP
+model download, which happens only after the photographer asks for it in
+Settings → AI; it sends no photos. Both requests are made by the backend, so
+the view has no leave to reach the network at all. Settings has a switch for
+update checks.
 
 A download is installed only if it was signed with the project's update key.
 The public half of that key is in `tauri.conf.json`; the private half is not

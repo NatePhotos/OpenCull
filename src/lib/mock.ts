@@ -127,7 +127,7 @@ export const mock: Backend = {
   lightroomCatalogs: () => later(["/Users/sample/Pictures/Lightroom/Weddings 2026.lrcat", "/Users/sample/Pictures/Lightroom/Personal.lrcat"], 600),
   openInEditor: () => later(undefined),
   pathsExist: (paths) => later(paths.map(() => true)),
-  aiScan: async (_session, order, advanced, onEvent) => {
+  aiScan: async (_session, order, advanced, onEvent, _motionBlur) => {
     for (let at = 0; at < order.length; at += 12) {
       await later(null, 120);
       onEvent({
@@ -177,6 +177,8 @@ export const mock: Backend = {
         }),
       ),
     ),
+  mobileClipStatus: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
+  mobileClipInstall: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
   aiLookAt: () => later(undefined),
   aiStop: () => later(undefined),
   aiSetYield: () => later(undefined),

@@ -97,11 +97,11 @@ export function FramedThumb({ photo, size, box, inset = 0, cover = false, classN
  */
 export const RankBar = memo(function RankBar({ index, height = 14 }: { index: number; height?: number }) {
   const rank = useStore((s) => s.ranks[index]);
-  const problem = useStore((s) => problemOf(s.ai[index], s.compared[index]));
-  if (!rank && problem !== "eyesClosed") return null;
+  const problem = useStore((s) => problemOf(s.ai[index], s.compared[index], s.aiEnabled && s.aiMotionBlur));
+  if (!rank && problem !== "eyesClosed" && problem !== "motionBlur") return null;
 
   let colour = "#525252";
-  if (problem === "eyesClosed") colour = "#d95252";
+  if (problem === "eyesClosed" || problem === "motionBlur") colour = "#d95252";
   else if (rank) {
     const third = Math.max(1, Math.ceil(rank.count / 3));
     colour = rank.rank === 1 ? "#2ea0fa" : rank.rank <= third ? "#8cbde6" : rank.rank > rank.count - third ? "#de8a8a" : "#525252";
@@ -109,14 +109,14 @@ export const RankBar = memo(function RankBar({ index, height = 14 }: { index: nu
   const title = problem ? PROBLEM_LABEL[problem] : rank!.rank === 1 ? `Best of these ${rank!.count}` : `Rank ${rank!.rank} of ${rank!.count}`;
   return (
     <span title={title} className="absolute inset-x-0 bottom-0 flex items-center justify-center text-[10px] font-bold leading-none text-black/80" style={{ height, background: colour }}>
-      {rank?.rank}
+      {problem === "motionBlur" ? `Motion blur${rank ? ` · ${rank.rank}` : ""}` : rank?.rank}
     </span>
   );
 });
 
 /** Whether a thumbnail has a strip along its bottom, so what sits there can make room. */
 export function useHasRankBar(index: number): boolean {
-  return useStore((s) => s.ranks[index] !== undefined || problemOf(s.ai[index]) === "eyesClosed");
+  return useStore((s) => s.ranks[index] !== undefined || ["eyesClosed", "motionBlur"].includes(problemOf(s.ai[index], undefined, s.aiEnabled && s.aiMotionBlur) ?? ""));
 }
 
 /** Pick or reject, as a small badge in the corner of a thumbnail. */

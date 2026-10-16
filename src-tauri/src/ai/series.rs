@@ -126,6 +126,14 @@ fn same_pose(a: &Record, b: &Record) -> bool {
 /// pose against each other. Without `across_presses` a pose is a burst and
 /// nothing more.
 pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
+    compare_run_with_visual(frames, across_presses, None, super::mobileclip::Grouping::Normal)
+}
+
+/// Visual matching replaces face position when MobileCLIP is explicitly
+/// enabled. Adjacent and anchor comparisons prevent a chain of gradually
+/// changing frames from becoming one group, while the span and orientation
+/// gates remain in force.
+pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: Option<&[Vec<f32>]>, grouping: super::mobileclip::Grouping) -> Vec<Compared> {
     let mut out: Vec<Compared> = Vec::with_capacity(frames.len());
     let mut start = 0;
     let mut pose = 0;
@@ -136,7 +144,15 @@ pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
             let soon = matches!((a.time, b.time), (Some(t0), Some(t1)) if (t1 - t0).abs() <= POSE_GAP_MS);
             // The camera turned between them — even, rarely, within a press.
             let turned = matches!((a.upright, b.upright), (Some(a), Some(b)) if a != b);
-            !turned && (one_press || (across_presses && soon && same_pose(a.record, b.record)))
+            if let Some(embeddings) = visual {
+                const VISUAL_GAP_MS: f64 = 3_000.0;
+                let within_span = matches!((frames[start].time, b.time), (Some(t0), Some(t1)) if (t1 - t0).abs() <= VISUAL_GAP_MS);
+                let alike = super::mobileclip::matching(embeddings.get(at - 1).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping)
+                    && super::mobileclip::matching(embeddings.get(start).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping);
+                !turned && within_span && alike && (one_press || (across_presses && soon))
+            } else {
+                !turned && (one_press || (across_presses && soon && same_pose(a.record, b.record)))
+            }
         };
         if !joined {
             let records: Vec<&Record> = frames[start..at].iter().map(|f| f.record).collect();
@@ -275,7 +291,7 @@ mod tests {
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {
-        Record { faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None }
+        Record { faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None, ..Default::default() }
     }
 
     fn marks(frames: &[Record]) -> Vec<Compared> {
@@ -428,6 +444,35 @@ mod tests {
         let frames: Vec<Frame> = frames.iter().map(|(record, time, burst)| Frame { record, time: Some(*time), burst: *burst, upright: None }).collect();
         assert_eq!(compare_run(&frames, false).iter().map(|c| c.pose).collect::<Vec<_>>(), [0, 0, 1]);
         assert_eq!(compare_run(&frames, true).iter().map(|c| c.pose).collect::<Vec<_>>(), [0, 0, 0]);
+    }
+
+    #[test]
+    fn mobileclip_splits_unrelated_burst_frames_and_groups_without_faces() {
+        let record = frame(vec![]);
+        let frames = [0.0, 200.0, 400.0].map(|time| Frame { record: &record, time: Some(time), burst: None, upright: Some(true) });
+        let feature = |at: usize| { let mut v = vec![0.0; 512]; v[at] = 1.0; v };
+        let embeddings = vec![feature(0), feature(0), feature(1)];
+        let got = compare_run_with_visual(&frames, true, Some(&embeddings), super::super::mobileclip::Grouping::Tight);
+        assert_eq!(got.iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 0, 1]);
+        assert_eq!(got[0].score, None, "visual grouping does not invent face data");
+    }
+
+    #[test]
+    fn mobileclip_caps_the_whole_group_at_three_seconds_and_respects_orientation() {
+        let record = frame(vec![]);
+        let feature = || { let mut v = vec![0.0; 512]; v[0] = 1.0; v };
+        let embeddings = vec![feature(); 4];
+        let frames = [
+            Frame { record: &record, time: Some(0.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(1_000.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(2_500.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(3_001.0), burst: Some(7), upright: Some(true) },
+        ];
+        let got = compare_run_with_visual(&frames, true, Some(&embeddings), super::super::mobileclip::Grouping::Loose);
+        assert_eq!(got.iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 0, 0, 1]);
+
+        let turned = [frames[0], Frame { time: Some(200.0), upright: Some(false), ..frames[1] }];
+        assert_eq!(compare_run_with_visual(&turned, true, Some(&embeddings[..2]), super::super::mobileclip::Grouping::Loose).iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 1]);
     }
 
     #[test]
