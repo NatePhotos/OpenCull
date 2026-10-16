@@ -102,7 +102,7 @@ export function Toolbar() {
   const s = useStore.getState();
 
   return (
-    <div data-tauri-drag-region className={cn("relative z-10 flex min-h-[50px] flex-wrap shrink-0 items-center gap-y-1 py-1 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[78px]" : "pl-3")}>
+    <div data-tauri-drag-region className={cn("relative z-10 flex min-h-[50px] flex-wrap shrink-0 items-center gap-y-1 py-1 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[calc(78px/var(--ui-scale,1))]" : "pl-3")}>
       <Tool label="Back to Home" onClick={() => s.closeFolder()} className="w-9">
         <ChevronLeft className="size-[17px]!" strokeWidth={2.5} />
       </Tool>
@@ -130,7 +130,7 @@ export function Toolbar() {
       </Tool>
       {showFilterBar && <FilterBar />}
 
-      <span data-tauri-drag-region className="h-full min-w-2 flex-1" />
+      <span data-tauri-drag-region className="min-w-2 flex-1 self-stretch" />
 
       {speedCull && (
         <span className="mr-3 flex shrink-0 items-center gap-1 rounded-full bg-[#ffcc33]/15 px-2 py-1 text-[11px] font-medium text-star" title="Marking a photo moves to the next one">

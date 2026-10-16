@@ -40,5 +40,5 @@
 }
 /* Keep macOS traffic-light clearance even with the shared page gutter. */
 @media (min-width: 40em) {
-  :root:not([data-home-featured="true"]) .home-view[data-platform="macos"] .home-header { padding-left: max(78px, 3rem); }
+  :root:not([data-home-featured="true"]) .home-view[data-platform="macos"] .home-header { padding-left: max(calc(78px / var(--ui-scale, 1)), 3rem); }
 }

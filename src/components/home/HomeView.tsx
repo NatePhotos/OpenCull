@@ -104,7 +104,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
     <div data-home-layout={layout} data-platform={platform} className="home-view relative flex size-full flex-col bg-gradient-to-br from-[var(--home-from)] to-[var(--home-to)]">
       {featured && <WelcomeArtwork path={recents.find((path) => !missing.has(path))} />}
       <div className="home-content flex min-h-0 flex-1 flex-col">
-      <header data-tauri-drag-region className={cn("home-header flex shrink-0 flex-wrap items-center gap-6 px-8 py-6", platform === "macos" && "pl-[78px]")}>
+      <header data-tauri-drag-region className={cn("home-header flex shrink-0 flex-wrap items-center gap-6 px-8 py-6", platform === "macos" && "pl-[calc(78px/var(--ui-scale,1))]")}>
         <div data-tauri-drag-region className="home-heading min-w-[220px] flex-1">
           <h1 className="bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-[32px] font-bold leading-tight tracking-tight text-transparent">OpenCull</h1>
           <p className="mt-1 text-[13px] text-[var(--ui-text-808080)]">Culling Software made for Photographers</p>
