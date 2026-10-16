@@ -6,7 +6,7 @@ Includes culling cards before copying, in-place review, multi-card sessions, sub
 
 ## Shared changes kept together
 
-Session restoration and video/card review share the store, native commands, preference hydration and scan protocol. Their earlier settings foundation is included: configurable controls, local preferences, fonts, and basic light/grey themes. The offline Space Grotesk font and its license are included. Later Wisp, interface animation, motion-blur and MobileCLIP features are excluded. Grouping stays at the earlier face/time behavior.
+Session restoration and video/card review share the store, native commands, preference hydration and scan protocol. Their earlier settings foundation is included: configurable controls, local preferences, fonts, basic light/grey themes, and settings import/export in Storage. The offline Space Grotesk font and its license are included. Later Wisp, interface animation, motion-blur and MobileCLIP features are excluded. Grouping stays at the earlier face/time behavior.
 
 ## Provenance
 
@@ -26,3 +26,11 @@ Fetch and merge this branch into upstream to obtain its explicit GPU prerequisit
 ## Validation
 
 Linux production frontend build; 69 frontend tests and 11 launcher tests passed; 296 native tests passed with CUDA enabled, one hardware benchmark ignored. No macOS/Windows runtime test has been performed on this curated subset. The complete 0.5.0 release is checked separately in CI.
+
+## Follow-up cleanup
+
+Published history is preserved. An append-only cleanup stack fixes branch-specific clone/build instructions and removes unused MobileCLIP download dependencies from GPU and Ingest. AI restores those dependencies because model installation needs them. The new branch tips retain the cumulative dependency order.
+
+Responsive browser checks passed at 320, 390, 768 and 1440 pixels: the settings dialog fits its viewport, tabs remain reachable through horizontal scrolling, and all MobileCLIP strengths fit in the AI bundle. Settings import/export and graphics diagnostics were exercised on desktop.
+
+Native Linux desktop build also passed: `npm run tauri build -- --debug --no-bundle --features cuda`, using a separate temporary target so the existing development executable was unchanged.

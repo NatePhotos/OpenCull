@@ -173,7 +173,7 @@ export function SettingsDialog() {
   return (
     <Dialog open={open} onOpenChange={(o) => useStore.getState().set("settingsOpen", o)}>
       <DialogContent
-        className="sm:max-w-[600px]"
+        className="min-w-0 sm:max-w-[600px]"
         // Opens with nothing picked out: a ring round the first tab reads
         // as something being wrong with it.
         onOpenAutoFocus={(e) => {
@@ -181,7 +181,7 @@ export function SettingsDialog() {
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogHeader>
+        <DialogHeader className="min-w-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         {/* Only exists while the window is open, so that reading every
@@ -272,10 +272,10 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
   const boxKey = isMac ? "⌘ Command" : "Ctrl";
 
   return (
-    <Tabs value={tab} onValueChange={(to) => onTab(to as SettingsTab)}>
-      <TabsList>
+    <Tabs value={tab} onValueChange={(to) => onTab(to as SettingsTab)} className="w-full min-w-0">
+      <TabsList className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain">
         {SETTINGS_TABS.map(([value, label, Icon]) => (
-          <TabsTrigger key={value} value={value}>
+          <TabsTrigger key={value} value={value} className="flex-none sm:flex-1">
             <Icon />
             {label}
           </TabsTrigger>
@@ -283,7 +283,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
       </TabsList>
       {/* One height for every tab, so the window does not jump about as
           they are stepped through; a tab with more than fits scrolls. */}
-      <div className="h-[430px] overflow-x-hidden overflow-y-auto pr-1">
+      <div className="h-[430px] w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto pr-1">
         <TabsContent value="layout" className="flex flex-col gap-4">
           {([
             ["showFilmstrip", "Filmstrip"], ["showFaces", "Face panel"],
