@@ -24,3 +24,9 @@ In an upstream checkout, fetch the branch and merge it. Later idea bundles docum
 ## Validation
 
 Linux: TypeScript/production frontend build; 31 frontend tests; 11 launcher tests; 275 native library tests passed, one hardware benchmark ignored. CUDA-enabled native tests compiled with `--features turbo,cuda`. This curated bundle has not been run on macOS or Windows; the full 0.5.0 release has a separate cross-platform CI run.
+
+## Follow-up cleanup
+
+Published history is preserved. An append-only cleanup stack fixes branch-specific clone/build instructions and removes unused MobileCLIP download dependencies from GPU and Ingest. AI restores those dependencies because model installation needs them. The new branch tips retain the cumulative dependency order.
+
+Native Linux desktop build also passed: `npm run tauri build -- --debug --no-bundle --features cuda`, using a separate temporary target so the existing development executable was unchanged.

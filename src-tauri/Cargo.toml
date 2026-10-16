@@ -60,9 +60,6 @@ tauri-plugin-window-state = "2"
 ort = "=2.0.0-rc.13"
 ndarray = "0.17.2"
 tauri-plugin-updater = "2"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
-sha2 = "0.10.9"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
