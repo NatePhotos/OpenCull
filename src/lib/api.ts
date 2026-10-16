@@ -9,6 +9,13 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AiEvent, AiGroupingOptions, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, MobileClipStatus, RunFrame, Scanned } from "./types";
 
+export interface AiAccelerationInfo {
+  requested: boolean;
+  enabled: boolean;
+  failure: string | null;
+  failureKind: "memory" | "unavailable" | "runtime" | null;
+}
+
 export interface AppInfo {
   platform: string;
   version: string;
@@ -158,6 +165,7 @@ export interface Backend {
   aiCompare(runs: RunFrame[][], poses: boolean, options?: AiGroupingOptions): Promise<Compared[][]>;
   mobileClipStatus(): Promise<MobileClipStatus>;
   mobileClipInstall(): Promise<MobileClipStatus>;
+  aiAccelerationInfo(): Promise<AiAccelerationInfo | null>;
   aiStop(): Promise<void>;
   /** Whether analysis stands aside while the photographer moves between photos. */
   aiSetYield(on: boolean): Promise<void>;
@@ -245,6 +253,7 @@ const tauri: Backend = {
   aiCompare: (runs, poses, options = {}) => invoke("ai_compare", { runs, poses, session: options.session, revision: options.revision, mobileClip: options.mobileClip ?? false, mobileClipGrouping: options.mobileClipGrouping ?? "normal" }),
   mobileClipStatus: () => invoke("mobileclip_status"),
   mobileClipInstall: () => invoke("mobileclip_install"),
+  aiAccelerationInfo: () => invoke("ai_acceleration_info"),
   aiLookAt: (order) => invoke("ai_look_at", { order }),
   aiStop: () => invoke("ai_stop"),
   aiSetYield: (on) => invoke("ai_set_yield", { on }),

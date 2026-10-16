@@ -1,0 +1,12 @@
+[package]
+name = "opencull-cuda"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+# This optional, target-scoped dependency enables CUDA only on Linux x86_64.
+# Even an --all-features macOS build keeps the ordinary CPU runtime.
+[dependencies]
+ort = { version = "=2.0.0-rc.13", features = ["cuda"] }
+libloading = "0.7.4"

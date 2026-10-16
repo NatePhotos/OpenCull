@@ -3,6 +3,9 @@
 //! No part of this comes from the system it runs on: the same two model
 //! files give the same answers on a Mac, on Windows and on Linux.
 
+#[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
+mod cuda;
+pub mod acceleration;
 pub mod basic;
 pub mod eyes;
 pub mod file_backend;
@@ -26,6 +29,12 @@ use crate::preview;
 
 pub use judge::Verdict;
 pub use subject::Reason;
+
+/// Connects the optional Linux CUDA worker to file-backed model inference.
+#[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
+pub fn register_cuda_file_backend() -> Result<(), &'static str> {
+    file_backend::register(acceleration::enabled, cuda::run_file, acceleration::failure)
+}
 
 /// Which rules the faces of a photograph are judged by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

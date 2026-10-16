@@ -2676,6 +2676,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "ndarray",
+ "opencull-cuda",
  "ort",
  "percent-encoding",
  "png 0.18.1",
@@ -2694,8 +2695,17 @@ dependencies = [
  "tauri-plugin-window-state",
  "trash",
  "turbojpeg",
+ "webkit2gtk",
  "xxhash-rust",
  "zune-jpeg",
+]
+
+[[package]]
+name = "opencull-cuda"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "ort",
 ]
 
 [[package]]

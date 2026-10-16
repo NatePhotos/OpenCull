@@ -180,6 +180,7 @@ export const mock: Backend = {
     ),
   mobileClipStatus: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
   mobileClipInstall: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
+  aiAccelerationInfo: async () => null,
   aiLookAt: () => later(undefined),
   aiStop: () => later(undefined),
   aiSetYield: () => later(undefined),
