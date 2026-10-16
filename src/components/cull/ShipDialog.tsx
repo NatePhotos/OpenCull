@@ -14,6 +14,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { TailText } from "@/components/ui/tail-text";
 import { api, type EditingApp, type Shipped } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
@@ -292,7 +293,7 @@ function Ship() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-white">
+    <div className="flex h-full min-h-0 min-w-0 flex-col text-white">
       <header className="flex items-center px-6 py-4">
         <div className="flex-1">
           <DialogTitle className="text-lg font-bold">Ship</DialogTitle>
@@ -304,7 +305,7 @@ function Ship() {
       </header>
       <Rule />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         {/* Which photos. */}
         <section className="flex w-[400px] shrink-0 flex-col">
           <PanelTitle>Image Selection</PanelTitle>
@@ -378,7 +379,7 @@ function Ship() {
         <span className="w-px bg-white/[0.08]" />
 
         {/* What to do with them. */}
-        <section className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <section className="min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-5">
           <Action title="Open in editing program" on={settings.openInApp} onChange={(on) => change({ openInApp: on })}>
             <Choice label={editor?.name ?? "Choose a program"}>
               {apps.map((app) => (
@@ -407,10 +408,8 @@ function Ship() {
               <DropdownMenuItem onSelect={() => change({ operation: "move" })}>Move files to…</DropdownMenuItem>
             </Choice>
             <div className="flex items-center gap-2">
-              <span className={cn("min-w-0 flex-1 truncate rounded-md bg-black/25 px-3 py-2 text-xs", settings.destination ? "text-[#d9d9d9]" : "text-[#737373]")} title={settings.destination ?? undefined} dir="rtl">
-                {/* Cut from the left, so the folder's own name is what stays in view. */}
-                <bdi>{settings.destination ?? "Choose a destination folder"}</bdi>
-              </span>
+              {/* A path too long for the box shows its end, so the folder's own name stays in view. */}
+              <TailText className={cn("flex-1 rounded-md bg-black/25 px-3 py-2 text-left text-xs", settings.destination ? "text-[#d9d9d9]" : "text-[#737373]")} text={settings.destination ?? "Choose a destination folder"} />
               <button type="button" onClick={() => void browse()} className="shrink-0 rounded-md bg-white/[0.08] px-3 py-2 text-xs font-medium text-[#d9d9d9] hover:bg-white/[0.12]">
                 Browse
               </button>

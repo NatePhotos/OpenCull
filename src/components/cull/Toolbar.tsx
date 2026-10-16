@@ -138,7 +138,7 @@ export function Toolbar() {
         </span>
       )}
 
-      <div className="flex shrink-0 gap-0.5 rounded-md bg-white/[0.06] p-0.5">
+      <div className="flex shrink-0 overflow-hidden rounded-md bg-white/[0.06]">
         <Mode mode="loupe" label="Loupe View" current={viewMode}>
           <RectangleHorizontal className="fill-current" />
         </Mode>
@@ -230,7 +230,7 @@ function Mode({ mode, label, current, children }: { mode: ViewMode; label: strin
           aria-label={label}
           aria-pressed={current === mode}
           onClick={() => useStore.getState().set("viewMode", mode)}
-          className={cn("flex h-6 w-[26px] items-center justify-center rounded [&_svg]:size-[13px]", current === mode ? "bg-[var(--ui-surface-383838)] text-white" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]")}
+          className={cn("flex size-8 items-center justify-center rounded-md [&_svg]:size-[15px]", current === mode ? "bg-[var(--ui-surface-383838)] text-white" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]")}
         >
           {children}
         </button>

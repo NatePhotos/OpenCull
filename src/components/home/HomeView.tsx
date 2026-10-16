@@ -128,11 +128,11 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         >
           <CardIcon className="size-4 text-current" /> Ingest from Card
         </button>
-        <ResumeLatestSession />
+        <ResumeLatestSession className={cn("home-resume", HOME_ACTION)} />
         <button
           type="button"
           onClick={() => void chooseFolder()}
-          className={cn("home-open bg-brand text-white hover:brightness-110", HOME_ACTION)}
+          className={cn("home-open bg-[color-mix(in_oklch,var(--opencull-accent),black_25%)] text-white hover:brightness-110", HOME_ACTION)}
         >
           <FolderPlus className="size-4" /> Open Folder
         </button>

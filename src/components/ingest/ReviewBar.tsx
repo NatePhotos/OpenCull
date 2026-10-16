@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CircleAlert, CircleCheck, Copy, Images, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { TailText } from "@/components/ui/tail-text";
 import { Chip, PanelTitle, Rule } from "@/components/cull/ShipDialog";
 import { FlagSymbol, RatingSymbol } from "@/components/cull/symbols";
 import { api } from "@/lib/api";
@@ -105,16 +106,15 @@ function Finish() {
       useStore.setState({ review: next }); await saveReview(next);
       if (result.failed.length || result.sidecarFailed.length) throw new Error([...result.failed, ...result.sidecarFailed].join("\n"));
       if (pending.some((p) => !next.completed[p.path])) throw new Error("Copy cancelled. Completed files are remembered; you can retry the remaining files.");
-      const destinations = images.map((p) => next.completed[p.path]);
-      const copied = (await api.ingestScan(destination)).filter((p) => destinations.includes(p.path));
       useStore.setState({ reviewFinishOpen: false });
-      const imported = { ...next, sources: [destination], items: copied, chosen: copied.map((p) => p.path), decisions: {}, completed: {}, stage: "copied" as const };
-      await useStore.getState().openFolder(destination, imported);
+      // The copies are ordinary photos in an ordinary folder now, ratings and
+      // flags already beside them: culling goes on there, and Ship works.
+      await useStore.getState().openFolder(destination);
     } catch (e) { setError(String(e)); } finally { setBusy(false); useStore.setState({ reviewCopying: false }); }
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-white">
+    <div className="flex h-full min-h-0 min-w-0 flex-col text-white">
       <header className="flex items-center px-6 py-4">
         <div className="flex-1">
           <DialogTitle className="text-lg font-bold">Finish card review</DialogTitle>
@@ -126,7 +126,7 @@ function Finish() {
       </header>
       <Rule />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         {/* Which photos. */}
         <section className="flex w-[400px] shrink-0 flex-col">
           <PanelTitle>Photos to copy</PanelTitle>
@@ -181,21 +181,14 @@ function Finish() {
         <span className="w-px bg-white/[0.08]" />
 
         {/* Where they go. Copying is not optional: that is what finishes a review. */}
-        <section className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <section className="min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-5">
           <div className="rounded-lg bg-white/[0.04] p-3.5">
             <div className="text-[13px] font-medium text-white">Copy files to</div>
             <div className="mt-3 flex items-center gap-2">
-              <span className={cn("min-w-0 flex-1 truncate rounded-md bg-black/25 px-3 py-2 text-xs", destination ? "text-[#d9d9d9]" : "text-[#737373]")} title={destination ?? undefined} dir="rtl">
-                {/* Cut from the left, so the folder's own name is what stays in view. */}
-                <bdi>{destination ?? "Choose a destination folder"}</bdi>
-              </span>
+              {/* A path too long for the box shows its end, so the folder's own name stays in view. */}
+              <TailText className={cn("flex-1 rounded-md bg-black/25 px-3 py-2 text-left text-xs", destination ? "text-[#d9d9d9]" : "text-[#737373]")} text={destination ?? "Choose a destination folder"} />
               <button type="button" disabled={busy} onClick={() => void browse()} className="shrink-0 rounded-md bg-white/[0.08] px-3 py-2 text-xs font-medium text-[#d9d9d9] hover:bg-white/[0.12] disabled:opacity-40">Browse</button>
             </div>
-            <ul className="mt-3.5 space-y-1.5 text-[11px] leading-snug text-[#8c8c8c]">
-              <li>A RAW goes with its JPEG.</li>
-              <li>Ratings, flags, colours and crops go with the copies.</li>
-              <li>The card is never written to, and nothing on it is deleted.</li>
-            </ul>
           </div>
           {error && <p role="alert" className="whitespace-pre-line rounded-md bg-[#5c2020]/60 p-3 text-xs text-[#ffb3b3]">{error}</p>}
         </section>
