@@ -198,7 +198,8 @@ mod tests {
         assert!(scan_sources(&[root.clone()], false).unwrap().is_empty());
         let included = scan_sources(&[root.clone()], true).unwrap();
         assert_eq!(included.len(), 1);
-        assert_eq!(included[0].path, video);
+        let canonical_video = std::fs::canonicalize(&video).unwrap();
+        assert_eq!(included[0].path, canonical_video);
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
