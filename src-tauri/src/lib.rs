@@ -12,6 +12,7 @@ pub mod editors;
 pub mod embed;
 pub mod faces;
 pub mod framing;
+pub mod graphics;
 pub mod ingest;
 pub mod pool;
 pub mod preview;
@@ -34,6 +35,14 @@ use serve::Previews;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
+    if let Err(reason) = ai::register_cuda_file_backend() {
+        eprintln!("[ai] Could not register the CUDA file-model worker: {reason}");
+    }
+    if ai::acceleration::requested() {
+        eprintln!("[ai] CUDA requested; one shared model worker, CPU fallback on failure");
+    }
+    let graphics = graphics::initialize();
     let launch = Launch::from_args();
     let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_updater::Builder::new().build());
     if !launch.self_test {
@@ -45,7 +54,23 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_window_state::Builder::default().with_state_flags(StateFlags::all() & !StateFlags::VISIBLE).build());
     }
     builder
+        .manage(graphics)
         .setup(move |app| {
+            #[cfg(target_os = "linux")]
+            if graphics.effective != graphics::Profile::Auto {
+                app.get_webview_window("main").expect("main window").with_webview(move |webview| {
+                    use webkit2gtk::{SettingsExt, WebViewExt};
+                    use webkit2gtk::glib::prelude::ObjectExt;
+                    if let Some(settings) = webview.inner().settings() {
+                        let policy = if graphics.effective == graphics::Profile::Software { webkit2gtk::HardwareAccelerationPolicy::Never } else { webkit2gtk::HardwareAccelerationPolicy::Always };
+                        settings.set_hardware_acceleration_policy(policy);
+                        if graphics.effective == graphics::Profile::Nvidia {
+                            settings.set_enable_webgl(true);
+                            if settings.find_property("enable-2d-canvas-acceleration").is_some() { settings.set_property("enable-2d-canvas-acceleration", true); }
+                        }
+                    }
+                })?;
+            }
             // A self-test keeps its previews apart, so a run measures making
             // them rather than finding the last run's.
             let (dir, times_dir, faces_dir) = if launch.self_test {
@@ -138,6 +163,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            ai::acceleration::ai_acceleration_info,
+            graphics::graphics_info,
             commands::app_info,
             commands::report,
             commands::finish_self_test,

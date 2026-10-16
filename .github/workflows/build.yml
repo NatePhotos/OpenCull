@@ -23,6 +23,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      ORT_CUDA_VERSION: "13"
+      LINUXDEPLOY_EXCLUDED_LIBRARIES: "libcuda.so*;libcudart.so*;libcublas*.so*;libcurand.so*;libcudnn*.so*;libnvrtc*.so*;libnvidia*.so*"
     permissions:
       contents: write
     strategy:
@@ -44,7 +47,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -63,7 +66,7 @@ jobs:
 
       - name: macOS packages
         if: runner.os == 'macOS'
-        run: brew install jpeg-turbo
+        run: brew install jpeg-turbo pkgconf
 
       - name: Windows packages
         if: runner.os == 'Windows'
@@ -72,10 +75,35 @@ jobs:
           choco install nasm -y --no-progress
           "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Use the pinned npm version
+        shell: bash
+        run: npm install --global "$(node -p "require('./package.json').packageManager")"
+
       - run: npm ci
+
+      - name: Ensure macOS excludes CUDA
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          OPENCULL_AI: cuda
+        run: |
+          cargo tree --manifest-path src-tauri/Cargo.toml --features cuda -e features > /tmp/opencull-features.txt
+          if grep -E 'opencull-cuda|ort feature "cuda"' /tmp/opencull-features.txt; then
+            echo "CUDA leaked into the macOS dependency graph"
+            exit 1
+          fi
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --features cuda
+
+      - name: Compile CUDA path on Linux
+        if: runner.os == 'Linux'
+        run: cargo check --manifest-path src-tauri/Cargo.toml --features cuda
 
       - name: Tests
         run: npm test
+
+      - name: macOS desktop startup
+        if: runner.os == 'macOS'
+        run: node .github/scripts/macos-dev-smoke.mjs
 
       # The app updates itself only from files signed with the project's
       # update key. Where that key is to hand, the build also makes those
@@ -96,7 +124,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          args: ${{ steps.updates.outputs.args }}
+          args: ${{ steps.updates.outputs.args }} ${{ runner.os == 'Linux' && '--features cuda --config src-tauri/tauri.cuda.conf.json' || '' }}
           # Of the two Windows installers, the one an update falls back on.
           updaterJsonPreferNsis: true
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
@@ -104,6 +132,33 @@ jobs:
           releaseBody: See the README for what works, what does not yet, and how to open the app the first time.
           releaseDraft: true
           prerelease: true
+
+      - name: Verify Linux CUDA provider packaging
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python - <<'PYCODE'
+          import io, pathlib, subprocess, tarfile, tempfile
+          root = pathlib.Path('src-tauri/target/release/bundle')
+          required = {'libonnxruntime_providers_cuda.so', 'libonnxruntime_providers_shared.so'}
+          packages = list((root / 'deb').glob('*.deb'))
+          assert packages, 'No Debian installer was produced'
+          for package in packages:
+              data = subprocess.check_output(['ar', 'p', str(package), 'data.tar.gz'])
+              with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+                  found = {pathlib.PurePosixPath(member.name).name for member in archive.getmembers()
+                           if pathlib.PurePosixPath(member.name).parent.as_posix().lstrip('./') == 'usr/bin' and member.size > 0}
+                  assert required <= found, f'Missing provider in {package}'
+          images = list((root / 'appimage').glob('*.AppImage'))
+          assert images, 'No AppImage was produced'
+          for image in images:
+              with tempfile.TemporaryDirectory() as directory:
+                  subprocess.run([str(image.resolve()), '--appimage-extract'], cwd=directory,
+                                 check=True, stdout=subprocess.DEVNULL)
+                  for name in required:
+                      assert (pathlib.Path(directory) / 'squashfs-root/usr/bin' / name).stat().st_size > 0
+          print('CUDA and shared provider files verified in Debian and AppImage installers')
+          PYCODE
 
       - name: Keep the installers
         uses: actions/upload-artifact@v4

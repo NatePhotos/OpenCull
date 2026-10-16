@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HardDrive, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
+import { GraphicsSettings } from "@/components/GraphicsSettings";
 
 import {
   AlertDialog,
@@ -425,6 +426,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
           />
         </TabsContent>
         <TabsContent value="storage" className="space-y-4">
+          <GraphicsSettings />
           <Setting
             title="Prepare previews ahead"
             detail="While you are not doing anything, gets the photos around the one you are on ready, so any of them opens at once. Uses about 1 MB of disk per photo."

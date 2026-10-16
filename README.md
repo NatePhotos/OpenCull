@@ -115,6 +115,7 @@ system, reports are very welcome.
 * [![TypeScript][TypeScript-badge]][TypeScript-url]
 * [![Tailwind CSS][Tailwind-badge]][Tailwind-url]
 * [![ONNX Runtime][ONNX-badge]][ONNX-url]
+* Linux AI acceleration can use [NVIDIA CUDA][CUDA-url] with [cuDNN][cuDNN-url].
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -147,10 +148,10 @@ cannot be installed where the app lives, it says so and brings you back here.
 
 ### Build From Source
 
-You need [Rust](https://rustup.rs) and [Node](https://nodejs.org), and one
-thing for the JPEG library: `brew install jpeg-turbo` on macOS, or CMake
-(plus NASM on Intel and AMD machines) on Windows and Linux. Windows and Linux
-also need the system packages on
+You need [Rust](https://rustup.rs), [Node.js 22.12+](https://nodejs.org) and
+npm 11. For the JPEG library, install `jpeg-turbo` and `pkgconf` with Homebrew
+on macOS, or CMake (plus NASM on Intel and AMD machines) on Windows and Linux.
+Windows and Linux also need the system packages on
 [Tauri's list](https://tauri.app/start/prerequisites/).
 
 1. Clone the repo
@@ -162,17 +163,32 @@ also need the system packages on
    ```sh
    npm install
    ```
-3. Run it
+3. Run it with automatic CUDA detection on Linux:
    ```sh
-   npm run tauri dev
+   npm run desktop
    ```
-4. Or build the app itself
+4. Or build the app and installer packages
    ```sh
-   npm run tauri build
+   npm run build:desktop
    ```
+
+Use `npm run desktop -- --cuda` or `npm run build:desktop -- --cuda` to request
+CUDA on Linux x86_64, or `--cpu` to keep AI inference on the CPU. The Linux CUDA
+runtime requirements and packaging details are in the
+[CUDA guide](docs/CUDA-TRIAL.md).
 
 More on building, including how to build without the JPEG library, is in
 [How it works](docs/HOW-IT-WORKS.md#building-the-fast-jpeg-library).
+
+#### Linux NVIDIA AI and rendering
+
+On Linux x86_64, `npm run desktop` detects a compatible NVIDIA CUDA runtime
+and uses it for AI inference when available; otherwise it uses the CPU. Use
+`npm run desktop -- --cuda` to request CUDA explicitly or `--cpu` to keep AI
+on the CPU. `--nvidia` selects a separate Linux webview rendering profile.
+These options affect AI inference and webview rendering independently. See
+[CUDA requirements and build instructions](docs/CUDA-TRIAL.md) and
+[NVIDIA rendering details](docs/features/NVIDIA_GRAPHICS.md).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -304,3 +320,5 @@ Project Link: [https://github.com/NatePhotos/OpenCull](https://github.com/NatePh
 [Tailwind-url]: https://tailwindcss.com
 [ONNX-badge]: https://img.shields.io/badge/ONNX_Runtime-005CED?style=for-the-badge&logo=onnx&logoColor=white
 [ONNX-url]: https://onnxruntime.ai
+[CUDA-url]: https://developer.nvidia.com/cuda-toolkit
+[cuDNN-url]: https://developer.nvidia.com/cudnn

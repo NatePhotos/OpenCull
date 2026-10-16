@@ -17,6 +17,9 @@ name = "opencull_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+# Optional NVIDIA inference runtime. The implementation is available only on
+# Linux x86_64 and the app continues on CPU if CUDA cannot initialize.
+cuda = ["dep:opencull-cuda"]
 # The JPEG work — decoding a camera's preview and writing a smaller one — can
 # be done by libjpeg-turbo instead of the pure-Rust decoder and encoder.
 # MEASURED on a 7008-pixel frame, one core: 38 ms against 99 ms.
@@ -58,6 +61,11 @@ ort = "=2.0.0-rc.13"
 ndarray = "0.17.2"
 tauri-plugin-updater = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+opencull-cuda = { path = "cuda", optional = true }
 
 [dev-dependencies]
 # Only for `examples/bench.rs`, which measures it against the decoder the app
