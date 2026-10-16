@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Circle, CircleCheck, FolderPlus, FolderSearch, Images, Keyboard, Settings, Trash2, X } from "lucide-react";
 
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { RecentSessions, ResumeLatestSession } from "./RecentSessions";
 import { CardIcon } from "@/components/ingest/IngestView";
 import { api, type Volume } from "@/lib/api";
 import { useStore } from "@/lib/store";
@@ -113,6 +114,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
         >
           <CardIcon className="size-4 text-white" /> Ingest from Card
         </button>
+        <ResumeLatestSession />
         <button
           type="button"
           onClick={() => void chooseFolder()}
@@ -145,6 +147,7 @@ export function HomeView({ dropping }: { dropping: boolean }) {
       {openError && <div className="mx-10 mb-4 rounded-lg bg-[#e64d4d]/15 px-4 py-2.5 text-[13px] text-[#f29999]">Could not open that folder: {openError}</div>}
 
       <main className="flex-1 overflow-y-auto p-10 pt-4">
+        <RecentSessions />
         {recents.length === 0 ? (
           <div className="flex flex-col items-center gap-5 pt-16 text-center">
             <Images className="size-16 text-[#5970ff]" strokeWidth={1.25} />

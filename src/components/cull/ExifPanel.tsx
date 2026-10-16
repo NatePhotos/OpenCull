@@ -1,3 +1,4 @@
+import { isVideo } from "@/lib/media";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Aperture, Calendar, Camera, Clock, FileText, Folder, HardDrive, Image as ImageIcon, Info, Ratio, Sun, Target, Timer, X } from "lucide-react";
 
@@ -20,7 +21,7 @@ export function ExifPanel() {
         </button>
       </div>
       <div className="border-y border-[#2e2e2e]">
-        <Histogram photo={photo} />
+        {photo && isVideo(photo.path) ? <p className="p-3 text-xs text-muted-foreground">Histogram unavailable for video</p> : <Histogram photo={photo} />}
       </div>
       {photo ? <Details photo={photo} /> : <Empty />}
     </div>

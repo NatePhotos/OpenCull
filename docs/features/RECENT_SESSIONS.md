@@ -1,0 +1,1 @@
+Depends on feature/cull-before-ingest. Card sessions are retained individually and shown under Recent Sessions. Legacy latest.json remains readable. Resume Latest Session compares card review save time with the last successfully opened normal folder. Missing cards produce a reconnect message. Source photos are never modified by session history.

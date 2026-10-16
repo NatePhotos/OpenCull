@@ -16,8 +16,13 @@ pub(crate) fn is_image(ext: &str) -> bool {
     RAW_EXTENSIONS.contains(&ext) || JPEG_EXTENSIONS.contains(&ext) || ext == "png"
 }
 
+/// Containers offered for playback; the webview decides codec support.
+pub fn is_video(ext: &str) -> bool {
+    matches!(ext, "mp4" | "mov" | "m4v" | "avi" | "mkv" | "webm" | "mts" | "m2ts" | "mpg" | "mpeg" | "3gp")
+}
+
 /// One photo as the scan found it.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Scanned {
     /// The file that owns the photo's marks and sidecar.
@@ -125,7 +130,7 @@ struct Found {
     modified: u128,
 }
 
-fn list(dir: &Path, recurse: bool, out: &mut Vec<Found>, subfolders: Option<&mut usize>) {
+fn list(dir: &Path, recurse: bool, out: &mut Vec<Found>, subfolders: Option<&mut usize>, include_videos: bool) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut dirs = Vec::new();
     let mut count = 0usize;
@@ -151,7 +156,7 @@ fn list(dir: &Path, recurse: bool, out: &mut Vec<Found>, subfolders: Option<&mut
         }
 
         let ext = extension(&path);
-        if !is_image(&ext) {
+        if !is_image(&ext) && !(include_videos && is_video(&ext)) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
@@ -168,7 +173,7 @@ fn list(dir: &Path, recurse: bool, out: &mut Vec<Found>, subfolders: Option<&mut
         *total = count;
     }
     for sub in dirs {
-        list(&sub, true, out, None);
+        list(&sub, true, out, None, include_videos);
     }
 }
 
@@ -182,9 +187,13 @@ pub fn scan_folder(folder: &Path, include_subfolders: bool) -> ScanResult {
 
 /// The same, listing only the kinds of file asked for.
 pub fn scan_folder_of(folder: &Path, include_subfolders: bool, kinds: Kinds) -> ScanResult {
+    scan_folder_media(folder, include_subfolders, kinds, false)
+}
+
+pub fn scan_folder_media(folder: &Path, include_subfolders: bool, kinds: Kinds, include_videos: bool) -> ScanResult {
     let mut found = Vec::new();
     let mut subfolder_count = 0;
-    list(folder, include_subfolders, &mut found, Some(&mut subfolder_count));
+    list(folder, include_subfolders, &mut found, Some(&mut subfolder_count), include_videos);
 
     // Only one kind wanted: the other is dropped here, before anything is
     // paired, so that a frame is its own file and brings nothing with it.
@@ -192,7 +201,7 @@ pub fn scan_folder_of(folder: &Path, include_subfolders: bool, kinds: Kinds) -> 
     if kinds != Kinds::Both {
         let is_raw = |f: &Found| RAW_EXTENSIONS.contains(&f.ext.as_str());
         let frame = |f: &Found| (f.path.parent().map(Path::to_path_buf).unwrap_or_default(), f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase());
-        let wanted = |f: &Found| is_raw(f) == (kinds == Kinds::Raw);
+        let wanted = |f: &Found| is_video(&f.ext) || is_raw(f) == (kinds == Kinds::Raw);
         let shown: HashSet<(PathBuf, String)> = found.iter().filter(|f| wanted(f)).map(frame).collect();
         left_out = found.iter().filter(|f| !wanted(f) && !shown.contains(&frame(f))).map(frame).collect::<HashSet<_>>().len();
         found.retain(wanted);
@@ -440,5 +449,25 @@ mod tests {
         let picked: Vec<_> = cover.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(picked, vec!["A00.ARW", "A05.ARW", "A10.ARW", "A15.ARW"]);
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)] mod media_tests {
+    use super::*;
+    #[test] fn videos_are_opt_in_and_never_pair_with_stills() {
+        let root = std::env::temp_dir().join(format!("opencull-media-{}", std::process::id())); std::fs::create_dir_all(&root).unwrap();
+        for name in ["A.MP4", "A.JPG", "B.MOV"] { std::fs::write(root.join(name), b"test media").unwrap(); }
+        assert_eq!(scan_folder(&root, false).images.len(), 1);
+        let result = scan_folder_media(&root, false, Kinds::Both, true); assert_eq!(result.images.len(), 3);
+        assert!(result.images.iter().all(|p| p.path == p.display));
+        assert_eq!(scan_folder_media(&root, false, Kinds::Raw, true).images.len(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn video_only_card_folders_are_visible_when_enabled() {
+        let root = std::env::temp_dir().join(format!("opencull-video-only-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("PRIVATE")).unwrap(); std::fs::write(root.join("PRIVATE/A.MTS"), b"test").unwrap();
+        assert!(crate::ingest::photo_folders(&root).is_empty());
+        assert_eq!(crate::ingest::photo_folders_media(&root, true).len(), 1);
+        assert_eq!(crate::ingest::scan_media(&root, true).len(), 1); std::fs::remove_dir_all(root).unwrap();
     }
 }

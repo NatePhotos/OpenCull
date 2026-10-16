@@ -1,3 +1,5 @@
+import { isVideo } from "@/lib/media";
+import { VideoPlayer } from "./VideoPlayer";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Loader2, X } from "lucide-react";
 
@@ -125,7 +127,7 @@ export function Loupe() {
 
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
-      {photo && cropping ? (
+      {photo && isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : photo && cropping ? (
         <CropView photo={photo} />
       ) : photo ? (
         <Canvas photo={photo} />
@@ -620,7 +622,7 @@ function Canvas({ photo }: { photo: Photo }) {
         if (at + d < view.length) near.push(view[at + d]);
         if (d <= BEHIND && at - d >= 0) near.push(view[at - d]);
       }
-      void api.prefetch(near.map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
+      void api.prefetch(near.filter((i) => !isVideo(photos[i].path)).map((i) => ({ path: photos[i].display, version: photos[i].version })), fitSize);
     });
     return () => cancelAnimationFrame(handle);
   }, [photo.index, photo.display, photo.version, fitSize, box.w]);

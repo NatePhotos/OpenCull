@@ -1,3 +1,5 @@
+import { Film } from "lucide-react";
+import { isVideo } from "@/lib/media";
 import { memo, useEffect, useState, type CSSProperties } from "react";
 import { Crop, Flag, X } from "lucide-react";
 
@@ -15,7 +17,12 @@ import type { Photo } from "@/lib/types";
  * a folder closed — and a cell that gave up at the first refusal would stay
  * blank for as long as it was on screen.
  */
-export function ThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
+export function ThumbImage(props: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
+  if (isVideo(props.photo.display)) return <div className={cn("flex items-center justify-center bg-cell", props.className)} style={props.style} role="img" aria-label="Video"><Film className="size-8 text-muted-foreground" /></div>;
+  return <StillThumbImage {...props} />;
+}
+
+function StillThumbImage({ photo, size, className, style }: { photo: Pick<Photo, "display" | "version">; size: number; className?: string; style?: CSSProperties }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
 
