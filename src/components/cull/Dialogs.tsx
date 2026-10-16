@@ -5,8 +5,12 @@ import { ExperimentalZoomSettings } from "./ExperimentalZoomSettings";
 import { HomeLayoutSettings } from "@/components/HomeLayoutSettings";
 import { SettingsTransfer } from "@/components/SettingsTransfer";
 import { InterfaceScaleSettings } from "@/components/InterfaceScaleSettings";
+import { FontSettings } from "@/components/FontSettings";
+import { ThemeSettings } from "@/components/ThemeSettings";
+import { ViewModeSettings } from "@/components/ViewModeSettings";
+import { ChartColumn, Funnel, Info, Palette, PanelBottom, PanelLeft, PanelRight, PanelsTopLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ChartColumn, Funnel, HardDrive, Info, Palette, PanelBottom, PanelLeft, PanelRight, PanelsTopLeft, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
+import { HardDrive, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -18,10 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FontSettings } from "@/components/FontSettings";
-import { ThemeSettings } from "@/components/ThemeSettings";
 import { Button } from "@/components/ui/button";
-import { ViewModeSettings } from "@/components/ViewModeSettings";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -481,7 +482,6 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           />
         </TabsContent>
         <TabsContent value="storage" className="space-y-4">
-          <SettingsTransfer />
           <Setting
             title="Prepare previews ahead"
             detail="While you are not doing anything, gets the photos around the one you are on ready, so any of them opens at once. Uses about 1 MB of disk per photo."
@@ -528,6 +528,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
               </Button>
             }
           />
+          <SettingsTransfer />
         </TabsContent>
         <TabsContent value="keyboard" className="space-y-4">
           <Button variant="outline" onClick={() => useStore.setState({ settingsOpen: false, overviewOpen: true })}>Quick overview</Button>

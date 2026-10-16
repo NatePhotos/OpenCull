@@ -97,14 +97,19 @@ export function FramedThumb({ photo, size, box, inset = 0, cover = false, classN
  * are shut — usually the end of that frame.
  */
 export const RankBar = memo(function RankBar({ index, height = 14 }: { index: number; height?: number }) {
+  const palette = useStore((s) => s.rankingPalette);
   const rank = useStore((s) => s.ranks[index]);
   const problem = useStore((s) => problemOf(s.ai[index], s.compared[index]));
-  const palette = useStore((s) => s.rankingPalette);
   if (!rank && problem !== "eyesClosed") return null;
 
   let colour = "#525252";
   if (problem === "eyesClosed") colour = "#d95252";
-  else if (rank) colour = rankingColour(rank.rank, rank.count, palette);
+  else if (rank) {
+    const third = Math.max(1, Math.ceil(rank.count / 3));
+    colour = palette === "classic"
+      ? (rank.rank === 1 ? "#2ea0fa" : rank.rank <= third ? "#8cbde6" : rank.rank > rank.count - third ? "#de8a8a" : "#525252")
+      : rankingColour(rank.rank, rank.count, palette);
+  }
   const title = problem ? PROBLEM_LABEL[problem] : rank!.rank === 1 ? `Best of these ${rank!.count}` : `Rank ${rank!.rank} of ${rank!.count}`;
   return (
     <span title={title} className="absolute inset-x-0 bottom-0 flex items-center justify-center text-[10px] font-bold leading-none text-black/80" style={{ height, background: colour }}>
