@@ -196,4 +196,46 @@ describe("AI grouping and motion-blur controls", () => {
     expect(useStore.getState().compared).toEqual([]);
     expect(useStore.getState().ranks).toEqual([]);
   });
+
+  it("invalidates pending grouping synchronously before closing the session", async () => {
+    let resolve!: (value: Compared[][]) => void;
+    const pending = new Promise<Compared[][]>((done) => { resolve = done; });
+    vi.spyOn(api, "aiCompare").mockReturnValueOnce(pending);
+    const session = {
+      id: 7,
+      folder: "/folder-7",
+      name: "folder-7",
+      includeSubfolders: false,
+      subfolderCount: 0,
+      fileKinds: "both" as const,
+      leftOut: 0,
+      timed: false,
+    };
+    useStore.setState({
+      session,
+      metaProgress: 1,
+      aiEnabled: true,
+      aiMobileClipGrouping: true,
+      smartGroups: true,
+      photos: [photo(0), photo(1)],
+      order: [0, 1],
+      view: [0, 1],
+      ai: [result(null), result(null)],
+    });
+    useStore.getState().regroup();
+    const revision = useStore.getState().groupingRevision;
+    vi.spyOn(api, "closeFolder").mockImplementation(() => {
+      expect(useStore.getState().groupingRevision).toBe(revision + 1);
+      return Promise.resolve();
+    });
+
+    useStore.getState().closeFolder();
+    expect(useStore.getState().session).toBeNull();
+    expect(useStore.getState().groupingRevision).toBe(revision + 1);
+    resolve([[{ pose: 0, score: 100, eyes: [] }, { pose: 0, score: 0, eyes: [] }]]);
+    await pending;
+    await Promise.resolve();
+    expect(useStore.getState().compared).toEqual([]);
+    expect(useStore.getState().ranks).toEqual([]);
+  });
 });

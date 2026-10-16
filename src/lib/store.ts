@@ -955,8 +955,9 @@ export const useStore = create<Store>((set, get) => {
       const { session } = get();
       if (!session) return;
       rememberPosition();
+      set({ groupingRevision: get().groupingRevision + 1, aiGroupingError: null, motionBlurFilter: false, motionMarkOverrides: new Set() });
       if (session.id >= 0) void api.closeFolder(session.id);
-      set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null, groupingRevision: get().groupingRevision + 1, aiGroupingError: null, motionBlurFilter: false, motionMarkOverrides: new Set() });
+      set({ session: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
     },
 
     reloadForSubfolders() {
