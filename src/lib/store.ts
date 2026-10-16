@@ -9,6 +9,7 @@ import { useCrop } from "./crop";
 import { cropFromShare, isPlain, MIRROR_ACROSS, MIRROR_DOWN, PLAIN, QUARTER_LEFT, QUARTER_RIGHT, sameFraming, shareOf, turned, viewSize, type Share } from "./framing";
 import { load, save } from "./prefs";
 import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
+import type { MobileClipGrouping } from "./types";
 
 interface Session {
   id: number;
@@ -136,6 +137,12 @@ interface State {
    * few seconds on — as well as the frames of one press of the shutter.
    */
   smartGroups: boolean;
+  /** Add whole-image MobileCLIP similarity to ordinary face-position grouping. */
+  aiMobileClipGrouping: boolean;
+  mobileClipGrouping: MobileClipGrouping;
+  /** Invalidates stale asynchronous regrouping responses. */
+  groupingRevision: number;
+  aiGroupingError: string | null;
   /** How many photos have been analysed, and whether analysis is still going. */
   aiDone: number;
   aiRunning: boolean;
@@ -367,6 +374,8 @@ const PERSISTED = [
   "showBackgroundFaces",
   "aiPause",
   "smartGroups",
+  "aiMobileClipGrouping",
+  "mobileClipGrouping",
   "showFaces",
   "facePanelWidth",
   "recents",
@@ -610,8 +619,9 @@ export const useStore = create<Store>((set, get) => {
    * best" of three frames out of seven.
    */
   function compareRuns(touched: number[]) {
-    const { photos, ai, session, smartGroups } = get();
+    const { photos, ai, session, smartGroups, groupingRevision, aiMobileClipGrouping, mobileClipGrouping, aiEnabled } = get();
     if (!session) return;
+    const visualGrouping = aiMobileClipGrouping && aiEnabled;
     if (runs?.session !== session.id) {
       const list = runsOf(photos).filter((run) => run.length >= 2);
       const of = new Map<number, number>();
@@ -622,11 +632,15 @@ export const useStore = create<Store>((set, get) => {
     const ready = [...new Set(touched.map((i) => of.get(i)).filter((at) => at !== undefined))].map((at) => list[at]).filter((run) => run.every((i) => ai[i] !== undefined));
     if (ready.length === 0) return;
     void api
-      .aiCompare(ready.map((run) => run.map((i) => ({ ...ai[i]!, time: photos[i].captureMs, burst: photos[i].group, upright: uprightOf(photos[i]) }))), smartGroups)
+      .aiCompare(
+        ready.map((run) => run.map((i) => ({ ...ai[i]!, index: i, time: photos[i].captureMs, burst: photos[i].group, upright: uprightOf(photos[i]) }))),
+        smartGroups,
+        { session: session.id, revision: groupingRevision, mobileClip: visualGrouping, mobileClipGrouping },
+      )
       .then((marked) => {
         const now = get();
-        // A folder since closed, or the setting changed while this was asked.
-        if (now.session?.id !== session.id || now.smartGroups !== smartGroups) return;
+        // A folder or grouping choice changed while this was asked.
+        if (now.session?.id !== session.id || now.groupingRevision !== groupingRevision || now.smartGroups !== smartGroups || now.aiMobileClipGrouping !== aiMobileClipGrouping || now.mobileClipGrouping !== mobileClipGrouping || now.aiEnabled !== aiEnabled) return;
         const compared = now.compared.slice();
         const ranks = now.ranks.slice();
         const poses = now.poses.slice();
@@ -648,7 +662,10 @@ export const useStore = create<Store>((set, get) => {
         });
         set({ compared, ranks, poses });
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        const now = get();
+        if (now.session?.id === session.id && now.groupingRevision === groupingRevision) set({ aiGroupingError: String(error) });
+      });
   }
 
   function rememberPosition() {
@@ -715,6 +732,10 @@ export const useStore = create<Store>((set, get) => {
     ranks: [],
     poses: [],
     smartGroups: load("smartGroups", true),
+    aiMobileClipGrouping: load("aiMobileClipGrouping", false),
+    mobileClipGrouping: load<MobileClipGrouping>("mobileClipGrouping", "normal"),
+    groupingRevision: 0,
+    aiGroupingError: null,
     aiDone: 0,
     aiRunning: false,
     aiEnabled: load("aiEnabled", true),
@@ -782,6 +803,8 @@ export const useStore = create<Store>((set, get) => {
         flagFilter: "all",
         ratingFilter: null,
         colorFilters: new Set(),
+        groupingRevision: before.groupingRevision + 1,
+        aiGroupingError: null,
       });
 
       let reply;
@@ -899,6 +922,7 @@ export const useStore = create<Store>((set, get) => {
       const { session } = get();
       if (!session) return;
       rememberPosition();
+      set({ groupingRevision: get().groupingRevision + 1, aiGroupingError: null });
       if (session.id >= 0) void api.closeFolder(session.id);
       set({ session: null, review: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
     },
@@ -1094,8 +1118,8 @@ export const useStore = create<Store>((set, get) => {
     zoomCommand: (kind) => set((s) => ({ zoom: { kind, nonce: s.zoom.nonce + 1 } })),
 
     regroup() {
-      const { ai } = get();
-      set({ compared: [], ranks: [], poses: [] });
+      const { ai, groupingRevision } = get();
+      set({ compared: [], ranks: [], poses: [], groupingRevision: groupingRevision + 1, aiGroupingError: null });
       compareRuns(ai.flatMap((result, index) => (result === undefined ? [] : [index])));
     },
 

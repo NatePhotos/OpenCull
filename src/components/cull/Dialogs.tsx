@@ -20,6 +20,7 @@ import { fileSize } from "@/lib/format";
 import { CAPS_LOCK, comboLabel, comboOf, DEFAULTS, isMac, sameCombo, SECTIONS, type Action, type Combo } from "@/lib/shortcuts";
 import { GIGABYTE, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { MobileClipSettings } from "./MobileClipSettings";
 
 /** Asks before photos go to the trash. */
 export function TrashDialog() {
@@ -251,6 +252,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     void api.aiCacheUsage().then(setFaceMemory, () => setFaceMemory(null));
   }, []);
   const clearFaces = async () => {
+    useStore.setState((current) => ({ groupingRevision: current.groupingRevision + 1, aiGroupingError: null }));
     await api.aiClearCache().catch(() => {});
     setFaceMemory(await api.aiCacheUsage().catch(() => null));
     // The folder on screen is analysed afresh, there being nothing to show for it now.
@@ -423,6 +425,7 @@ function SettingsBody({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
             detail="Groups a pose shot again — the same people in the same places, a few seconds apart — with the frames it was shot beside, as one scene. Scene View, the filmstrip and the ranks all follow it, and each person's eyes are compared across the whole pose. Turn off to group only the frames of one press of the shutter. Needs OpenCull AI."
             control={toggle("smartGroups")}
           />
+          <MobileClipSettings />
           <Setting
             title="Pause analysis while culling"
             detail="Holds the folder scan for a moment each time you move to another photo, so previews never wait behind analysis. Nothing is lost; the scan carries on as soon as you pause. Turn off to let a folder finish as fast as possible while you work."

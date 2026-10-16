@@ -184,6 +184,8 @@ pub fn run() {
             commands::review_copy,
             commands::video_source,
             commands::ai_scan,
+            commands::mobileclip_status,
+            commands::mobileclip_install,
             commands::ai_look_at,
             commands::ai_compare,
             commands::ai_stop,

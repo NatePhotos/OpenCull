@@ -7,7 +7,7 @@
 // out of the shipped bundle entirely.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AiEvent, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, RunFrame, Scanned } from "./types";
+import type { AiEvent, AiGroupingOptions, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, MobileClipStatus, RunFrame, Scanned } from "./types";
 
 export interface AppInfo {
   platform: string;
@@ -155,7 +155,9 @@ export interface Backend {
    * taken one soon after another, in the order they were shot; the backend
    * finds the poses in it — or, without `poses`, only the bursts.
    */
-  aiCompare(runs: RunFrame[][], poses: boolean): Promise<Compared[][]>;
+  aiCompare(runs: RunFrame[][], poses: boolean, options?: AiGroupingOptions): Promise<Compared[][]>;
+  mobileClipStatus(): Promise<MobileClipStatus>;
+  mobileClipInstall(): Promise<MobileClipStatus>;
   aiStop(): Promise<void>;
   /** Whether analysis stands aside while the photographer moves between photos. */
   aiSetYield(on: boolean): Promise<void>;
@@ -240,7 +242,9 @@ const tauri: Backend = {
     events.onmessage = onEvent;
     return invoke("ai_scan", { session, order, advanced, events });
   },
-  aiCompare: (runs, poses) => invoke("ai_compare", { runs, poses }),
+  aiCompare: (runs, poses, options = {}) => invoke("ai_compare", { runs, poses, session: options.session, revision: options.revision, mobileClip: options.mobileClip ?? false, mobileClipGrouping: options.mobileClipGrouping ?? "normal" }),
+  mobileClipStatus: () => invoke("mobileclip_status"),
+  mobileClipInstall: () => invoke("mobileclip_install"),
   aiLookAt: (order) => invoke("ai_look_at", { order }),
   aiStop: () => invoke("ai_stop"),
   aiSetYield: (on) => invoke("ai_set_yield", { on }),

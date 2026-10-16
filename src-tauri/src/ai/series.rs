@@ -40,11 +40,13 @@ const OPEN_AT_ALL: f32 = 0.12;
 /// widest: the widest of many readings is as much luck as eyes.
 const MANY: usize = 4;
 
-/// Frames further apart than this are never the same pose, whatever is in
-/// them. MEASURED on 2,328 photos: the poses found are the same
-/// 230 to 260 whether this is 5 seconds or 60 — it is where people stand
-/// that decides, and this only keeps a comparison from running on for ever.
-pub const POSE_GAP_MS: f64 = 20_000.0;
+/// Frames further apart than this, from the frame before or from the first
+/// frame of the pose, are never the same pose, whatever is in them: long
+/// enough for a pose shot again, short enough that an event's repeated poses
+/// do not chain into one. Chosen by the photographer at five seconds. An
+/// earlier measurement on 2,328 photos found 230 to 260 poses whether this
+/// was 5 seconds or 60: it is where people stand that decides.
+pub const POSE_GAP_MS: f64 = 5_000.0;
 /// How many of the subjects must be found where they were for two frames to
 /// be the same pose.
 const SAME_PEOPLE: f32 = 0.8;
@@ -126,6 +128,14 @@ fn same_pose(a: &Record, b: &Record) -> bool {
 /// pose against each other. Without `across_presses` a pose is a burst and
 /// nothing more.
 pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
+    compare_run_with_visual(frames, across_presses, None, super::mobileclip::Grouping::Normal)
+}
+
+/// Visual matching replaces face position when MobileCLIP is explicitly
+/// enabled. Adjacent and anchor comparisons prevent a chain of gradually
+/// changing frames from becoming one group, while the span and orientation
+/// gates remain in force.
+pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: Option<&[Vec<f32>]>, grouping: super::mobileclip::Grouping) -> Vec<Compared> {
     let mut out: Vec<Compared> = Vec::with_capacity(frames.len());
     let mut start = 0;
     let mut pose = 0;
@@ -136,7 +146,14 @@ pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
             let soon = matches!((a.time, b.time), (Some(t0), Some(t1)) if (t1 - t0).abs() <= POSE_GAP_MS);
             // The camera turned between them — even, rarely, within a press.
             let turned = matches!((a.upright, b.upright), (Some(a), Some(b)) if a != b);
-            !turned && (one_press || (across_presses && soon && same_pose(a.record, b.record)))
+            let within_span = matches!((frames[start].time, b.time), (Some(t0), Some(t1)) if (t1 - t0).abs() <= POSE_GAP_MS);
+            if let Some(embeddings) = visual {
+                let alike = super::mobileclip::matching(embeddings.get(at - 1).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping)
+                    && super::mobileclip::matching(embeddings.get(start).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping);
+                !turned && within_span && alike && (one_press || (across_presses && soon))
+            } else {
+                !turned && within_span && (one_press || (across_presses && soon && same_pose(a.record, b.record)))
+            }
         };
         if !joined {
             let records: Vec<&Record> = frames[start..at].iter().map(|f| f.record).collect();
@@ -275,7 +292,7 @@ mod tests {
     }
 
     fn frame(faces: Vec<FaceRecord>) -> Record {
-        Record { faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None }
+        Record { faces, score: Some(50.0), focus: Some(1.0), gaze: Some(1.0), key: None, ..Default::default() }
     }
 
     fn marks(frames: &[Record]) -> Vec<Compared> {
@@ -431,17 +448,56 @@ mod tests {
     }
 
     #[test]
+    fn mobileclip_splits_unrelated_burst_frames_and_groups_without_faces() {
+        let record = frame(vec![]);
+        let frames = [0.0, 200.0, 400.0].map(|time| Frame { record: &record, time: Some(time), burst: None, upright: Some(true) });
+        let feature = |at: usize| { let mut v = vec![0.0; 512]; v[at] = 1.0; v };
+        let embeddings = vec![feature(0), feature(0), feature(1)];
+        let got = compare_run_with_visual(&frames, true, Some(&embeddings), super::super::mobileclip::Grouping::Tight);
+        assert_eq!(got.iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 0, 1]);
+        assert_eq!(got[0].score, None, "visual grouping does not invent face data");
+    }
+
+    #[test]
+    fn mobileclip_caps_the_whole_group_at_five_seconds_and_respects_orientation() {
+        let record = frame(vec![]);
+        let feature = || { let mut v = vec![0.0; 512]; v[0] = 1.0; v };
+        let embeddings = vec![feature(); 4];
+        let frames = [
+            Frame { record: &record, time: Some(0.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(1_000.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(4_500.0), burst: Some(7), upright: Some(true) },
+            Frame { record: &record, time: Some(5_001.0), burst: Some(7), upright: Some(true) },
+        ];
+        let got = compare_run_with_visual(&frames, true, Some(&embeddings), super::super::mobileclip::Grouping::Loose);
+        assert_eq!(got.iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 0, 0, 1]);
+
+        let turned = [frames[0], Frame { time: Some(200.0), upright: Some(false), ..frames[1] }];
+        assert_eq!(compare_run_with_visual(&turned, true, Some(&embeddings[..2]), super::super::mobileclip::Grouping::Loose).iter().map(|photo| photo.pose).collect::<Vec<_>>(), [0, 1]);
+    }
+
+    #[test]
     fn a_pose_shot_again_a_few_seconds_later_is_compared_as_one() {
         // Two people, three separate presses of the shutter, seconds apart.
         // The second catches the one on the right half way through a blink.
         let got = run(&[
             (frame(vec![face(0.2, 0.30), face(0.6, 0.28)]), 0.0, None),
-            (frame(vec![face(0.2, 0.30), face(0.6, 0.14)]), 3_000.0, None),
-            (frame(vec![face(0.21, 0.29), face(0.61, 0.28)]), 7_000.0, None),
+            (frame(vec![face(0.2, 0.30), face(0.6, 0.14)]), 2_000.0, None),
+            (frame(vec![face(0.21, 0.29), face(0.61, 0.28)]), 4_000.0, None),
         ]);
         assert_eq!(got.iter().map(|c| c.pose).collect::<Vec<_>>(), [0, 0, 0]);
         assert!((got[1].eyes[1].unwrap() - 0.5).abs() < 1e-6);
         assert!(got[1].score.unwrap() < got[0].score.unwrap() - 25.0);
+    }
+
+    #[test]
+    fn a_pose_never_runs_longer_than_five_seconds() {
+        // The same people in the same places, a press every three seconds:
+        // close enough to each other, but the third is six seconds after the
+        // first, so it starts a pose of its own instead of chaining on.
+        let pair = || frame(vec![face(0.2, 0.30), face(0.6, 0.28)]);
+        let got = run(&[(pair(), 0.0, None), (pair(), 3_000.0, None), (pair(), 6_000.0, None)]);
+        assert_eq!(got.iter().map(|c| c.pose).collect::<Vec<_>>(), [0, 0, 1]);
     }
 
     #[test]

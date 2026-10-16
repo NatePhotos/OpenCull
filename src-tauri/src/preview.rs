@@ -189,6 +189,22 @@ pub fn decode_upright(path: &Path, long_edge: u32) -> Result<Upright, String> {
     Ok(Upright { rgb: pixels.data, width: pixels.width, height: pixels.height })
 }
 
+/// Supplies a modest, upright image for visual grouping. A fitting cached
+/// thumbnail or loupe JPEG is preferred so grouping does not decode the RAW
+/// again; a too-small or damaged cache entry is skipped safely.
+pub fn grouping_pixels(path: &Path, version: &str, cache: &crate::cache::Cache) -> Result<Upright, String> {
+    for tier in [Tier::Thumb(1280), Tier::Thumb(640), Tier::Screen, Tier::Fit(1600), Tier::Fit(2400), Tier::Fit(3400)] {
+        let key = cache.path_for(path, version, &tier.label());
+        let Some(bytes) = cache.get(&key) else { continue };
+        if !dimensions(&bytes).is_some_and(|(w, h)| w.min(h) >= 256) { continue; }
+        let Ok(pixels) = decode_jpeg(&bytes, 512) else { continue };
+        let orientation = if tier == Tier::Screen { jpeg::own_orientation(&bytes).unwrap_or(1) } else { 1 };
+        let pixels = orient(pixels, orientation);
+        return Ok(Upright { rgb: pixels.data, width: pixels.width, height: pixels.height });
+    }
+    decode_upright(path, 512)
+}
+
 /// Encodes pixels as a JPEG. For tools that save what they cut out.
 pub fn encode_jpeg(rgb: Vec<u8>, width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
     encode(Pixels { data: rgb, width, height, icc: None }, quality).map(|r| r.bytes)
@@ -533,6 +549,27 @@ mod tests {
         assert_eq!(dimensions(&lifted.bytes), Some((1800, 1200)));
         assert!(lifted.bytes.len().abs_diff(stored.len()) < 64, "not decoded and encoded again");
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn mobileclip_uses_a_cached_preview_before_reading_the_source_file() {
+        let root = std::env::temp_dir().join(format!("opencull-grouping-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = crate::cache::Cache::new(root.join("cache"));
+        let missing = root.join("missing.ARW");
+        let bytes = encode(Pixels { data: vec![90; 640 * 360 * 3], width: 640, height: 360, icc: None }, 90).unwrap().bytes;
+        let key = cache.path_for(&missing, "v1", &Tier::Thumb(640).label());
+        cache.put(&key, &bytes);
+
+        let image = grouping_pixels(&missing, "v1", &cache).unwrap();
+        // The fast JPEG library may decode at a reduced scale that still
+        // covers the size asked for; either way it is the cached preview.
+        assert!(image.width >= 512 && image.width <= 640 && image.width * 360 == image.height * 640, "reuse the cached preview: got {}x{}", image.width, image.height);
+        assert!(grouping_pixels(&missing, "stale-version", &cache).is_err(), "changed files must not reuse old previews");
+
+        cache.put(&key, b"damaged JPEG");
+        assert!(grouping_pixels(&missing, "v1", &cache).is_err(), "a damaged cached preview falls through to the source file");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

@@ -38,12 +38,14 @@ export function useFaceScan(): void {
   // What counts as a group has changed: compare what is already analysed
   // again, under the new rule. Nothing is analysed again for this.
   const smart = useStore((s) => s.smartGroups);
-  const was = useRef(smart);
+  const mobileClip = useStore((s) => s.aiMobileClipGrouping);
+  const grouping = useStore((s) => s.mobileClipGrouping);
+  const was = useRef({ smart, mobileClip, grouping, enabled });
   useEffect(() => {
-    if (was.current === smart) return;
-    was.current = smart;
+    if (was.current.smart === smart && was.current.mobileClip === mobileClip && was.current.grouping === grouping && was.current.enabled === enabled) return;
+    was.current = { smart, mobileClip, grouping, enabled };
     useStore.getState().regroup();
-  }, [smart]);
+  }, [smart, mobileClip, grouping, enabled]);
 
   // Listened for rather than read as the rest are: this runs on every photo
   // stepped to, and must not redraw the workspace each time.
