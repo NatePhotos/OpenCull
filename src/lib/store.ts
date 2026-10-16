@@ -44,6 +44,10 @@ interface State {
 
   session: Session | null;
   review: ReviewSession | null;
+  /** The "choose files to import" dialog of a card review is open. */
+  reviewFinishOpen: boolean;
+  /** A card review is being copied: its dialog cannot be dismissed. */
+  reviewCopying: boolean;
   /** The folder is still being listed. */
   loading: boolean;
   /** How much of the folder's ratings and EXIF has been read, 0–1. */
@@ -712,6 +716,8 @@ export const useStore = create<Store>((set, get) => {
     version: "",
     session: null,
     review: null,
+    reviewFinishOpen: false,
+    reviewCopying: false,
     loading: false,
     metaProgress: 0,
     openError: null,

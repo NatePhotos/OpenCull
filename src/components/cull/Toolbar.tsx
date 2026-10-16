@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   ArrowUpDown,
   ChevronLeft,
+  ClipboardCheck,
   CircleCheck,
   Crop,
   Folder,
@@ -64,6 +65,12 @@ export function Divider({ className }: { className?: string }) {
   return <span className={cn("mx-3 h-[26px] w-px shrink-0 bg-[var(--ui-surface-2e2e2e)]", className)} />;
 }
 
+const REVIEW_NOTE = {
+  review: "Source files stay untouched.",
+  copied: "Copied files: edits apply to the destination.",
+  "in-place": "Imported in place: source files stay untouched.",
+} as const;
+
 const SORTS: { key: SortKey; title: string; up: string; down: string }[] = [
   { key: "captureTime", title: "Capture Time", up: "Oldest first", down: "Newest first" },
   { key: "filename", title: "Filename", up: "A → Z", down: "Z → A" },
@@ -90,6 +97,8 @@ export function Toolbar() {
   const cropOpen = useStore((s) => s.cropOpen);
   const showFaces = useStore((s) => s.showFaces);
   const speedCull = useStore(speedCulling);
+  const reviewStage = useStore((s) => s.review?.stage ?? null);
+  const loading = useStore((s) => s.loading);
   const s = useStore.getState();
 
   return (
@@ -102,6 +111,11 @@ export function Toolbar() {
       <h1 data-tauri-drag-region className="flex min-w-0 max-w-[210px] shrink items-center gap-1.5 text-base font-semibold text-[var(--ui-text-bfbfbf)]" title={name}>
         <Folder className="size-3.5 shrink-0 text-[var(--ui-text-808080)]" />
         <span className="truncate">{name}</span>
+        {reviewStage && (
+          <span className="shrink-0 rounded bg-primary/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary" title={REVIEW_NOTE[reviewStage]}>
+            {reviewStage === "review" ? "Card review" : reviewStage === "copied" ? "Card review · copied" : "Card review · in place"}
+          </span>
+        )}
         {kinds !== "both" && (
           <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text-a6a6a6)]" title={`Showing only ${kinds === "raw" ? "RAW files" : "JPEGs"}. Change it in Settings, under Culling.`}>
             {kinds === "raw" ? "RAW only" : "JPEG only"}
@@ -163,6 +177,23 @@ export function Toolbar() {
         <Crop />
       </Tool>
 
+      {reviewStage ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Finish review"
+              disabled={loading}
+              onClick={() => useStore.setState({ reviewFinishOpen: true })}
+              className="ml-1.5 flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#618cfa] to-[#8c52eb] px-2.5 text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
+            >
+              <ClipboardCheck className="size-3.5" />
+              Finish review
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Choose which card files to copy or import. {REVIEW_NOTE[reviewStage]}</TooltipContent>
+        </Tooltip>
+      ) : (
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -177,6 +208,7 @@ export function Toolbar() {
         </TooltipTrigger>
         <TooltipContent>Ship images — export, copy, or open in Lightroom</TooltipContent>
       </Tooltip>
+      )}
 
       <Divider />
       <Tool label="Keyboard Shortcuts" onClick={() => s.set("shortcutsOpen", true)}>

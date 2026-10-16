@@ -1,6 +1,6 @@
 import { FolderSearch, Images } from "lucide-react";
 
-import { ReviewBar } from "@/components/ingest/ReviewBar";
+import { ReviewDialog } from "@/components/ingest/ReviewBar";
 import { Button } from "@/components/ui/button";
 import { filmstripVisible, useStore } from "@/lib/store";
 import { useFaceScan } from "@/lib/faces";
@@ -47,7 +47,7 @@ export function CullingView() {
 
   return (
     <div className="flex size-full flex-col bg-canvas">
-      <ReviewBar />
+      <ReviewDialog />
       <Toolbar />
       <div className="flex min-h-0 flex-1">
         {empty ? (

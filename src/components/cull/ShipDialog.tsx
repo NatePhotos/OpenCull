@@ -502,9 +502,9 @@ function Told({ title, body, onClose }: { title: string; body: string | null; on
   );
 }
 
-const Rule = () => <div className="h-px shrink-0 bg-white/[0.08]" />;
+export const Rule = () => <div className="h-px shrink-0 bg-white/[0.08]" />;
 
-function PanelTitle({ children }: { children: ReactNode }) {
+export function PanelTitle({ children }: { children: ReactNode }) {
   return <div className="px-5 pb-3 pt-[18px] text-xs font-semibold uppercase tracking-wider text-[#808080]">{children}</div>;
 }
 
@@ -539,7 +539,7 @@ function Choice({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** A rating, flag or colour to include, with how many photos carry it. */
-function Chip({ title, on, count, onClick, children }: { title: string; on: boolean; count: number; onClick: () => void; children: ReactNode }) {
+export function Chip({ title, on, count, onClick, children }: { title: string; on: boolean; count: number; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
