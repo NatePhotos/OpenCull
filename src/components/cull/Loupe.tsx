@@ -145,21 +145,6 @@ export function Loupe() {
 }
 
 function Canvas({ photo }: { photo: Photo }) {
-  const smoothZoom = useStore((s) => s.experimentalSmoothZoom);
-  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReducedMotion(query.matches);
-    query.addEventListener("change", update);
-    update();
-    return () => query.removeEventListener("change", update);
-  }, []);
-  const GLIDE = smoothZoom
-    ? reducedMotion ? { in: 0, out: 0, box: 0 } : { in: 320, out: 280, box: 340 }
-    : { in: 220, out: 200, box: 250 };
-  const zoomCurve = smoothZoom ? "cubic-bezier(0.22, 1, 0.36, 1)" : "ease-in-out";
-
-
   const frame = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -192,6 +177,22 @@ function Canvas({ photo }: { photo: Photo }) {
     measure();
     return () => observer.disconnect();
   }, []);
+
+  // Keep the optional motion hooks after the baseline canvas hooks so the
+  // still-canvas wrapper can be introduced without changing this hook block.
+  const smoothZoom = useStore((s) => s.experimentalSmoothZoom);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    query.addEventListener("change", update);
+    update();
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const GLIDE = smoothZoom
+    ? reducedMotion ? { in: 0, out: 0, box: 0 } : { in: 320, out: 280, box: 340 }
+    : { in: 220, out: 200, box: 250 };
+  const zoomCurve = smoothZoom ? "cubic-bezier(0.22, 1, 0.36, 1)" : "ease-in-out";
 
   // The picture's shape is known from the folder's metadata before a single
   // pixel has loaded. Until that has been read, assume the usual 3:2.
