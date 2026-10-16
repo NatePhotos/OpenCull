@@ -1,5 +1,3 @@
-import { isVideo } from "@/lib/media";
-import { VideoPlayer } from "./VideoPlayer";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Loader2, X } from "lucide-react";
 
@@ -14,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { COLORS, type Photo } from "@/lib/types";
 import { useStripThumbSize } from "./Filmstrip";
 import { CropView } from "./Crop";
+import { isVideo } from "@/lib/media";
+import { VideoPlayer } from "./VideoPlayer";
 import { PhotoMenu } from "./PhotoMenu";
 
 /** Zoom and pan: how many times larger than fit, and how far off centre. */
@@ -127,7 +127,7 @@ export function Loupe() {
 
   return (
     <div className="relative size-full overflow-hidden bg-canvas">
-      {photo && isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : photo && cropping ? (
+      {photo && cropping ? (
         <CropView photo={photo} />
       ) : photo ? (
         <Canvas photo={photo} />
@@ -144,6 +144,10 @@ export function Loupe() {
 }
 
 function Canvas({ photo }: { photo: Photo }) {
+  return isVideo(photo.path) ? <VideoPlayer key={photo.path} path={photo.path} /> : <StillCanvas photo={photo} />;
+}
+
+function StillCanvas({ photo }: { photo: Photo }) {
   const frame = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
