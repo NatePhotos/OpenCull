@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">
+  <title>Mountain ridges at dusk</title>
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#263b43"/><stop offset=".55" stop-color="#b4b0a0"/><stop offset="1" stop-color="#d2b793"/></linearGradient>
+    <linearGradient id="near" x2="0" y2="1"><stop stop-color="#33444a"/><stop offset="1" stop-color="#15292f"/></linearGradient>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h1200v1600H0z"/>
+  <circle cx="830" cy="460" r="75" fill="#e7d5ac" opacity=".65"/>
+  <path d="M0 930 230 710 360 790 620 470 840 710 980 620 1200 850V1600H0Z" fill="#7d8985"/>
+  <path d="m360 790 260-320 110 120-100-44-51 103-23-28-90 99Z" fill="#d3d4c6" opacity=".75"/>
+  <path d="M0 1080 180 945 340 1020 620 820 800 930 1000 780 1200 890V1600H0Z" fill="#536a6c"/>
+  <path d="M0 1040 260 1160 460 1010 710 1180 960 980 1200 1120V1600H0Z" fill="#3c555b"/>
+  <path d="M0 1320 200 1210 450 1380 700 1180 940 1300 1200 1160V1600H0Z" fill="url(#near)"/>
+</svg>

@@ -19,9 +19,8 @@ type Point = { x: number; y: number };
 export const SHAPES: readonly { name: string; ratio: number }[] = [
   { name: "Original", ratio: 0 },
   { name: "1 × 1", ratio: 1 },
-  { name: "4 × 5 / 8 × 10", ratio: 5 / 4 },
-  { name: "5 × 7", ratio: 7 / 5 },
-  { name: "2 × 3 / 4 × 6", ratio: 3 / 2 },
+  { name: "4 × 5", ratio: 5 / 4 },
+  { name: "2 × 3", ratio: 3 / 2 },
   { name: "4 × 3", ratio: 4 / 3 },
   { name: "16 × 9", ratio: 16 / 9 },
 ];
@@ -112,6 +111,13 @@ interface State {
 
 /** `ratio` the way round a crop of this shape wants it: tall crops get a tall shape. */
 const facing = (ratio: number, tall: boolean) => (tall ? 1 / ratio : ratio);
+
+/** Scroll up tightens the crop around its centre, preserving aspect and tilt. */
+export function scrolledCrop(crop: Crop, delta: number, view: Size): Crop {
+  if (!Number.isFinite(delta) || delta === 0 || crop.w <= 0 || crop.h <= 0) return crop;
+  const factor = Math.max(Math.exp(Math.max(-.2, Math.min(.2, delta * .0015))), SMALLEST / crop.w, SMALLEST / crop.h);
+  return shrunkToFit(slidOn({ ...crop, w: crop.w * factor, h: crop.h * factor }, view), view);
+}
 
 /** A crop of another shape about the same middle, as near the same size as fits. */
 export function reshaped(crop: Crop, aspect: number, view: Size): Crop {

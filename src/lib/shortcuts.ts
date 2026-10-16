@@ -70,8 +70,8 @@ export const SECTIONS: { title: string; actions: [Action, string][] }[] = [
   {
     title: "View",
     actions: [
-      ["zoomToggle", "Zoom in and out"],
-      ["zoomCentre", "Zoom into the middle"],
+      ["zoomToggle", "Zoom to centre"],
+      ["zoomCentre", "Zoom to face"],
       ["zoomIn", "Zoom in"],
       ["zoomOut", "Zoom out"],
       ["viewGrid", "Grid view"],
@@ -218,8 +218,8 @@ export function perform(action: Action): void {
     }
     case "tagRed": case "tagYellow": case "tagGreen": case "tagBlue": case "tagPurple":
       return s.setColor(COLOR_OF[action]!);
-    case "zoomToggle": return s.zoomCommand("toggle");
-    case "zoomCentre": return s.zoomCommand("centre");
+    case "zoomToggle": return s.zoomCommand("centre");
+    case "zoomCentre": return s.zoomCommand("face");
     case "zoomIn": return s.zoomCommand("in");
     case "zoomOut": return s.zoomCommand("out");
     case "viewGrid": return s.set("viewMode", s.viewMode === "grid" ? "loupe" : "grid");
@@ -297,7 +297,7 @@ export function installShortcuts(bindings: () => Record<Action, Combo>, recordin
     if (e.type !== "keydown" || recording()) return;
     const s = useStore.getState();
     // A dialog is open, or someone is typing: keys belong to that.
-    if (s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending || s.updateOpen) return;
+    if (s.overviewOpen || s.shortcutsOpen || s.settingsOpen || s.shipOpen || s.ingestOpen || s.notice || s.trashPending || s.updateOpen) return;
 
     // Where every program on the system keeps its settings.
     if (e.code === "Comma" && (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey) {

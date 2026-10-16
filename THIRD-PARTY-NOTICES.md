@@ -18,6 +18,7 @@ others. Each is used under its own licence, all of which allow this.
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | Styling | MIT | © Tailwind Labs, Inc. |
 | [Zustand](https://github.com/pmndrs/zustand) | Interface state | MIT | © Paul Henschel |
 | [TanStack Virtual](https://github.com/TanStack/virtual) | The grid view | MIT | © Tanner Linsley |
+| [Space Grotesk](https://github.com/floriankarsten/space-grotesk) (`public/fonts/SpaceGrotesk.ttf`) | The typeface of the Wisp theme | SIL Open Font License 1.1 (`public/fonts/SpaceGrotesk-OFL.txt`) | © 2020 The Space Grotesk Project Authors |
 
 The Rust crates and npm packages these bring with them, and the smaller ones
 used directly, are listed with their versions in `src-tauri/Cargo.lock` and

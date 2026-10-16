@@ -1,8 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import App from "./App";
+import { initializePreferences, snapshotPreferences, applyPreferences } from "./lib/prefs";
 import "./index.css";
+import { migrateSettings, retiredKeys } from "./lib/settings-migration";
 
 // The view's own right-click menu offers "Reload" and "Inspect Element",
 // neither of which belongs in an app. Photos have a menu of their own.
@@ -28,6 +29,16 @@ window.addEventListener(
   true,
 );
 
+await initializePreferences();
+const oldPreferences = snapshotPreferences();
+// Settings saved under names no longer used are carried over or cleared, once.
+const retired = retiredKeys(oldPreferences);
+if (retired.length) {
+  const migrated = migrateSettings(oldPreferences);
+  const changes = Object.fromEntries(Object.entries(migrated).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(oldPreferences[key])));
+  await applyPreferences({ ...changes, ...Object.fromEntries(retired.map((key) => [key, null])) }).catch(console.error);
+}
+const { default: App } = await import("./App");
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />

@@ -48,7 +48,7 @@ function Tool({ label, active, onClick, children, className }: { label: string; 
           onClick={onClick}
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors [&_svg]:size-[15px]",
-            active ? "bg-brand/15 text-brand" : "text-[#737373] hover:text-[#b3b3b3]",
+            active ? "bg-brand/15 text-brand" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]",
             className,
           )}
         >
@@ -61,7 +61,7 @@ function Tool({ label, active, onClick, children, className }: { label: string; 
 }
 
 export function Divider({ className }: { className?: string }) {
-  return <span className={cn("mx-3 h-[26px] w-px shrink-0 bg-[#2e2e2e]", className)} />;
+  return <span className={cn("mx-3 h-[26px] w-px shrink-0 bg-[var(--ui-surface-2e2e2e)]", className)} />;
 }
 
 const SORTS: { key: SortKey; title: string; up: string; down: string }[] = [
@@ -93,21 +93,21 @@ export function Toolbar() {
   const s = useStore.getState();
 
   return (
-    <div data-tauri-drag-region className={cn("relative z-10 flex h-[50px] shrink-0 items-center border-b border-[#2e2e2e] bg-toolbar pr-2.5", platform === "macos" ? "pl-[78px]" : "pl-3")}>
+    <div data-tauri-drag-region className={cn("relative z-10 flex min-h-[50px] flex-wrap shrink-0 items-center gap-y-1 py-1 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[78px]" : "pl-3")}>
       <Tool label="Back to Home" onClick={() => s.closeFolder()} className="w-9">
         <ChevronLeft className="size-[17px]!" strokeWidth={2.5} />
       </Tool>
 
       <Divider className="ml-0 mr-2" />
-      <span data-tauri-drag-region className="flex min-w-0 max-w-[210px] shrink items-center gap-1.5 text-[13px] font-medium text-[#bfbfbf]" title={name}>
-        <Folder className="size-3.5 shrink-0 text-[#808080]" />
+      <h1 data-tauri-drag-region className="flex min-w-0 max-w-[210px] shrink items-center gap-1.5 text-base font-semibold text-[var(--ui-text-bfbfbf)]" title={name}>
+        <Folder className="size-3.5 shrink-0 text-[var(--ui-text-808080)]" />
         <span className="truncate">{name}</span>
         {kinds !== "both" && (
-          <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-[#a6a6a6]" title={`Showing only ${kinds === "raw" ? "RAW files" : "JPEGs"}. Change it in Settings, under Culling.`}>
+          <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ui-text-a6a6a6)]" title={`Showing only ${kinds === "raw" ? "RAW files" : "JPEGs"}. Change it in Settings, under Culling.`}>
             {kinds === "raw" ? "RAW only" : "JPEG only"}
           </span>
         )}
-      </span>
+      </h1>
       <Status />
 
       <Divider className="mx-2" />
@@ -198,7 +198,7 @@ function Mode({ mode, label, current, children }: { mode: ViewMode; label: strin
           aria-label={label}
           aria-pressed={current === mode}
           onClick={() => useStore.getState().set("viewMode", mode)}
-          className={cn("flex h-6 w-[26px] items-center justify-center rounded [&_svg]:size-[13px]", current === mode ? "bg-[#383838] text-white" : "text-[#737373] hover:text-[#b3b3b3]")}
+          className={cn("flex h-6 w-[26px] items-center justify-center rounded [&_svg]:size-[13px]", current === mode ? "bg-[var(--ui-surface-383838)] text-white" : "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]")}
         >
           {children}
         </button>
@@ -235,10 +235,10 @@ function Status() {
     // Counted from how many there were when this round began. Never shown
     // as finished while any are left.
     const done = toPrepare > 0 ? Math.min(0.99, Math.max(0, 1 - preparing / toPrepare)) : 0;
-    return <Working label="Preparing previews…" fraction={done} className={cn(chip, "text-[#8c8c8c]")} title="Getting nearby photos ready so they open at once. Pauses while you work." />;
+    return <Working label="Preparing previews…" fraction={done} className={cn(chip, "text-[var(--ui-text-8c8c8c)]")} title="Getting nearby photos ready so they open at once. Pauses while you work." />;
   }
   return (
-    <span className={cn(chip, "text-[#cccccc]")} title={`${total.toLocaleString()} photos, all ready`}>
+    <span className={cn(chip, "text-[var(--ui-text-cccccc)]")} title={`${total.toLocaleString()} photos, all ready`}>
       <CircleCheck className="size-3 text-[#33cc66]" />
       <span className="hidden xl:inline">Ready</span>
     </span>
@@ -275,7 +275,7 @@ function SortMenu() {
         <button
           type="button"
           title={`Sort: ${chosen.title}, ${ascending ? chosen.up : chosen.down}`}
-          className={cn("flex size-8 shrink-0 items-center justify-center rounded-md [&_svg]:size-[15px]", isDefault ? "text-[#737373] hover:text-[#b3b3b3]" : "bg-brand/15 text-brand")}
+          className={cn("flex size-8 shrink-0 items-center justify-center rounded-md [&_svg]:size-[15px]", isDefault ? "text-[var(--ui-text-737373)] hover:text-[var(--ui-text-b3b3b3)]" : "bg-brand/15 text-brand")}
         >
           <ArrowUpDown />
         </button>
