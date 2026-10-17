@@ -197,23 +197,63 @@ const NOT_A_FACE_IF_UNSURE: f32 = 0.5;
 /// face's box. About what the Mac app took around each eye's landmarks.
 const EYE_PATCH: (f64, f64) = (0.28, 0.18);
 
+/// A face standing at a turn, cut out of the photograph and stood upright,
+/// with where it sits in the cut-out.
+struct Upright {
+    rgb: Vec<u8>,
+    w: u32,
+    h: u32,
+    place: FaceBox,
+    eyes: [(f64, f64); 2],
+    box_wide: f64,
+}
+
+/// The cut-out: three times the face's size round it, at most 1024 pixels
+/// across, turned upright. YuNet finds the face in it again, for a box and
+/// eyes in the cut-out's own pixels.
+fn upright(rgb: &[u8], width: u32, height: u32, f: &finder::Found, up: f64) -> Option<Upright> {
+    let side = f.w.max(f.h) as f64 * up * 3.0;
+    let (cx, cy) = ((f.x + f.w / 2.0) as f64 * up, (f.y + f.h / 2.0) as f64 * up);
+    let (x0, y0) = ((cx - side / 2.0).max(0.0) as u32, (cy - side / 2.0).max(0.0) as u32);
+    let (x1, y1) = (((cx + side / 2.0) as u32).min(width), ((cy + side / 2.0) as u32).min(height));
+    if x1 <= x0 + 8 || y1 <= y0 + 8 {
+        return None;
+    }
+    let shrink = (1024.0 / (x1 - x0).max(y1 - y0) as f64).min(1.0);
+    let (cw, ch) = ((((x1 - x0) as f64 * shrink).round() as u32).max(1), (((y1 - y0) as f64 * shrink).round() as u32).max(1));
+    let cut = faces::cut(rgb, width, height, (x0, y0, x1, y1), cw, ch).ok()?;
+    let (pic, w, h) = finder::turned(&cut, cw, ch, f.turn);
+    let best = finder::nearest_middle(finder::find_small(&pic, w, h, 0.3).ok()?, w, h)?;
+    Some(Upright { place: best.as_face_box(w, h), eyes: best.eyes.map(|e| (e.0 as f64, e.1 as f64)), box_wide: best.w as f64, rgb: pic, w, h })
+}
+
 /// Finds and judges the faces in an upright picture at full size.
 pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Result<Analysis, String> {
     // The finder is shown a smaller copy; everything after it looks at the
     // photograph itself, where the detail is.
     let k = (finder::LONG_EDGE as f64 / width.max(height) as f64).min(1.0);
     let (sw, sh) = (((width as f64 * k).round() as u32).max(1), ((height as f64 * k).round() as u32).max(1));
-    let found = if k < 1.0 {
-        finder::find(&faces::cut(rgb, width, height, (0, 0, width, height), sw, sh)?, sw, sh)?
-    } else {
-        finder::find(rgb, width, height)?
-    };
+    // Advanced finds faces whichever way up they stand; Basic keeps the finder of release 0.3.
+    let find = |pic: &[u8]| if rules == Rules::Advanced { finder::turning::find(pic, sw, sh) } else { finder::find(pic, sw, sh) };
+    let found = if k < 1.0 { find(&faces::cut(rgb, width, height, (0, 0, width, height), sw, sh)?)? } else { find(rgb)? };
     if found.is_empty() {
         return about(rgb, width, height);
     }
 
     let places: Vec<FaceBox> = found.iter().map(|f| f.as_face_box(sw, sh)).collect();
-    let verdicts = judge::judge(rgb, width, height, &places)?;
+    let mut verdicts = judge::judge(rgb, width, height, &places)?;
+    // A face standing at a turn is judged, and its eyes and mouth read, from a
+    // cut-out of its own stood upright: the judge and the readers were only
+    // ever shown faces the right way up. MEASURED on the hand-graded faces
+    // turned upside down: open eyes called shut 4 times in 1,230, not 135.
+    let mut stood: Vec<Option<Upright>> = found.iter().map(|f| if f.turn != 0 { upright(rgb, width, height, f, 1.0 / k) } else { None }).collect();
+    for (i, u) in stood.iter().enumerate() {
+        if let Some(u) = u {
+            if let Ok(v) = judge::judge(&u.rgb, u.w, u.h, &[u.place]) {
+                verdicts[i] = v[0];
+            }
+        }
+    }
 
     // What is not a face goes before anything is compared with anything: a
     // hand the size of a face must not make the faces around it look small.
@@ -222,6 +262,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
         return about(rgb, width, height);
     }
     let found: Vec<finder::Found> = real.iter().map(|&i| found[i]).collect();
+    let stood: Vec<Option<Upright>> = real.iter().map(|&i| stood[i].take()).collect();
     let places: Vec<FaceBox> = real.iter().map(|&i| places[i]).collect();
     let verdicts: Vec<Verdict> = real.iter().map(|&i| verdicts[i]).collect();
 
@@ -275,8 +316,19 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
     // One look at each eye pair says where the eyes point and how the lids
     // are; the lower half of the face gives the expression; together with
     // the judge's reading they make the state the face is in.
-    let seen = eyes::read(rgb, width, height, &looks)?;
-    let mouths = state::mouths(rgb, width, height, &looked.iter().map(|&i| places[i]).collect::<Vec<_>>())?;
+    let mut seen = eyes::read(rgb, width, height, &looks)?;
+    let mut mouths = state::mouths(rgb, width, height, &looked.iter().map(|&i| places[i]).collect::<Vec<_>>())?;
+    for (n, &i) in looked.iter().enumerate() {
+        if let Some(u) = &stood[i] {
+            let look = eyes::Look { eyes: u.eyes, box_wide: u.box_wide, head_yaw: verdicts[i].head_yaw };
+            if let Ok(mut read) = eyes::read(&u.rgb, u.w, u.h, &[look]) {
+                seen[n] = read.remove(0);
+            }
+            if let Ok(mut read) = state::mouths(&u.rgb, u.w, u.h, &[u.place]) {
+                mouths[n] = read.remove(0);
+            }
+        }
+    }
     let mut eyes_away: Vec<Option<f32>> = vec![None; found.len()];
     let mut states: Vec<Option<(state::State, f32)>> = vec![None; found.len()];
     for ((i, seen), mouth) in looked.iter().zip(&seen).zip(mouths) {

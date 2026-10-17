@@ -128,8 +128,8 @@ score and where the pupils sit, and looking away costs a photo the same
 whoever else is in it. On, they are the rules described below wherever the
 whole photo is weighed, the eyes or the mouth are looked at closer, or a
 face is given a state — newer, measured to be better, and still being worked
-on. Both use the same finder, judge and focus measure, and each keeps its
-own memory of a folder, so switching between them analyses a folder once
+on. Both use the same judge and focus measure; the advanced rules also find
+faces with a newer finder (below). Each keeps its own memory of a folder, so switching between them analyses a folder once
 for each and never again. MEASURED: with the switch off, the app gives the
 same answer as release 0.3 to the last figure for every one of 3,075 faces
 in 908 photos, and the same mark and rank for every frame; the basic rules
@@ -147,6 +147,21 @@ half minute. Only the finder goes to the chip: moving the smaller judge,
 eye and mouth models too made the whole slower. The finder is prepared once
 for each picture size, across and upright, which takes a few seconds the
 first time and is kept. If Core ML cannot be used, the processor does it all.
+
+**With Advanced AI on, faces are found whichever way up they stand.** The
+finder is YOLO26n, taught to find faces turned a quarter, a half and three
+quarters as well as upright, and to say which way each one stands. YuNet,
+shown a small patch round each face, then places the eyes. A face standing
+at a turn is cut out and stood upright before it is judged and its eyes and
+mouth are read, since those models were only ever shown faces the right way
+up. MEASURED: on 775 photos it never saw, 96.9% of faces found to YuNet's
+96.0%, and non-faces taken for subjects 0.20% to 0.29%; on 1,236 photos turned
+a quarter or a half, 92-93% of faces found to YuNet's 37-65%, and which way up
+read right 99.9% of the time; on hand-graded faces turned upside down, open
+eyes called shut 4 times in 1,230 where they had been 135. It takes 34 ms a
+photo on one processor core to YuNet's 55. Faces under 40 pixels across in a
+2,048-pixel copy are found a little less often: 90% to YuNet's 93%. Basic
+keeps YuNet, unchanged. The model is under the AGPL-3.0, as YOLO26 is.
 
 **MobileCLIP visual grouping** is an experimental option. The model is Apple's, published under the Apple Machine Learning Research Model License, whose terms cover non-commercial research use; read them before using the option for paid work. It is not bundled with OpenCull: it is downloaded only if you choose to, and the option is off until then. Its separately
 downloaded MobileCLIP-S0 model compares whole-image embeddings, so frames can

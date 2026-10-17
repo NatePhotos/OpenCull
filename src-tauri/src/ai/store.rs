@@ -15,7 +15,7 @@ use super::{focus, Analysis, Rules};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-const ADVANCED: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.6-agree-0.2-turned-posed-0.4|rules-3|eyes-2|states-3|mark-4|key-1";
+const ADVANCED: &str = "finder-turning-yolo26-3-0.3-patch-160|upright-1|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.6-agree-0.2-turned-posed-0.4|rules-3|eyes-2|states-3|mark-4|key-1";
 /// The basic rules are those of release 0.3 and are remembered under its
 /// name, so a folder analysed by that release is not analysed again.
 const BASIC: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";

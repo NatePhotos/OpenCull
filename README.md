@@ -322,6 +322,7 @@ Project Link: [https://github.com/NatePhotos/OpenCull](https://github.com/NatePh
 
 * [Tauri](https://tauri.app)
 * [ONNX Runtime](https://onnxruntime.ai) and the [ort](https://ort.pyke.io) crate
+* [YOLO26](https://github.com/ultralytics/ultralytics) by Ultralytics, and the [YOLO26n face model](https://huggingface.co/Shubham12864/YOLO26n-face) it was taught from: the Advanced AI face finder (AGPL-3.0)
 * [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), the face finder
 * [libjpeg-turbo](https://libjpeg-turbo.org)
 * [MobileCLIP](https://github.com/apple/ml-mobileclip), the optional visual grouping model (Apple Machine Learning Research Model License; downloaded only on request)
