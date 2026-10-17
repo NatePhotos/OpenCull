@@ -114,33 +114,20 @@ system, reports are very welcome.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-### What's new in 0.5.0
+### What's new in 0.6.0
 
-* **Review a card before copying it.** Pick **Cull first** when you copy from a
-  card: look through the photos where they are, choose the ones you want, and
-  copy only those. **Finish review** at the top does the copying, then opens
-  the copies so you can ship them. Prefer to copy everything first? Choose
-  **Copy first**.
-* **Shoots from several cards.** Select photos in a folder and press **Add to
-  shoot**; do the same on the next card and review them together. Nothing is
-  selected for you.
-* **Pick up where you left off.** Quit mid-review and OpenCull offers to resume
-  the session next time.
-* **Group by what the picture looks like.** An optional setting compares whole
-  frames, so photos without faces can be grouped too. Off until you download
-  its model.
-* **Your workspace, your way.** Choose which panels show, where they sit and
-  how photos are scaled, and try the new Wisp look in Settings.
-* **Videos.** Clips from your camera play in the app, including 10-bit log
-  footage that the system player handles, and show a first-frame picture in
-  the grid, filmstrip and home page. Space plays and pauses. Importing from a
-  card brings in the clips themselves, not the camera's proxy copies.
-* **Crop from anywhere on the edge.** Drag any part of the crop frame's edge,
-  not only the small tab.
-* **Easier on small screens and in light mode.** The interface scale never
-  goes larger than the window can hold, the toolbar wraps cleanly, and light
-  mode has readable tabs and darker text.
-* **Better with long folder paths**, and the buttons line up properly.
+* **Faces found whichever way up they stand.** With **Advanced AI** on, a
+  new face finder spots faces turned sideways or upside down (a child held
+  upside down, someone lying on the grass, a photo taken from below) and reads
+  their eyes the right way up, so an upside-down face is no longer marked
+  down for shut eyes. Upright faces are found a little more often than before,
+  and fewer things that are not faces are taken for the people in the photo.
+  Basic AI is unchanged.
+* **Faster face analysis on a Mac.** The face finder runs on the Mac's
+  graphics chip when that is quicker, and switches back by itself when
+  another program is busy on it. Windows and Linux are unchanged.
+* **A finished card review clears itself.** Once its photos are copied and
+  opened, the review is no longer offered to resume.
 
 ### Built With
 
