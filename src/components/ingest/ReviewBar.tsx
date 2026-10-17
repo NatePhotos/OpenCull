@@ -8,7 +8,7 @@ import { FlagSymbol, RatingSymbol } from "@/components/cull/symbols";
 import { api } from "@/lib/api";
 import { load, save } from "@/lib/prefs";
 import { REVIEW_CHOICES, resolveReview, type ReviewChoices, type ReviewMode } from "@/lib/review";
-import { copyReview, loadReview, saveReview } from "@/lib/review-api";
+import { copyReview, loadReview, removeReviews, saveReview } from "@/lib/review-api";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { COLORS, type Flag, type Photo } from "@/lib/types";
@@ -110,6 +110,8 @@ function Finish() {
       // The copies are ordinary photos in an ordinary folder now, ratings and
       // flags already beside them: culling goes on there, and Ship works.
       await useStore.getState().openFolder(destination);
+      // The review is finished: there is nothing left of it to resume. After the folder has opened, so nothing saves it again.
+      if (review.id) await removeReviews([review.id]).catch(() => {});
     } catch (e) { setError(String(e)); } finally { setBusy(false); useStore.setState({ reviewCopying: false }); }
   };
 
