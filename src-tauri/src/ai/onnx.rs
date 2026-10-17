@@ -60,11 +60,46 @@ pub fn run<T>(
     outputs: &[&str],
     read: impl FnOnce(&[(Vec<usize>, &[f32])]) -> T,
 ) -> Result<T, String> {
+    let (inputs, outputs) = owned(inputs, outputs);
+    run_owned(slot, bytes, inputs, outputs, read)
+}
+
+/// The finder: on a Mac, on the graphics chip while that is the quicker;
+/// otherwise as `run`.
+pub fn run_finder<T>(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Session>>>,
+    bytes: &'static [u8],
+    inputs: Vec<Input>,
+    outputs: &[&str],
+    read: impl FnOnce(&[(Vec<usize>, &[f32])]) -> T,
+) -> Result<T, String> {
+    let (inputs, outputs) = owned(inputs, outputs);
+    #[cfg(target_os = "macos")]
+    let (inputs, read) = match super::gpu::run(bytes, inputs, &outputs, read) {
+        Ok(done) => return done,
+        Err(back) => back,
+    };
+    let done = run_owned(slot, bytes, inputs, outputs, read);
+    #[cfg(target_os = "macos")]
+    super::gpu::finished();
+    done
+}
+
+fn owned(inputs: Vec<Input>, outputs: &[&str]) -> (Vec<OwnedInput>, Vec<String>) {
     let inputs = inputs
         .into_iter()
         .map(|(name, shape, data)| (name.to_owned(), shape, data))
         .collect::<Vec<_>>();
-    let outputs = outputs.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    (inputs, outputs.iter().map(|s| (*s).to_owned()).collect())
+}
+
+fn run_owned<T>(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Session>>>,
+    bytes: &'static [u8],
+    inputs: Vec<OwnedInput>,
+    outputs: Vec<String>,
+    read: impl FnOnce(&[(Vec<usize>, &[f32])]) -> T,
+) -> Result<T, String> {
     #[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
     let inputs = if super::acceleration::enabled() {
         let reply = super::cuda::run(bytes, inputs, outputs.clone())?;

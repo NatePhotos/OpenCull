@@ -11,6 +11,8 @@ pub mod eyes;
 pub mod file_backend;
 pub mod finder;
 pub mod focus;
+#[cfg(target_os = "macos")]
+pub mod gpu;
 pub mod judge;
 pub mod key;
 pub mod mobileclip;

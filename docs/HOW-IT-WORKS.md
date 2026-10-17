@@ -135,6 +135,19 @@ same answer as release 0.3 to the last figure for every one of 3,075 faces
 in 908 photos, and the same mark and rank for every frame; the basic rules
 take 22 ms a photo and the advanced 23.
 
+**On a Mac, the face finder runs on the graphics chip** (through Core ML)
+whenever that gets more photos analysed. MEASURED on an M4 Max, 919 photos
+with every core at work: 44 photos a second with the finder on the
+processor, 56 with it on the chip, and the same faces and the same verdicts
+for every one of them. The chip takes its jobs one after another, so when
+another program is busy on it the photos queue for it; the app therefore
+measures. It starts on the chip, gives the processor a few seconds, keeps
+whichever finished more photos a second, and tries the other again every
+half minute. Only the finder goes to the chip: moving the smaller judge,
+eye and mouth models too made the whole slower. The finder is prepared once
+for each picture size, across and upright, which takes a few seconds the
+first time and is kept. If Core ML cannot be used, the processor does it all.
+
 **MobileCLIP visual grouping** is an experimental option. The model is Apple's, published under the Apple Machine Learning Research Model License, whose terms cover non-commercial research use; read them before using the option for paid work. It is not bundled with OpenCull: it is downloaded only if you choose to, and the option is off until then. Its separately
 downloaded MobileCLIP-S0 model compares whole-image embeddings, so frames can
 be grouped even when no faces were found. The loose, normal and tight settings

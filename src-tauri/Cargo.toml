@@ -65,6 +65,10 @@ sha2 = "0.10.9"
 getrandom = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
+# On a Mac the face finder can run on the graphics chip, through Core ML.
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.13", features = ["coreml"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
 

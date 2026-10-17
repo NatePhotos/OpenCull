@@ -85,6 +85,11 @@ pub fn run() {
                 (root.join("previews"), root.join("times"), root.join("faces"))
             };
             let self_test_root = dir.parent().map(|p| p.to_path_buf());
+            // The finder's prepared copies for the graphics chip, kept beside the previews.
+            #[cfg(target_os = "macos")]
+            if let Some(root) = &self_test_root {
+                ai::gpu::use_cache(root.join("coreml"));
+            }
             let cache = Cache::new(dir);
 
             if launch.self_test {

@@ -80,7 +80,7 @@ pub fn find_at(rgb: &[u8], width: u32, height: u32, sure_enough: f32) -> Result<
     }
 
     let names = ["cls_8", "cls_16", "cls_32", "obj_8", "obj_16", "obj_32", "bbox_8", "bbox_16", "bbox_32", "kps_8", "kps_16", "kps_32"];
-    let candidates = onnx::run(&SESSION, MODEL, vec![("input", vec![1, 3, ph, pw], input)], &names, |out| {
+    let candidates = onnx::run_finder(&SESSION, MODEL, vec![("input", vec![1, 3, ph, pw], input)], &names, |out| {
         let mut found = Vec::new();
         for (level, stride) in STRIDES.iter().enumerate() {
             let (cls, obj, bbox, kps) = (out[level].1, out[3 + level].1, out[6 + level].1, out[9 + level].1);
