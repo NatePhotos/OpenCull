@@ -221,8 +221,9 @@ fn read_image_directory(
             0x0201 => interchange.0 = tiff.int(e),
             0x0202 => interchange.1 = tiff.int(e),
             // Panasonic keeps its preview as the tag's own value rather than
-            // pointing at it, so the "offset" is where the value begins.
-            0x002E if e.count > 1024 => found.ranges.push((e.data, e.count as u64)),
+            // pointing at it, so the "offset" is where the value begins. Newer
+            // bodies (the S5 II, say) add a full-size one under 0x0127.
+            0x002E | 0x0127 if e.count > 1024 => found.ranges.push((e.data, e.count as u64)),
             0x02BC => {
                 if found.xmp.is_none() {
                     found.xmp = tiff
