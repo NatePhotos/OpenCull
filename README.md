@@ -114,20 +114,17 @@ system, reports are very welcome.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-### What's new in 0.6.0
+### What's new in 0.6.1
 
-* **Faces found whichever way up they stand.** With **Advanced AI** on, a
-  new face finder spots faces turned sideways or upside down (a child held
-  upside down, someone lying on the grass, a photo taken from below) and reads
-  their eyes the right way up, so an upside-down face is no longer marked
-  down for shut eyes. Upright faces are found a little more often than before,
-  and fewer things that are not faces are taken for the people in the photo.
-  Basic AI is unchanged.
-* **Faster face analysis on a Mac.** The face finder runs on the Mac's
-  graphics chip when that is quicker, and switches back by itself when
-  another program is busy on it. Windows and Linux are unchanged.
-* **A finished card review clears itself.** Once its photos are copied and
-  opened, the review is no longer offered to resume.
+* **Portrait photos analysed faster.** Photos taken with the camera turned
+  on its side are stood upright about three times faster before their faces
+  are read, so a face scan of a shoot with many portrait frames finishes
+  sooner, and a portrait photo's first preview appears sooner. The results
+  are exactly the same as before.
+* **Full-size previews from newer Panasonic cameras.** Newer Lumix RAW files
+  (the S5 II, for one) hold a full-size preview beside the small one; OpenCull
+  now finds it, so zooming in and the face analysis see the whole picture
+  instead of a 1920-pixel copy.
 
 ### Built With
 

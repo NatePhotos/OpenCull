@@ -70,9 +70,9 @@ Without libjpeg-turbo the middle of that table is slower: 1,640 thumbnails
 and 72 loupe previews a second, about 115 ms for a cold sharp rendering, and
 23 photos a second in the background.
 
-Sony ARW, Nikon NEF, Canon CR2 and CR3, Fuji RAF, Leica DNG and plain JPEG have
-all been opened with it. ORF, RW2, PEF and SRW share the same structure and
-should work, but no file of those kinds has been tried.
+Sony ARW, Nikon NEF, Canon CR2 and CR3, Fuji RAF, Panasonic RW2, Leica DNG
+and plain JPEG have all been opened with it. ORF, PEF and SRW share the same
+structure and should work, but no file of those kinds has been tried.
 
 
 ## What is here, and what is not

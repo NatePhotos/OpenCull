@@ -2668,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "opencull"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "fast_image_resize",
  "getrandom 0.3.4",
