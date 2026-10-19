@@ -28,6 +28,6 @@ export function HomeLayoutSettings() {
       <label className="flex items-center gap-2"><input type="radio" name="home-layout" checked={layout === "spacious"} onChange={() => setLayout("spacious")} />Spacious · actions below heading</label>
       <label className="flex items-center gap-2"><input type="radio" name="home-layout" checked={layout === "classic"} onChange={() => setLayout("classic")} />Classic · actions at upper right</label>
     </div>
-    <p className="text-sm text-muted-foreground">Controls wrap on smaller windows. Home layout is independent of theme and scale.</p>
+    <p className="text-sm text-muted-foreground">Changes only the home screen, not the theme or scale.</p>
   </fieldset>;
 }

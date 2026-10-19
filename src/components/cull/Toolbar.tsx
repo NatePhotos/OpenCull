@@ -18,9 +18,20 @@ import {
   RectangleHorizontal,
   Send,
   Settings,
+  Sparkles,
   Zap,
 } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +46,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { hasActiveFilter, useStore, speedCulling } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { SortKey, ViewMode } from "@/lib/types";
+import { AiBar } from "./AiBar";
 import { FilterBar } from "./FilterBar";
 
 /** A toolbar button with its name on hover. */
@@ -90,6 +102,8 @@ export function Toolbar() {
   const viewMode = useStore((s) => s.viewMode);
   const gridColumns = useStore((s) => s.gridColumns);
   const showFilterBar = useStore((s) => s.showFilterBar);
+  const showAiBar = useStore((s) => s.showAiBar);
+  const aiEnabled = useStore((s) => s.aiEnabled);
   const filtering = useStore(hasActiveFilter);
   const showExif = useStore((s) => s.showExif);
   const showFilmstrip = useStore((s) => s.showFilmstrip);
@@ -123,8 +137,17 @@ export function Toolbar() {
         )}
       </h1>
       <Status />
+      <AutoCullAsk />
 
       <Divider className="mx-2" />
+      {aiEnabled && (
+        <>
+          <Tool label="AI" active={showAiBar} onClick={() => s.toggle("showAiBar")}>
+            <Sparkles />
+          </Tool>
+          {showAiBar && <AiBar />}
+        </>
+      )}
       <Tool label="Filter Images" active={showFilterBar} onClick={() => s.toggle("showFilterBar")}>
         <Funnel className={cn(filtering && "fill-current")} />
       </Tool>
@@ -237,6 +260,28 @@ function Mode({ mode, label, current, children }: { mode: ViewMode; label: strin
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Asked before Auto-label replaces colours that OpenCull did not set. Mounted whether or not the AI bar is open. */
+function AutoCullAsk() {
+  const ask = useStore((s) => s.autocullAsk);
+  const run = useStore((s) => s.runAutoCull);
+  return (
+    <AlertDialog open={ask !== null} onOpenChange={(open) => { if (!open) useStore.setState({ autocullAsk: null }); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Replace colours OpenCull didn't set?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This folder has {ask?.toLocaleString()} colour label{ask === 1 ? "" : "s"} OpenCull didn't set. Replace them with Auto-label's colours, or leave those photos as they are?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => void run(false)}>Leave them</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void run(true)}>Replace</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

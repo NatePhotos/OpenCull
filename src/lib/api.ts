@@ -7,7 +7,7 @@
 // out of the shipped bundle entirely.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AiEvent, AiGroupingOptions, Compared, FileKinds, Framing, Histogram, Marks, MetaEvent, MobileClipStatus, RunFrame, Scanned } from "./types";
+import type { AiEvent, AiGroupingOptions, AutocullAround, AutocullFrame, AutocullOwned, AutocullReply, AutocullStatus, Compared, FileKinds, Framing, Histogram, Judgement, LearnSource, Marks, MetaEvent, MobileClipStatus, RunFrame, Scanned, ShootKind } from "./types";
 
 export interface AiAccelerationInfo {
   requested: boolean;
@@ -163,6 +163,15 @@ export interface Backend {
    * finds the poses in it — or, without `poses`, only the bursts.
    */
   aiCompare(runs: RunFrame[][], poses: boolean, options?: AiGroupingOptions): Promise<Compared[][]>;
+  autocullJudge(frames: AutocullFrame[], around: AutocullAround[], mobileClip: boolean, kind: ShootKind): Promise<Judgement[]>;
+  autocullLearn(folder: string, frames: AutocullFrame[], mobileClip: boolean, kind: ShootKind, source: LearnSource): Promise<AutocullReply>;
+  /** The type chosen for this folder, or null when none has been. */
+  autocullKind(folder: string): Promise<ShootKind | null>;
+  autocullSetKind(folder: string, kind: ShootKind): Promise<void>;
+  autocullStatus(): Promise<AutocullStatus>;
+  autocullReset(): Promise<void>;
+  autocullOwned(folder: string): Promise<Record<string, AutocullOwned>>;
+  autocullSetOwned(folder: string, owned: Record<string, AutocullOwned>): Promise<void>;
   mobileClipStatus(): Promise<MobileClipStatus>;
   mobileClipInstall(): Promise<MobileClipStatus>;
   aiAccelerationInfo(): Promise<AiAccelerationInfo | null>;
@@ -251,6 +260,14 @@ const tauri: Backend = {
     return invoke("ai_scan", { session, order, advanced, events });
   },
   aiCompare: (runs, poses, options = {}) => invoke("ai_compare", { runs, poses, session: options.session, revision: options.revision, mobileClip: options.mobileClip ?? false, mobileClipGrouping: options.mobileClipGrouping ?? "normal" }),
+  autocullJudge: (frames, around, mobileClip, kind) => invoke("autocull_judge", { frames, around, mobileClip, kind }),
+  autocullLearn: (folder, frames, mobileClip, kind, source) => invoke("autocull_learn", { folder, frames, mobileClip, kind, source }),
+  autocullKind: (folder) => invoke("autocull_kind", { folder }),
+  autocullSetKind: (folder, kind) => invoke("autocull_set_kind", { folder, kind }),
+  autocullStatus: () => invoke("autocull_status"),
+  autocullReset: () => invoke("autocull_reset"),
+  autocullOwned: (folder) => invoke("autocull_owned", { folder }),
+  autocullSetOwned: (folder, owned) => invoke("autocull_set_owned", { folder, owned }),
   mobileClipStatus: () => invoke("mobileclip_status"),
   mobileClipInstall: () => invoke("mobileclip_install"),
   aiAccelerationInfo: () => invoke("ai_acceleration_info"),

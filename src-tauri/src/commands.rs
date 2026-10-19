@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
@@ -58,6 +58,8 @@ pub struct App {
     ingest_reading: AtomicU64,
     /// What face analysis has found, remembered per folder.
     pub faces: ai::store::Store,
+    /// Auto-cull's network, lessons and the colours it set.
+    pub cull: Arc<crate::cull::Store>,
     /// Which face scan is the wanted one. An earlier one stops when it sees
     /// this has moved on.
     ai_scan: AtomicU64,
@@ -72,7 +74,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(previews: Previews, times: Times, faces: ai::store::Store) -> Self {
+    pub fn new(previews: Previews, times: Times, faces: ai::store::Store, cull: crate::cull::Store) -> Self {
         let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
         Self {
             previews,
@@ -89,6 +91,7 @@ impl App {
             ingest_cancel: Default::default(),
             ingest_reading: AtomicU64::new(0),
             faces,
+            cull: Arc::new(cull),
             ai_scan: AtomicU64::new(0),
             ai_grouping_epoch: Mutex::new((0, 0)),
             ai_yields: AtomicBool::new(true),
@@ -758,7 +761,16 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                         let image = &session.images[index];
                         // A photo that cannot be analysed is remembered as
                         // having no faces, so it is not tried on every open.
-                        let record = ai::analyze(&image.display, rules).map(|a| ai::store::Record::from(&a)).unwrap_or_default();
+                        // With Advanced, the picture decoded for the scan
+                        // also gives the photo's brightness for judging, so
+                        // its thumbnail need not be made or read for that.
+                        let light = |picture: &crate::preview::Upright| {
+                            if rules == ai::Rules::Advanced {
+                                app.cull.keep_light(&image.display.to_string_lossy(), &image.version, crate::cull::light::light_of_picture(&picture.rgb, picture.width, picture.height));
+                            }
+                        };
+                        let analysis = ai::analyze_then(&image.display, rules, light);
+                        let record = analysis.as_ref().map(ai::store::Record::from).unwrap_or_default();
                         known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
                         if tx.send(Analysed { index, record }).is_err() {
                             return;
@@ -874,6 +886,136 @@ pub async fn ai_compare(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// Brightness of a photo, read once and kept: worked out by the face scan
+/// from the picture it decoded, or else from the photo's small thumbnail.
+/// None if there is no thumbnail to read; a photo found to have none is not
+/// tried again this run.
+///
+/// The thumbnail is asked for as spare-time work (`Priority::Idle`), the one
+/// level that neither starts the pool's quiet period nor makes `busy()` true:
+/// the face scan does not stand aside for it. It is made only while nothing
+/// else is being asked for, on the few workers and cores set aside for
+/// getting ahead, so it never takes a worker from browsing.
+fn light_for(app: &App, path: &str, version: &str) -> Option<crate::cull::light::Light> {
+    if let Some(light) = app.cull.light(path, version) {
+        return Some(light);
+    }
+    if app.cull.light_unreadable(path, version) {
+        return None;
+    }
+    let ask = || app.previews.get_blocking(Wanted { path: PathBuf::from(path), version: version.to_string(), tier: Tier::Thumb(crate::cull::light::THUMB_EDGE) }, Priority::Idle);
+    let abandoned = |r: &Result<Arc<crate::serve::Served>, String>| matches!(r, Err(e) if e == crate::pool::ABANDONED);
+    // Waited for, so the pool keeps this when the photographer moves on and
+    // preparation starts again. Should it be dropped all the same, that
+    // says nothing of the photo, so it is asked for again, a few times at most.
+    let mut served = ask();
+    for _ in 0..2 {
+        if !abandoned(&served) { break; }
+        served = ask();
+    }
+    if abandoned(&served) {
+        return None;
+    }
+    let light = served.ok().and_then(|served| {
+        let mut decoder = jpeg_decoder::Decoder::new(&served.bytes[..]);
+        let rgb = decoder.decode().ok()?;
+        let info = decoder.info()?;
+        (info.pixel_format == jpeg_decoder::PixelFormat::RGB24).then(|| crate::cull::light::light_of_sized(&rgb, info.width as usize, info.height as usize))
+    });
+    match light {
+        Some(light) => app.cull.keep_light(path, version, light),
+        None => app.cull.mark_light_unreadable(path, version),
+    }
+    light
+}
+
+/// Where brightness is read for judging: a few at a time, in a pool of their
+/// own, made once. Each waits for a preview worker, and must not hold up the
+/// shared pool the decoders borrow.
+fn light_readers() -> Option<&'static rayon::ThreadPool> {
+    static READERS: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+    READERS.get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(4).thread_name(|i| format!("opencull-light-{i}")).build().ok()).as_ref()
+}
+
+/// Frames grouped and turned into numbers, with fingerprints when the
+/// photographer has MobileCLIP switched on. Fingerprints are made in small
+/// batches that give way to previews being made, as grouping does. If
+/// MobileCLIP cannot be used, the frames go without fingerprints rather than
+/// not at all.
+fn autocull_groups(app: &App, root: &Path, frames: &[crate::cull::Frame], around: &[crate::cull::Around], mobile_clip: bool, kind: crate::cull::features::ShootKind) -> Vec<Vec<crate::cull::Prepared>> {
+    let none = || vec![None; frames.len()];
+    let prints: Vec<Option<Vec<f32>>> = if mobile_clip {
+        let paths: Vec<(&Path, &str)> = frames.iter().map(|f| (Path::new(&f.path), f.version.as_str())).collect();
+        let made = ai::mobileclip::with_model(root, |model| {
+            let mut all = Vec::with_capacity(paths.len());
+            for chunk in paths.chunks(32) {
+                while app.ai_yields.load(Ordering::Relaxed) && app.previews.pool.busy() {
+                    std::thread::sleep(Duration::from_millis(60));
+                }
+                all.extend(model.embeddings(chunk, &app.previews.cache, || true)?);
+            }
+            Ok(all)
+        });
+        match made {
+            Ok(all) if all.len() == frames.len() => all.into_iter().map(Some).collect(),
+            _ => none(),
+        }
+    } else {
+        none()
+    };
+    let (lights, around_lights): (Vec<Option<crate::cull::light::Light>>, Vec<Option<crate::cull::light::Light>>) = {
+        let frame_light = |f: &crate::cull::Frame| light_for(app, &f.path, &f.version);
+        let around_light = |a: &crate::cull::Around| light_for(app, &a.path, &a.version);
+        match light_readers() {
+            Some(pool) => pool.install(|| (frames.par_iter().map(frame_light).collect(), around.par_iter().map(around_light).collect())),
+            None => (frames.iter().map(frame_light).collect(), around.iter().map(around_light).collect()),
+        }
+    };
+    // A photo around whose thumbnail cannot be read is left out, not counted as mid-grey.
+    let around: Vec<(f64, crate::cull::light::Light)> = around.iter().zip(around_lights).filter_map(|(a, l)| l.map(|l| (a.time, l))).collect();
+    crate::cull::prepare_groups(frames, &around, kind, |i| lights[i], |i| prints[i].clone())
+}
+
+/// The new judging's verdict on these frames, set against the photos shot around them.
+#[tauri::command]
+pub async fn autocull_judge(app: AppState<'_>, handle: tauri::AppHandle, frames: Vec<crate::cull::Frame>, around: Vec<crate::cull::Around>, mobile_clip: bool, kind: crate::cull::features::ShootKind) -> Result<Vec<crate::cull::decide::Judgement>, String> {
+    let app = app.inner().clone();
+    let root = mobileclip_root(&handle)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let groups = autocull_groups(&app, &root, &frames, &around, mobile_clip, kind);
+        Ok(crate::cull::decide::decide(&app.cull.model(), &groups))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn autocull_learn(app: AppState<'_>, handle: tauri::AppHandle, folder: String, frames: Vec<crate::cull::Frame>, mobile_clip: bool, kind: crate::cull::features::ShootKind, source: crate::cull::lessons::Source) -> Result<crate::cull::LearnReply, String> {
+    let app = app.inner().clone();
+    let root = mobileclip_root(&handle)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let groups = autocull_groups(&app, &root, &frames, &[], mobile_clip, kind);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        crate::cull::teach(&app.cull, folder, &groups, now, source)
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command(async)]
+pub fn autocull_kind(app: AppState, folder: String) -> Option<crate::cull::features::ShootKind> { app.cull.kind(&folder) }
+
+#[tauri::command(async)]
+pub fn autocull_set_kind(app: AppState, folder: String, kind: crate::cull::features::ShootKind) -> Result<(), String> { app.cull.set_kind(&folder, kind) }
+
+#[tauri::command(async)]
+pub fn autocull_status(app: AppState) -> crate::cull::Status { app.cull.status() }
+
+#[tauri::command(async)]
+pub fn autocull_reset(app: AppState) -> Result<(), String> { app.cull.reset() }
+
+#[tauri::command(async)]
+pub fn autocull_owned(app: AppState, folder: String) -> HashMap<String, crate::cull::Owned> { app.cull.owned(&folder) }
+
+#[tauri::command(async)]
+pub fn autocull_set_owned(app: AppState, folder: String, owned: HashMap<String, crate::cull::Owned>) -> Result<(), String> { app.cull.set_owned(&folder, &owned) }
 
 fn mobileclip_root(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(handle.path().app_cache_dir().map_err(|e| e.to_string())?.join("mobileclip-s0"))

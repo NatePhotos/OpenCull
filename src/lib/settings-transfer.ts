@@ -10,7 +10,7 @@ const booleanKeys = new Set([
   "spaceZoomToFace",
   "hideFilmstripOnCrop", "faceSpotlight",
   // Ingest contribution preference; retain it in backups without exposing a control here.
-  "rememberViewMode", "sortAscending", "ingestSortAscending", "ignoreVideos", "showExif", "showHistogram", "showFilmstrip", "showInfo", "showRatingBar", "showFilterBar", "nativeFilmstrip", "includeSubfolders", "embedInJpeg", "askBeforeTrash", "checkForUpdates", "warmAhead", "speedCullAlways", "keepZoom", "instantZoom", "rgbHistogram", "aiEnabled", "aiAdvanced", "showBackgroundFaces", "aiPause", "smartGroups", "showFaces",
+  "rememberViewMode", "sortAscending", "ingestSortAscending", "ignoreVideos", "showExif", "showHistogram", "showFilmstrip", "showInfo", "showRatingBar", "showFilterBar", "showAiBar", "nativeFilmstrip", "includeSubfolders", "embedInJpeg", "askBeforeTrash", "checkForUpdates", "warmAhead", "speedCullAlways", "keepZoom", "instantZoom", "rgbHistogram", "aiEnabled", "aiAdvanced", "showWhy", "showBackgroundFaces", "aiPause", "smartGroups", "showFaces",
 ]);
 const enums: Record<string, readonly string[]> = {
   mobileClipGrouping: ["loose", "normal", "tight"],

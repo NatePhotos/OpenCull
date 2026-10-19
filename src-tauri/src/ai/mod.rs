@@ -449,8 +449,16 @@ fn may_be_away(score: f32, eyes: f32) -> bool {
 
 /// Finds and judges the faces in a photo file.
 pub fn analyze(path: &Path, rules: Rules) -> Result<Analysis, String> {
+    analyze_then(path, rules, |_| {})
+}
+
+/// As `analyze`, handing the decoded picture to `also` before it is let go,
+/// for anything else worth reading from it while it is in memory.
+pub fn analyze_then(path: &Path, rules: Rules, also: impl FnOnce(&preview::Upright)) -> Result<Analysis, String> {
     let picture = preview::decode_upright(path, u32::MAX)?;
-    analyze_pixels(&picture.rgb, picture.width, picture.height, rules)
+    let analysis = analyze_pixels(&picture.rgb, picture.width, picture.height, rules);
+    also(&picture);
+    analysis
 }
 
 #[cfg(test)]

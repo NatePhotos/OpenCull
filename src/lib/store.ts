@@ -11,7 +11,8 @@ import { holdPreferences, load, save, snapshotPreferences } from "./prefs";
 import { openingView, validViewMode } from "./view-preferences";
 import { validRankingPalette, type RankingPalette } from "./ranking-palette";
 import { shouldShowOverview } from "./onboarding";
-import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Marks, MetaEvent, Photo, Rank, SortKey, ViewMode } from "./types";
+import { aroundFor, colourable, foreignColours, framesFor, ownedAfter } from "./autocull";
+import type { AiFace, AiResult, Color, Compared, FileKinds, Flag, FlagFilter, Framing, Judgement, Marks, MetaEvent, Photo, Rank, ShootKind, SortKey, ViewMode } from "./types";
 import type { MobileClipGrouping } from "./types";
 
 interface Session {
@@ -84,6 +85,8 @@ interface State {
   showInfo: boolean;
   showRatingBar: boolean;
   showFilterBar: boolean;
+  /** The AI bar beside the AI button: Advanced, shoot type, Show why and Auto-label. */
+  showAiBar: boolean;
   showHistogram: boolean;
   filmstripHeight: number;
   sceneStripHeight: number;
@@ -170,6 +173,25 @@ interface State {
   aiEnabled: boolean;
   /** Judge them the newer way, still being worked on, rather than as the last release did. */
   aiAdvanced: boolean;
+  /** The open folder's type of shoot. */
+  autoCullKind: ShootKind;
+  /** The type last chosen, offered to the next folder that has none. */
+  autoCullLastKind: ShootKind;
+  /** How many colours OpenCull did not set are waiting on a yes or no before auto-cull may replace them. */
+  autocullAsk: number | null;
+  autocullBusy: "colouring" | "clearing" | null;
+  /** How many burst comparisons are still being worked out; auto-cull waits for none. */
+  comparing: number;
+  /** The new judging's verdict on each photo, by index, while Advanced AI is on. */
+  judged: (Judgement | undefined)[];
+  /** How many requests for verdicts are on their way; auto-cull waits for none. */
+  judging: number;
+  /** Raised whenever earlier verdicts stop counting: another type, network or grouping. */
+  judgeRevision: number;
+  /** Why the latest request for verdicts failed, while it still counts; auto-cull will not colour until it is asked again. */
+  judgeError: string | null;
+  /** Show, in the info panel, why the AI placed each photo where it did. */
+  showWhy: boolean;
   /** Show faces judged to be background in the face panel, dimmed. */
   showBackgroundFaces: boolean;
   /** Analysis stands aside whenever a photo is being moved to. */
@@ -221,6 +243,14 @@ interface Actions {
   setRating(rating: number, targets?: number[]): void;
   setFlag(flag: Flag, targets?: number[]): void;
   setColor(color: Color, targets?: number[]): void;
+  /** Colours the open folder's analysed photos. Asks first about colours it did not set. */
+  runAutoCull(replaceForeign?: boolean): Promise<void>;
+  /** Sets the open folder's type of shoot, remembers it, and keeps it as the next folder's starting choice. */
+  setAutoCullKind(kind: ShootKind): Promise<void>;
+  /** Takes off the colours auto-cull set in the open folder. */
+  clearAutoCull(): Promise<void>;
+  /** Asks again for every verdict, as after a change of type or of what has been learned. */
+  rejudge(): void;
   clearRatingAndColor(targets?: number[]): void;
   /** Crops or turns one photo. */
   setFraming(index: number, framing: Framing): void;
@@ -242,7 +272,7 @@ interface Actions {
   setSort(key: SortKey, ascending: boolean): void;
 
   set<K extends keyof State>(key: K, value: State[K]): void;
-  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showFaces"): void;
+  toggle(key: "showExif" | "showFilmstrip" | "showInfo" | "showRatingBar" | "showFilterBar" | "showAiBar" | "showFaces"): void;
   /** Compares every analysed photo afresh, after a change to what counts as a group. */
   regroup(): void;
   /** Takes in a batch of analysed photos, and compares the frames of any pose they complete. */
@@ -363,6 +393,22 @@ export function problemOf(result: AiResult | undefined, compared?: Compared): Pr
   return null;
 }
 
+/**
+ * What a thumbnail's strip shows. With a verdict from the new judging: its
+ * place, and red with the reason for a reject. Without one: the burst
+ * comparison's rank, and red for shut eyes. Null when there is nothing to show.
+ */
+export function rankBar(verdict: Judgement | undefined, compareRank: Rank | undefined, problem: Problem | null): { rank: Rank | undefined; reject: boolean; title: string } | null {
+  const named = (rank: Rank) => (rank.rank === 1 ? `Best of these ${rank.count}` : `Rank ${rank.rank} of ${rank.count}`);
+  if (verdict) {
+    const rank = verdict.place !== null && verdict.count !== null ? { rank: verdict.place, count: verdict.count } : undefined;
+    if (!rank && !verdict.reject) return null;
+    return { rank, reject: verdict.reject, title: verdict.reject ? verdict.why : named(rank!) };
+  }
+  if (!compareRank && problem !== "eyesClosed") return null;
+  return { rank: compareRank, reject: problem === "eyesClosed", title: problem ? PROBLEM_LABEL[problem] : named(compareRank!) };
+}
+
 /** Whether marking a photo should move on to the next one. */
 export const speedCulling = (s: Pick<State, "speedCull" | "speedCullAlways">) => s.speedCull || s.speedCullAlways;
 
@@ -385,6 +431,7 @@ const PERSISTED = [
   "showInfo",
   "showRatingBar",
   "showFilterBar",
+  "showAiBar",
   "showHistogram",
   "filmstripHeight",
   "sceneStripHeight",
@@ -408,6 +455,8 @@ const PERSISTED = [
   "cacheLimitGb",
   "aiEnabled",
   "aiAdvanced",
+  "showWhy",
+  "autoCullLastKind",
   "showBackgroundFaces",
   "aiPause",
   "smartGroups",
@@ -473,6 +522,25 @@ function sorted(photos: Photo[], key: SortKey, ascending: boolean): number[] {
     const tb = time(b);
     return ta === tb ? a - b : (ta < tb ? -1 : 1) * dir;
   });
+}
+
+/** The folder whose type of shoot was chosen since it opened: that choice stands, even before it is saved. */
+let kindChosenFor: string | null = null;
+
+/** Shows the folder's saved type of shoot once it is read, unless one was chosen meanwhile. */
+function lookUpFolderKind(folder: string) {
+  const asked = useStore.getState().autoCullKind;
+  api.autocullKind(folder).then(
+    (kind) => {
+      const s = useStore.getState();
+      if (kind && s.session?.folder === folder && kindChosenFor !== folder && s.autoCullKind === asked) {
+        const changed = kind !== s.autoCullKind;
+        useStore.setState({ autoCullKind: kind });
+        if (changed) useStore.getState().rejudge();
+      }
+    },
+    () => {},
+  );
 }
 
 export const useStore = create<Store>((set, get) => {
@@ -655,19 +723,31 @@ export const useStore = create<Store>((set, get) => {
    * the scan reaches the rest would have the photographer picking "the
    * best" of three frames out of seven.
    */
-  function compareRuns(touched: number[]) {
-    const { photos, ai, session, smartGroups, groupingRevision, aiMobileClipGrouping, mobileClipGrouping, aiEnabled } = get();
-    if (!session) return;
-    const visualGrouping = aiMobileClipGrouping && aiEnabled;
+  /** The open folder's runs of two or more, worked out once, and which run each photo is in. */
+  function currentRuns(): { list: number[][]; of: Map<number, number> } | null {
+    const { photos, session } = get();
+    if (!session) return null;
     if (runs?.session !== session.id) {
       const list = runsOf(photos).filter((run) => run.length >= 2);
       const of = new Map<number, number>();
       list.forEach((run, at) => run.forEach((index) => of.set(index, at)));
       runs = { session: session.id, list, of };
     }
-    const { list, of } = runs;
+    return runs;
+  }
+
+  function compareRuns(touched: number[]) {
+    const { photos, ai, session, smartGroups, groupingRevision, aiMobileClipGrouping, mobileClipGrouping, aiEnabled } = get();
+    if (!session) return;
+    const visualGrouping = aiMobileClipGrouping && aiEnabled;
+    const found = currentRuns();
+    if (!found) return;
+    const { list, of } = found;
+    // A photo with no run is compared with nothing, so it can be judged as soon as it is analysed.
+    judge(touched.filter((i) => of.get(i) === undefined && ai[i] !== undefined));
     const ready = [...new Set(touched.map((i) => of.get(i)).filter((at) => at !== undefined))].map((at) => list[at]).filter((run) => run.every((i) => ai[i] !== undefined));
     if (ready.length === 0) return;
+    set((s) => ({ comparing: s.comparing + 1 }));
     void api
       .aiCompare(
         ready.map((run) => run.map((i) => ({ ...ai[i]!, index: i, time: photos[i].captureMs, burst: photos[i].group, upright: uprightOf(photos[i]) }))),
@@ -698,11 +778,66 @@ export const useStore = create<Store>((set, get) => {
           });
         });
         set({ compared, ranks, poses });
+        judge(ready.flat());
       })
       .catch((error: unknown) => {
         const now = get();
         if (now.session?.id === session.id && now.groupingRevision === groupingRevision) set({ aiGroupingError: String(error) });
-      });
+      })
+      // Counted out whether it was wanted, unwanted or failed, so auto-cull is never left waiting.
+      .finally(() => set((s) => ({ comparing: s.comparing - 1 })));
+  }
+
+  /**
+   * Asks for the new judging's verdict on these photos, told of the photos
+   * shot around them. Only with Advanced AI. A verdict that comes back for
+   * another folder, or after the type, the network or the grouping changed,
+   * is dropped; until one comes, the burst comparison's ranks stand.
+   */
+  function judge(indices: number[]) {
+    const s = get();
+    if (!s.session || !s.aiEnabled || !s.aiAdvanced || indices.length === 0) return;
+    const only = new Set(indices);
+    const frames = framesFor(s.photos, s.ai, s.compared, s.ranks, s.poses, only);
+    if (frames.length === 0) return;
+    const sessionId = s.session.id;
+    const revision = s.judgeRevision;
+    const around = aroundFor(s.order.map((i) => s.photos[i]), only);
+    set((now) => ({ judging: now.judging + 1 }));
+    void api
+      .autocullJudge(frames, around, s.aiMobileClipGrouping && s.aiEnabled, s.autoCullKind)
+      .then((verdicts) => {
+        const now = get();
+        if (now.session?.id !== sessionId || now.judgeRevision !== revision || !now.aiAdvanced) return;
+        // Only the photos asked about, not the whole folder: this runs on the interface's thread.
+        const at = new Map<string, number>();
+        for (const i of only) {
+          const p = now.photos[i];
+          if (p) at.set(p.display, i);
+        }
+        const judged = now.judged.slice();
+        for (const v of verdicts) {
+          const index = at.get(v.path);
+          if (index !== undefined) judged[index] = v;
+        }
+        set({ judged });
+      })
+      // The burst comparison's ranks stay on screen where judging fails, but
+      // auto-cull is told, so it never colours from verdicts missing or stale.
+      .catch((error: unknown) => {
+        const now = get();
+        if (now.session?.id === sessionId && now.judgeRevision === revision && now.aiAdvanced) set({ judgeError: String(error) });
+      })
+      // Counted out whether it was wanted or not, so auto-cull is never left waiting.
+      .finally(() => set((now) => ({ judging: now.judging - 1 })));
+  }
+
+  /** Every photo that can be judged now: analysed, and compared with its run if it has one. */
+  function judgeable(): number[] {
+    const found = currentRuns();
+    if (!found) return [];
+    const { ai, compared } = get();
+    return ai.flatMap((r, i) => (r !== undefined && (found.of.get(i) === undefined || compared[i] !== undefined) ? [i] : []));
   }
 
   function rememberPosition() {
@@ -744,6 +879,7 @@ export const useStore = create<Store>((set, get) => {
     showInfo: load("showInfo", false),
     showRatingBar: load("showRatingBar", true),
     showFilterBar: load("showFilterBar", false),
+    showAiBar: load("showAiBar", false),
     showHistogram: load("showHistogram", true),
     filmstripHeight: load("filmstripHeight", 150),
     sceneStripHeight: load("sceneStripHeight", 160),
@@ -788,6 +924,16 @@ export const useStore = create<Store>((set, get) => {
     aiRunning: false,
     aiEnabled: load("aiEnabled", true),
     aiAdvanced: load("aiAdvanced", false),
+    autoCullKind: load<ShootKind>("autoCullLastKind", "events"),
+    autoCullLastKind: load<ShootKind>("autoCullLastKind", "events"),
+    autocullAsk: null,
+    autocullBusy: null,
+    comparing: 0,
+    judged: [],
+    judging: 0,
+    judgeRevision: 0,
+    judgeError: null,
+    showWhy: load("showWhy", false),
     showBackgroundFaces: load("showBackgroundFaces", false),
     aiPause: load("aiPause", true),
     showFaces: load("showFaces", true),
@@ -922,11 +1068,19 @@ export const useStore = create<Store>((set, get) => {
         compared: [],
         ranks: [],
         poses: [],
+        judged: [],
+        judgeError: null,
+        autocullAsk: null,
         aiDone: 0,
         aiRunning: false,
         faceZoom: null,
         hoveredFace: null,
       });
+      // The folder's type, if it has one; otherwise the one last chosen.
+      // Never the previous folder's.
+      kindChosenFor = null;
+      set({ autoCullKind: get().autoCullLastKind });
+      if (get().aiAdvanced) lookUpFolderKind(path);
       if (photos.length === 0) return;
 
       const sessionId = reply.session;
@@ -976,7 +1130,7 @@ export const useStore = create<Store>((set, get) => {
       rememberPosition();
       set({ groupingRevision: get().groupingRevision + 1, aiGroupingError: null });
       if (session.id >= 0) void api.closeFolder(session.id);
-      set({ session: null, review: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], aiDone: 0, aiRunning: false, faceZoom: null });
+      set({ session: null, review: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], judged: [], judgeError: null, autocullAsk: null, aiDone: 0, aiRunning: false, faceZoom: null });
     },
 
     reloadForSubfolders() {
@@ -1072,6 +1226,96 @@ export const useStore = create<Store>((set, get) => {
       // photo: across several it would clear some and set others.
       const value: Color = list.length === 1 && s.photos[list[0]].color === color ? "none" : color;
       applyMarks(list.map((index) => ({ index, after: { ...marksOf(s.photos[index]), color: value } })));
+    },
+
+    async runAutoCull(replaceForeign) {
+      const s = get();
+      if (!s.session || !s.aiEnabled || !s.aiAdvanced || s.autocullBusy || s.aiRunning || s.comparing > 0 || s.judging > 0) return;
+      const folder = s.session.folder;
+      const sessionId = s.session.id;
+      set({ autocullBusy: "colouring" });
+      try {
+        // Colours only from a verdict on every photo that can be judged, asked
+        // under the current type. One still waiting on a comparison that may
+        // never come (it failed, or a photo in its run could not be analysed)
+        // is left uncoloured.
+        if (s.judgeError !== null) {
+          set({ notice: { title: "Auto-label did not finish", body: `Some photos couldn't be judged: ${s.judgeError}. OpenCull is trying again; press Auto-label once it's done.` } });
+          get().rejudge();
+          return;
+        }
+        if (judgeable().some((i) => s.judged[i] === undefined)) {
+          set({ notice: { title: "Auto-label did not finish", body: "Some photos haven't been judged yet. OpenCull is judging them now; press Auto-label once it's done." } });
+          get().rejudge();
+          return;
+        }
+        const revision = s.judgeRevision;
+        const owned = await api.autocullOwned(folder);
+        // Verdicts asked for again, or still coming, while that was read: they
+        // are no longer the ones checked above, so nothing is coloured.
+        const after = get();
+        if (after.session?.id !== sessionId || after.judgeRevision !== revision || after.judging > 0) return;
+        const foreign = foreignColours(after.photos, owned);
+        if (foreign > 0 && replaceForeign === undefined) { set({ autocullAsk: foreign }); return; }
+        set({ autocullAsk: null });
+        const now = get();
+        const changes: { index: number; after: Marks }[] = [];
+        const applied: { path: string; version: string; color: Color }[] = [];
+        for (const p of now.photos) {
+          const v = now.judged[p.index];
+          if (!v || !colourable(p, owned, replaceForeign === true)) continue;
+          changes.push({ index: p.index, after: { ...marksOf(p), color: v.color } });
+          applied.push({ path: p.display, version: p.version, color: v.color });
+        }
+        applyMarks(changes);
+        try {
+          await api.autocullSetOwned(folder, ownedAfter(owned, applied));
+        } catch (e) {
+          set({ notice: { title: "Couldn't remember which colours Auto-label set", body: `The colours are applied, but "Clear labels" and later runs won't know they came from Auto-label. ${String(e)}` } });
+        }
+      } catch (e) {
+        set({ notice: { title: "Auto-label did not finish", body: String(e) } });
+      } finally {
+        set({ autocullBusy: null });
+      }
+    },
+
+    async setAutoCullKind(kind) {
+      const s = get();
+      set({ autoCullKind: kind, autoCullLastKind: kind });
+      if (!s.session) return;
+      kindChosenFor = s.session.folder;
+      if (kind !== s.autoCullKind) get().rejudge();
+      try {
+        await api.autocullSetKind(s.session.folder, kind);
+      } catch (e) {
+        set({ notice: { title: "Couldn't remember this folder's type of shoot", body: String(e) } });
+      }
+    },
+
+    async clearAutoCull() {
+      const s = get();
+      if (!s.session || s.autocullBusy) return;
+      const folder = s.session.folder;
+      const sessionId = s.session.id;
+      set({ autocullBusy: "clearing" });
+      try {
+        const owned = await api.autocullOwned(folder);
+        const now = get();
+        if (now.session?.id !== sessionId) return;
+        const cleared = now.photos.filter((p) => owned[p.display]?.color === p.color && p.color !== "none");
+        applyMarks(cleared.map((p) => ({ index: p.index, after: { ...marksOf(p), color: "none" as Color } })));
+        await api.autocullSetOwned(folder, ownedAfter(owned, cleared.map((p) => ({ path: p.display, version: p.version, color: "none" as Color }))));
+      } catch (e) {
+        set({ notice: { title: "Couldn't clear Auto-label's colours", body: String(e) } });
+      } finally {
+        set({ autocullBusy: null });
+      }
+    },
+
+    rejudge() {
+      set((s) => ({ judgeError: null, judgeRevision: s.judgeRevision + 1 }));
+      judge(judgeable());
     },
 
     clearRatingAndColor(targets) {
@@ -1171,7 +1415,7 @@ export const useStore = create<Store>((set, get) => {
 
     regroup() {
       const { ai, groupingRevision } = get();
-      set({ compared: [], ranks: [], poses: [], groupingRevision: groupingRevision + 1, aiGroupingError: null });
+      set((s) => ({ compared: [], ranks: [], poses: [], judged: [], judgeError: null, judgeRevision: s.judgeRevision + 1, groupingRevision: groupingRevision + 1, aiGroupingError: null }));
       compareRuns(ai.flatMap((result, index) => (result === undefined ? [] : [index])));
     },
 
@@ -1289,6 +1533,8 @@ useStore.subscribe((state) => {
   for (const key of PERSISTED) {
     if (state[key] !== last[key]) save(key, state[key]);
   }
+  // Switched to Advanced AI with a folder open: its type was not looked up under Basic.
+  if (state.aiAdvanced && !last.aiAdvanced && state.session) lookUpFolderKind(state.session.folder);
   if (state.review && (state.photos !== last.photos || state.review !== last.review) && !state.loading) {
     void saveReview(state.review).catch((error) => useStore.setState({ notice: { title: "Card session could not be saved", body: String(error) } }));
   }

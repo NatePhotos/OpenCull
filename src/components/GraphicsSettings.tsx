@@ -34,7 +34,7 @@ function LinuxGraphics() {
   };
   return <fieldset className="space-y-3 rounded-lg border border-border p-4">
     <legend className="px-1 text-sm font-semibold">Graphics acceleration</legend>
-    <p className="text-xs leading-relaxed text-muted-foreground">The desktop webview renders the interface and photo transformations. This check shows the requested and active launch profiles and the webview’s reported device name, which may be masked. Neither confirms the physical GPU in use; use native system tools to verify it. Image decoding and AI can still use the CPU.</p>
+    <p className="text-xs leading-relaxed text-muted-foreground">Shows which graphics renderer the app reports; the name may not be the real graphics chip.</p>
     <button type="button" disabled={busy} onClick={() => void check()} className="min-h-10 rounded-md border border-input px-3 text-xs">{busy ? "Checking…" : "Check renderer"}</button>
     {result && <output aria-live="polite" className="block whitespace-pre-wrap break-words text-xs leading-relaxed">{result}</output>}
   </fieldset>;

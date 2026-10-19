@@ -113,6 +113,17 @@ impl Previews {
         priority: Priority,
         done: impl FnOnce(Result<Arc<Served>, String>) + Send + 'static,
     ) {
+        self.fetch(wanted, priority, false, done);
+    }
+
+    /// `get`, saying whether the asker stops to wait for the answer.
+    fn fetch(
+        &self,
+        wanted: Wanted,
+        priority: Priority,
+        waited: bool,
+        done: impl FnOnce(Result<Arc<Served>, String>) + Send + 'static,
+    ) {
         let this = self.clone();
         let task: Task = Box::new(move || {
             // The camera's own screen-sized preview is lifted straight out
@@ -143,21 +154,23 @@ impl Previews {
             let cache = this.cache.clone();
             let key = cached.to_string_lossy().into_owned();
             let idle = (priority == Priority::Idle).then(|| this.idle.clone());
-            this.pool.submit(
-                key,
-                priority,
-                move || {
-                    let rendered = match idle {
-                        Some(pool) => pool.install(|| preview::render(&wanted.path, wanted.tier))?,
-                        None => preview::render(&wanted.path, wanted.tier)?,
-                    };
-                    if wanted.tier != Tier::Full {
-                        cache.put(&cached, &rendered.bytes);
-                    }
-                    Ok(Served { bytes: rendered.bytes, mime: rendered.mime })
-                },
-                done,
-            );
+            let work = move || {
+                let rendered = match idle {
+                    Some(pool) => pool.install(|| preview::render(&wanted.path, wanted.tier))?,
+                    None => preview::render(&wanted.path, wanted.tier)?,
+                };
+                if wanted.tier != Tier::Full {
+                    cache.put(&cached, &rendered.bytes);
+                }
+                Ok(Served { bytes: rendered.bytes, mime: rendered.mime })
+            };
+            // Someone waiting keeps spare-time work from being dropped when
+            // what to prepare changes, and puts it ahead of that preparation.
+            if waited {
+                this.pool.submit_waited(key, priority, work, done);
+            } else {
+                this.pool.submit(key, priority, work, done);
+            }
         });
         // A send only fails if the readers are gone, which is at shutdown.
         self.readers.lock().unwrap().send(task).ok();
@@ -166,7 +179,7 @@ impl Previews {
     /// The same, waited for. For work already off the main thread.
     pub fn get_blocking(&self, wanted: Wanted, priority: Priority) -> Result<Arc<Served>, String> {
         let (tx, rx) = mpsc::channel();
-        self.get(wanted, priority, move |r| {
+        self.fetch(wanted, priority, true, move |r| {
             tx.send(r).ok();
         });
         rx.recv().map_err(|_| "preview worker stopped".to_string())?

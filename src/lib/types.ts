@@ -130,6 +130,8 @@ export interface AiFace {
   concern: number;
   /** How far that state excuses eyes that are not open, 0 to 1: nought where it gives no reason for them. */
   excused: number;
+  /** The face's state says the eyes are open; auto-cull reads it. */
+  open?: boolean;
 }
 
 /** What the analysis found in one photo. */
@@ -206,3 +208,65 @@ export type FileKinds = "both" | "raw" | "jpeg";
 export type ViewMode = "loupe" | "scene" | "grid";
 export type SortKey = "captureTime" | "filename" | "rating";
 export type FlagFilter = "all" | "picks" | "unflagged" | "rejects";
+
+/** What kind of shoot a folder is; auto-cull judges each differently. */
+export type ShootKind = "events" | "portraits" | "sports";
+/** What a lesson is taught from: the stars given, or the picks and rejects flagged. */
+export type LearnSource = "stars" | "flags";
+
+/** One photo as auto-cull is told of it. */
+export type AutocullFrame = AiResult & {
+  path: string;
+  version: string;
+  comparedScore: number | null;
+  comparedEyes: (number | null)[];
+  rank: number | null;
+  count: number | null;
+  /** Frames sharing a number were compared with each other; null stands alone. */
+  pose: number | null;
+  rating: number;
+  /** When it was taken, in milliseconds; null when unknown. */
+  time: number | null;
+  flag: Flag;
+};
+/** The new judging's verdict on one photo. */
+export interface Judgement {
+  path: string;
+  color: Color;
+  /** Its place in its burst, 1 for the best; null for a photo on its own. */
+  place: number | null;
+  count: number | null;
+  /** An obvious reject: placed after every other frame of its burst. */
+  reject: boolean;
+  /** One line on why, for the info panel. */
+  why: string;
+}
+/** A photo shot near the ones being judged, sent only for its light. */
+export interface AutocullAround { path: string; version: string; time: number }
+/** Why a retrained version was not kept, though there was enough to check it. */
+export type AutocullReason = "worse" | "fewerRejects" | "chance";
+export interface AutocullLearned {
+  /** Shoots learned from, set-aside ones left out. */
+  shoots: number;
+  /** On bursts of the newest shoot each had not seen, 0 to 1, keepers, rejects and burst order counting equally. */
+  before: number;
+  after: number;
+  accepted: boolean;
+  enough: boolean;
+  reason: AutocullReason | null;
+  /** On those unseen bursts: how often the 5★ frame is the first choice, and in the top two. Null when none was checked. */
+  pickFirst: number | null;
+  pickTop2: number | null;
+}
+/** What became of the shoot's lessons: learned from, saved for later, set aside, or this folder's earlier lessons kept. */
+export type AutocullKept = "learned" | "saved" | "setAside" | "earlier";
+export interface AutocullReply {
+  learned: AutocullLearned;
+  /** How well the version now in use did on bursts of this shoot it had not seen. */
+  matched: number;
+  kept: AutocullKept;
+  /** Which marks the lesson was taught from. */
+  source: LearnSource;
+}
+export interface AutocullStatus { shoots: number; last: AutocullReply | null }
+export interface AutocullOwned { version: string; color: Color; /** Why auto-cull gave it that colour; kept so it survives reopening the folder. */ reason?: string }

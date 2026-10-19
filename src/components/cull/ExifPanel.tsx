@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Aperture, Calendar, Camera, Clock, FileText, Folder, HardDrive, Image as ImageIcon, Info, Ratio, Sun, Target, Timer, X } from "lucide-react";
+import { Aperture, Calendar, Camera, Clock, FileText, Folder, HardDrive, Image as ImageIcon, Info, Ratio, Sun, Target, Timer, Wand2, X } from "lucide-react";
 
 import { api } from "@/lib/api";
 import * as fmt from "@/lib/format";
@@ -38,12 +38,21 @@ function Empty() {
 
 function Details({ photo }: { photo: Photo }) {
   const e = photo.exif;
+  const why = useStore((s) => (s.showWhy && s.aiAdvanced ? s.judged[photo.index]?.why : undefined));
   const comp = fmt.exposureComp(e?.exposureComp);
   const taken = fmt.cameraDate(e?.date);
   const ext = (path: string) => path.split(".").pop()?.toUpperCase() ?? "";
 
   return (
     <div className="metadata-details flex-1 space-y-4 overflow-y-auto p-3.5 select-text">
+      {why ? (
+        <>
+          <Section title="Why">
+            <Row icon={<Wand2 />} title="OpenCull AI" value={why} />
+          </Section>
+          <Rule />
+        </>
+      ) : null}
       <Section title="Exposure">
         <div className="grid grid-cols-2 gap-2">
           <Badge title="Shutter" value={fmt.shutter(e?.shutter)} icon={<Timer />} />

@@ -6,7 +6,7 @@ import { CheckCircle2, Crop, Flag, X } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { placement, shownSize } from "@/lib/framing";
-import { PROBLEM_LABEL, problemOf, useStore } from "@/lib/store";
+import { problemOf, rankBar, useStore } from "@/lib/store";
 import { rankingColour } from "@/lib/ranking-palette";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
@@ -126,23 +126,26 @@ export function FramedThumb({ photo, size, box, inset = 0, cover = false, classN
  * The strip along the bottom of a thumbnail: the photo's place among the
  * frames of its burst and of the same pose shot again,
  * coloured by how it did. Red, with no number needed, when a subject's eyes
- * are shut — usually the end of that frame.
+ * are shut — usually the end of that frame — and red too for a reject from
+ * the new judging, with its reason on hover.
  */
 export const RankBar = memo(function RankBar({ index, height = 14 }: { index: number; height?: number }) {
   const palette = useStore((s) => s.rankingPalette);
-  const rank = useStore((s) => s.ranks[index]);
+  // With Advanced AI the new judging places the photo once it has; until then, and with Basic, the burst comparison does.
+  const verdict = useStore((s) => (s.aiAdvanced ? s.judged[index] : undefined));
+  const compareRank = useStore((s) => s.ranks[index]);
   const problem = useStore((s) => problemOf(s.ai[index], s.compared[index]));
-  if (!rank && problem !== "eyesClosed") return null;
-
+  const bar = rankBar(verdict, compareRank, problem);
+  if (!bar) return null;
+  const { rank, reject, title } = bar;
   let colour = "#525252";
-  if (problem === "eyesClosed") colour = "#d95252";
+  if (reject) colour = "#d95252";
   else if (rank) {
     const third = Math.max(1, Math.ceil(rank.count / 3));
     colour = palette === "classic"
       ? (rank.rank === 1 ? "#2ea0fa" : rank.rank <= third ? "#8cbde6" : rank.rank > rank.count - third ? "#de8a8a" : "#525252")
       : rankingColour(rank.rank, rank.count, palette);
   }
-  const title = problem ? PROBLEM_LABEL[problem] : rank!.rank === 1 ? `Best of these ${rank!.count}` : `Rank ${rank!.rank} of ${rank!.count}`;
   return (
     <span title={title} className="absolute inset-x-0 bottom-0 flex items-center justify-center text-[10px] font-bold leading-none text-black/80" style={{ height, background: colour }}>
       {rank?.rank}
@@ -152,7 +155,7 @@ export const RankBar = memo(function RankBar({ index, height = 14 }: { index: nu
 
 /** Whether a thumbnail has a strip along its bottom, so what sits there can make room. */
 export function useHasRankBar(index: number): boolean {
-  return useStore((s) => s.ranks[index] !== undefined || problemOf(s.ai[index]) === "eyesClosed");
+  return useStore((s) => rankBar(s.aiAdvanced ? s.judged[index] : undefined, s.ranks[index], problemOf(s.ai[index], s.compared[index])) !== null);
 }
 
 /** Pick or reject, as a small badge in the corner of a thumbnail. */

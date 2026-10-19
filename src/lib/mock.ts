@@ -178,6 +178,18 @@ export const mock: Backend = {
         }),
       ),
     ),
+  autocullJudge: async (frames) =>
+    frames.map((f) => {
+      const shut = f.faces.some((x) => x.eyesShut);
+      return { path: f.path, color: shut ? "red" : "none", place: null, count: null, reject: shut, why: shut ? "Likely reject: eyes shut" : "Stands alone: no faults found" };
+    }),
+  autocullLearn: async () => ({ learned: { shoots: 1, before: 0.5, after: 0.6, accepted: true, enough: true, reason: null, pickFirst: 0.5, pickTop2: 0.8 }, matched: 0.6, kept: "learned", source: "stars" }),
+  autocullKind: async () => null,
+  autocullSetKind: async () => {},
+  autocullStatus: async () => ({ shoots: 0, last: null }),
+  autocullReset: async () => {},
+  autocullOwned: async () => ({}),
+  autocullSetOwned: async () => {},
   mobileClipStatus: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
   mobileClipInstall: () => later({ ready: false, bytes: 45_543_630, model: "MobileCLIP-S0", backend: "CPU" }),
   aiAccelerationInfo: async () => null,

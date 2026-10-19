@@ -38,9 +38,9 @@ export function ThemeSettings() {
             <span aria-hidden="true" className="flex gap-2">{palette.colours.map(colour => <span key={colour} className="size-5 rounded-full border border-black/20" style={{ backgroundColor: colour }} />)}</span>
           </label>)}
         </div>
-        <p id="ranking-colours-help" className="text-sm text-muted-foreground">Best to lowest rank, from left to right. Rank numbers stay visible.</p>
+        <p id="ranking-colours-help" className="text-sm text-muted-foreground">Best to lowest rank, left to right.</p>
       </fieldset>
     </div>
-    <p className="mt-3 text-sm text-muted-foreground">18% grey and Wisp use a neutral photographic surround. Wisp adds contrasting panels, violet controls and the Space Grotesk typeface; every other theme uses the system font.</p>
+    <p className="mt-3 text-sm text-muted-foreground">18% grey and Wisp put photos on a neutral surround; Wisp has its own typeface.</p>
   </fieldset>;
 }

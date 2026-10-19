@@ -17,12 +17,12 @@ export function ViewModeSettings() {
               onChange={() => set("defaultViewMode", mode)} className="accent-primary" />{label}
           </label>)}
       </div>
-      <p id={`${id}-default-help`} className="mt-1 text-xs text-muted-foreground">Used for new folders and sessions when remembering the last view is off.</p>
+      <p id={`${id}-default-help`} className="mt-1 text-xs text-muted-foreground">Used for new folders when Remember last view is off.</p>
     </fieldset>
     <label className="flex cursor-pointer items-center gap-2 text-xs">
       <input type="checkbox" checked={remember} onChange={(e) => set("rememberViewMode", e.target.checked)}
         aria-describedby={`${id}-remember-help`} className="accent-primary" />Remember last view
     </label>
-    <p id={`${id}-remember-help`} className="text-xs text-muted-foreground">Reopen in the last Filmstrip, Stack, or Grid view, including after restarting OpenCull. Toolbar and keyboard changes are saved automatically.</p>
+    <p id={`${id}-remember-help`} className="text-xs text-muted-foreground">Reopens in the last view you used, even after restarting OpenCull.</p>
   </fieldset>;
 }

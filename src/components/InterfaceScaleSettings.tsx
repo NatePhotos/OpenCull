@@ -60,8 +60,8 @@ export function InterfaceScaleSettings() {
         {INTERFACE_SCALES.map((scale) => <option key={scale} value={scale} disabled={scale > largest}>{Math.round(scale * 100)}%{scale === 1 ? " (default)" : ""}{scale > largest ? " — too large for this window" : ""}</option>)}
       </select>
     </label>
-    <p className="text-xs leading-relaxed text-muted-foreground">{inTauri ? "Resize the whole interface, including menus, panels and thumbnails. Saved for your next launch. Smaller windows have less room for photos at larger scales." : "Use your browser’s zoom controls here. This saved setting controls scaling in the desktop app."}</p>
-    {value > largest && <p className="text-xs leading-relaxed text-muted-foreground">The window is too small for {Math.round(value * 100)}%, so the interface is showing at {Math.round(largest * 100)}%. Make the window wider to use your chosen size.</p>}
+    <p className="text-xs leading-relaxed text-muted-foreground">{inTauri ? "Resizes all text and controls; larger sizes leave less room for photos." : "In a browser, use its own zoom; this setting is for the desktop app."}</p>
+    {value > largest && <p className="text-xs leading-relaxed text-muted-foreground">Too big for this window, so showing at {Math.round(largest * 100)}%; widen the window for {Math.round(value * 100)}%.</p>}
     <button type="button" disabled={!inTauri || value === 1} onClick={() => set(1)} className="min-h-10 rounded-md border border-input px-3 text-xs disabled:opacity-50">Reset to 100%</button>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </fieldset>;

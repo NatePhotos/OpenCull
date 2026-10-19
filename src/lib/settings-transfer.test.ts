@@ -12,6 +12,10 @@ describe("portable settings", () => {
     const values = { ignoreVideos: true, ingestSortAscending: false };
     expect(parseSettingsImport(exportSettings(values))).toEqual(values);
   });
+  it("carries whether the AI bar is open", () => {
+    expect(parseSettingsImport(exportSettings({ showAiBar: true }))).toEqual({ showAiBar: true });
+    expect(() => parseSettingsImport(document({ showAiBar: "yes" }))).toThrow();
+  });
   it("ships the portable Wisp culling preset without source paths", () => {
     const values = parseSettingsImport(JSON.stringify(wisp));
     expect(values).toMatchObject({ theme: "wisp", showFeaturedImage: true, interfaceScale: 1.25, nativeFilmstrip: true, aiAdvanced: true, speedCullAlways: true });

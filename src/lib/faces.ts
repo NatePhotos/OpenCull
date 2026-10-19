@@ -83,7 +83,7 @@ export function useFaceScan(): void {
   useEffect(() => {
     if (judged.current === advanced) return;
     judged.current = advanced;
-    useStore.setState({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0 });
+    useStore.setState((s) => ({ ai: [], compared: [], ranks: [], poses: [], judged: [], judgeError: null, judgeRevision: s.judgeRevision + 1, aiDone: 0 }));
   }, [advanced]);
 
   useEffect(() => {

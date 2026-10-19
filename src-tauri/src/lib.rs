@@ -8,6 +8,7 @@ pub mod ai;
 pub mod burst;
 pub mod cache;
 pub mod commands;
+pub mod cull;
 pub mod editors;
 pub mod embed;
 pub mod faces;
@@ -77,12 +78,12 @@ pub fn run() {
             }
             // A self-test keeps its previews apart, so a run measures making
             // them rather than finding the last run's.
-            let (dir, times_dir, faces_dir) = if launch.self_test {
+            let (dir, times_dir, faces_dir, autocull_dir) = if launch.self_test {
                 let root = std::env::temp_dir().join(format!("opencull-selftest-{}", std::process::id()));
-                (root.join("previews"), root.join("times"), root.join("faces"))
+                (root.join("previews"), root.join("times"), root.join("faces"), root.join("autocull"))
             } else {
                 let root = app.path().app_cache_dir()?;
-                (root.join("previews"), root.join("times"), root.join("faces"))
+                (root.join("previews"), root.join("times"), root.join("faces"), app.path().app_data_dir()?.join("autocull"))
             };
             let self_test_root = dir.parent().map(|p| p.to_path_buf());
             // The finder's prepared copies for the graphics chip, kept beside the previews.
@@ -144,7 +145,7 @@ pub fn run() {
                 })
                 .ok();
 
-            let state = Arc::new(App::new(Previews::new(cache), times::Times::new(times_dir), ai::store::Store::new(faces_dir)));
+            let state = Arc::new(App::new(Previews::new(cache), times::Times::new(times_dir), ai::store::Store::new(faces_dir), cull::Store::new(autocull_dir)));
             // A rating that could not be written into a JPEG is still in its
             // sidecar, but other programs will not see it, and that is said.
             let handle = app.handle().clone();
@@ -221,6 +222,14 @@ pub fn run() {
             commands::mobileclip_install,
             commands::ai_look_at,
             commands::ai_compare,
+            commands::autocull_judge,
+            commands::autocull_learn,
+            commands::autocull_kind,
+            commands::autocull_set_kind,
+            commands::autocull_status,
+            commands::autocull_reset,
+            commands::autocull_owned,
+            commands::autocull_set_owned,
             commands::ai_stop,
             commands::ai_set_yield,
             commands::ai_cache_usage,

@@ -3,7 +3,7 @@ import { SettingsTransfer } from "@/components/SettingsTransfer";
 import { InterfaceScaleSettings } from "@/components/InterfaceScaleSettings";
 import { ThemeSettings } from "@/components/ThemeSettings";
 import { ViewModeSettings } from "@/components/ViewModeSettings";
-import { ChartColumn, Funnel, Info, Palette, PanelBottom, PanelLeft, PanelRight, PanelsTopLeft } from "lucide-react";
+import { ChartColumn, Funnel, Info, Palette, PanelBottom, PanelLeft, PanelRight, PanelsTopLeft, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { HardDrive, Keyboard, ScanFace, Star, ZoomIn, type LucideIcon } from "lucide-react";
 import { GraphicsSettings } from "@/components/GraphicsSettings";
@@ -110,7 +110,7 @@ function ShortcutEditor({ bindings, onChange, onRecording }: ShortcutEditorProps
 
   return (
     <div className="space-y-4">
-      <p className="text-sm leading-relaxed text-muted-foreground">Click a shortcut, then press the keys you want for it. Escape cancels. Assigning a key already in use clears its previous shortcut.</p>
+      <p className="text-sm leading-relaxed text-muted-foreground">Click a shortcut and press new keys; Escape cancels, and a key already in use moves here.</p>
       {recording && <p role="status" className="text-sm text-foreground">Listening for a shortcut. Press Escape to cancel.</p>}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {SECTIONS.map((section) => (
@@ -264,14 +264,14 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
     await api.aiClearCache().catch(() => {});
     setFaceMemory(await api.aiCacheUsage().catch(() => null));
     // The folder on screen is analysed afresh, there being nothing to show for it now.
-    useStore.setState({ ai: [], compared: [], ranks: [], poses: [], aiDone: 0 });
+    useStore.setState((c) => ({ ai: [], compared: [], ranks: [], poses: [], judged: [], judgeError: null, judgeRevision: c.judgeRevision + 1, aiDone: 0 }));
     if (s.aiEnabled) {
       set("aiEnabled", false);
       setTimeout(() => set("aiEnabled", true), 50);
     }
   };
 
-  const toggle = (key: "spaceZoomToFace" | "hideFilmstripOnCrop" | "nativeFilmstrip" | "faceSpotlight" | "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "aiAdvanced" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates", label?: string) => (
+  const toggle = (key: "spaceZoomToFace" | "hideFilmstripOnCrop" | "nativeFilmstrip" | "faceSpotlight" | "speedCullAlways" | "showRatingBar" | "keepZoom" | "instantZoom" | "rgbHistogram" | "warmAhead" | "aiEnabled" | "aiAdvanced" | "showWhy" | "showBackgroundFaces" | "aiPause" | "smartGroups" | "embedInJpeg" | "checkForUpdates", label?: string) => (
     <Switch aria-label={label} checked={s[key]} onCheckedChange={(on) => set(key, on)} />
   );
   const boxKey = isMac ? "⌘ Command" : "Ctrl";
@@ -304,7 +304,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
                 ["showFilmstrip", "Filmstrip", PanelBottom], ["showFaces", "Face panel", PanelRight],
                 ["showExif", "EXIF panel", PanelLeft], ["showHistogram", "Histogram in EXIF panel", ChartColumn],
                 ["showInfo", "Information overlay", Info], ["showRatingBar", "Rating bar", Star],
-                ["showFilterBar", "Filter bar", Funnel],
+                ["showFilterBar", "Filter bar", Funnel], ["showAiBar", "AI bar", Sparkles],
               ] as const).map(([key, title, Icon]) => (
                 <div key={key} className="flex min-h-11 items-center justify-between gap-4 py-2">
                   <label htmlFor={`panel-${key}`} className="flex items-center gap-2"><Icon aria-hidden="true" className="size-4 shrink-0" />{title}</label>
@@ -315,7 +315,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           </fieldset>
           <Setting
             title="Native-aspect filmstrip"
-            detail="Keeps each photo's own shape in the filmstrip and the scene strip: upright photos take less width, wide ones more. Off, every photo gets the same 3:2 space."
+            detail="Shows each photo in its own shape in the filmstrips, not all 3:2."
             control={toggle("nativeFilmstrip", "Native-aspect filmstrip")}
           />
           {([
@@ -323,7 +323,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
             ["exifPanelWidth", "EXIF panel width", 160, 640],
             ["facePanelWidth", "Face panel width", 160, 800],
           ] as const).map(([key, title, min, max]) => (
-            <Setting key={key} title={title} detail="Pixels; side panels are constrained to fit the window. Dragging a panel updates this setting too."
+            <Setting key={key} title={title} detail="Size in pixels; dragging the panel changes it too."
               control={<label className="flex items-center gap-2"><input aria-label={title} type="range" min={min} max={max} step={1}
                 value={s[key]} onChange={(e) => set(key, Number(e.target.value))} className="w-24 accent-primary" />
                 <output className="w-8 text-right text-xs">{s[key]}</output></label>} />
@@ -332,27 +332,27 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
         <TabsContent value="culling" className="space-y-4">
           <Setting
             title="Speed cull"
-            detail="Moves straight on to the next photo after you pick, reject or rate one. Its key — Caps Lock unless you change it — also turns it on, whatever is set here."
+            detail="Moves to the next photo after each mark; its key (Caps Lock by default) also turns it on."
             control={toggle("speedCullAlways")}
           />
           <Setting
             title="Hide filmstrip while cropping"
-            detail="Hides both filmstrip rows while you crop a photo, to give the crop more room. They come back as they were when you keep or cancel the crop."
+            detail="Hides the filmstrip while you crop, for more room."
             control={toggle("hideFilmstripOnCrop", "Hide filmstrip while cropping")}
           />
           <Setting
             title="Rating bar"
-            detail="The flag, star and colour strip along the bottom of the photo. Turn off to give the whole frame to the picture; the keys and the right-click menu still set everything."
+            detail="Shows the flag, star and colour strip under the photo."
             control={toggle("showRatingBar")}
           />
           <Setting
             title="RGB histogram"
-            detail="Draws red, green and blue overlapping. Turn off for a single white curve of brightness."
+            detail="Shows red, green and blue; off shows one brightness curve."
             control={toggle("rgbHistogram")}
           />
           <Setting
             title="Files to cull"
-            detail="For a camera that saves every frame as both a RAW and a JPEG. RAW + JPEG shows each pair as one photo: one rating covers both, and both are moved, copied or binned together. RAW or JPEG shows only that kind and leaves the other files where they are. The folder on screen reloads when you change this."
+            detail="For RAW + JPEG cameras: show each pair as one photo (rated and moved together), or just one kind."
             control={
               <div className="flex rounded-md bg-foreground/[0.07] p-0.5">
                 {(
@@ -381,12 +381,12 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           />
           <Setting
             title="Write ratings and crops into JPEGs"
-            detail="Stores a JPEG's stars, colour label and crop inside the file itself as well as beside it, which is where Lightroom, Bridge and others look for them. Only the file's information is changed, never the picture; a rotation or flip is kept beside the JPEG only. Turn off to leave JPEG files exactly as they are."
+            detail="Also writes stars, colour labels and crops inside JPEGs for Lightroom; the picture never changes."
             control={toggle("embedInJpeg")}
           />
           <Setting
             title={`Ask before moving to the ${bin}`}
-            detail={`Asks each time before photos are sent to the ${bin}. Turn off to send them the moment the key is pressed; they stay in the ${bin} until you empty it.`}
+            detail={`Asks before sending photos to the ${bin}.`}
             control={<Switch checked={s.askBeforeTrash} onCheckedChange={(on) => (on ? set("askBeforeTrash", true) : setStopAsking(true))} />}
           />
           <AlertDialog open={stopAsking} onOpenChange={setStopAsking}>
@@ -394,8 +394,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
               <AlertDialogHeader>
                 <AlertDialogTitle>Stop asking before moving photos to the {bin}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  The Move to {bin} key and menu item will send the photo, or every selected photo, to the {bin} at once, along with any JPEG and sidecar file beside it. Nothing will ask first. You can turn the question back on here
-                  at any time.
+                  Photos will go straight to the {bin}, with their JPEG and sidecar files, without asking first.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -408,7 +407,7 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           </AlertDialog>
           <Setting
             title="Include subfolders"
-            detail="Opens photos inside a folder's subfolders as well, so a shoot split across a card's own folders culls as one. The folder on screen reloads when you change this."
+            detail="Also opens the photos in a folder's subfolders."
             control={
               <Switch
                 checked={s.includeSubfolders}
@@ -422,13 +421,13 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           />
           <Setting
             title="Ignore videos"
-            detail="Hide video files when opening folders and ingesting cards. Turn off to include playback where the system supports the codec."
+            detail="Hides video files in folders and on cards."
             control={<Switch aria-label="Ignore videos" checked={s.ignoreVideos} onCheckedChange={(on) => { set("ignoreVideos", on); useStore.getState().reloadForSubfolders(); }} />}
           />
           <Setting
             title="Check for updates"
-            detail={`Looks for a newer OpenCull each time the app opens, and offers to install it. It is the only thing OpenCull uses the internet for, and nothing about you or your photos is sent. ${
-              updates === "newest" ? `You have ${s.version}, the newest version.` : typeof updates === "object" ? `Could not check just now: ${updates.failed}` : `You have ${s.version}.`
+            detail={`Checks for a new version at launch; nothing about you or your photos is sent. ${
+              updates === "newest" ? `You have ${s.version}, the newest.` : typeof updates === "object" ? `Couldn't check: ${updates.failed}` : `You have ${s.version}.`
             }`}
             control={
               <div className="flex items-center gap-2.5">
@@ -443,55 +442,62 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
         <TabsContent value="zoom" className="space-y-4">
           <Setting
             title="Prefer highest-scoring face"
-            detail="Face zoom targets the sharpest scored main subject when enabled; otherwise it uses the first visible main subject. With no detected face, it uses the centre. Press again to return to fit. Follows Zoom to face if you rebind Space."
+            detail="Zoom to face goes to the sharpest main face, not the first one."
             control={toggle("spaceZoomToFace", "Prefer highest-scoring face")}
           />
           <Setting
             title="Keep zoom between photos"
-            detail="Holds the zoom and the spot you are looking at as you move through a folder, so focus can be checked on the same face across a burst. Turn off to return to the whole frame on every photo."
+            detail="Keeps the zoom and spot as you move, to check focus across a burst."
             control={toggle("keepZoom")}
           />
           <Setting
             title="Instant 100% zoom"
-            detail="Fetches the full-size picture as soon as you stop on a photo, so zooming in is sharp at once and not a moment later. Moving between photos is unaffected."
+            detail="Loads the full-size picture when you stop, so zooming in is sharp at once."
             control={toggle("instantZoom")}
           />
           <Setting
             title="Zoom to a box"
-            detail={`Hold ${boxKey} and drag a box over the photo to zoom into just that part.`}
+            detail={`Hold ${boxKey} and drag a box to zoom into that part.`}
             control={<span className="text-xs text-[var(--ui-text-808080)]">{isMac ? "⌘ drag" : "Ctrl + drag"}</span>}
           />
         </TabsContent>
         <TabsContent value="ai" className="space-y-4">
           <Setting
             title="OpenCull AI"
-            detail="Finds the faces in each photo and judges them: eyes shut, looking away, how sharp, and who the photo is about. From that it marks each photo and ranks the frames of a burst, or of the same pose shot again. Runs on this computer; nothing is sent anywhere."
+            detail="Finds faces, judges eyes, gaze and sharpness, and ranks bursts. Runs on this computer."
             control={toggle("aiEnabled")}
           />
           <Setting
             title="Advanced AI"
-            detail="A newer way of judging faces that is still being worked on. It looks closer at each face's eyes and mouth and names the state it is in — looking down, laughing, eyes closed in a hug — and stops marking a photo down for those, or for people looking away where nobody is looking at the camera. It also weighs the whole photo to decide who is in the background. Off, photos are judged as they were in OpenCull 0.3. Switching analyses the open folder again; each way remembers its own results. Needs OpenCull AI."
+            detail="Newer judging: shoot types, exposure and test-shot checks, and Auto-label."
             control={toggle("aiAdvanced")}
           />
+          {s.aiAdvanced && (
+            <Setting
+              title="Show why"
+              detail="Shows why each photo ranked where it did."
+              control={toggle("showWhy", "Show why")}
+            />
+          )}
           <Setting
             title="Face hover spotlight"
-            detail="Hover over a face in the face panel, or move to it with the keyboard, to dim the rest of the photo around it. The zoom stays as it is; click the face to zoom to it. Needs OpenCull AI."
+            detail="Dims the photo around a face you hover in the face panel; needs OpenCull AI."
             control={toggle("faceSpotlight", "Face hover spotlight")}
           />
           <Setting
             title="Show background faces"
-            detail="Shows faces judged to be background — guests, passers-by — in the face panel, dimmed, with the reason. They are left out of the photo's mark either way, so a blink in the crowd cannot sink a photo."
+            detail="Shows background faces, dimmed, in the face panel; they never count against a photo."
             control={toggle("showBackgroundFaces")}
           />
           <Setting
             title="Intelligent grouping"
-            detail="Groups a pose shot again — the same people in the same places, a few seconds apart — with the frames it was shot beside, as one scene. Scene View, the filmstrip and the ranks all follow it, and each person's eyes are compared across the whole pose. Turn off to group only the frames of one press of the shutter. Needs OpenCull AI."
+            detail="Groups the same pose shot again seconds later as one scene; needs OpenCull AI."
             control={toggle("smartGroups")}
           />
           <MobileClipSettings />
           <Setting
             title="Pause analysis while culling"
-            detail="Holds the folder scan for a moment each time you move to another photo, so previews never wait behind analysis. Nothing is lost; the scan carries on as soon as you pause. Turn off to let a folder finish as fast as possible while you work."
+            detail="Pauses the scan while you move between photos, so previews come first."
             control={toggle("aiPause")}
           />
         </TabsContent>
@@ -499,12 +505,12 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
           <GraphicsSettings />
           <Setting
             title="Prepare previews ahead"
-            detail="While you are not doing anything, gets the photos around the one you are on ready, so any of them opens at once. Uses about 1 MB of disk per photo."
+            detail="Readies nearby photos while you are idle; about 1 MB of disk each."
             control={toggle("warmAhead")}
           />
           <Setting
             title="Preview cache limit"
-            detail="Previews are kept on disk so each is only ever made once. Past this size, the least recently used are removed."
+            detail="Past this size, the previews used longest ago are removed."
             control={
               <div className="flex items-center gap-1.5">
                 <Button variant="outline" size="sm" className="w-7 px-0" disabled={s.cacheLimitGb <= 1} onClick={() => setLimit(s.cacheLimitGb - (s.cacheLimitGb > 10 ? 5 : 1))}>
@@ -521,8 +527,8 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
             title="Preview cache"
             detail={
               usage
-                ? `${fileSize(usage.bytes)} in ${usage.count.toLocaleString()} previews. Clearing only costs time, never your work: ratings, flags and colours live beside your photos.`
-                : "Clearing only costs time, never your work: ratings, flags and colours live beside your photos."
+                ? `${fileSize(usage.bytes)} in ${usage.count.toLocaleString()} previews; clearing never loses ratings, flags or colours.`
+                : "Clearing never loses ratings, flags or colours."
             }
             control={
               <Button variant="outline" size="sm" disabled={clearing || !usage || usage.count === 0} onClick={() => void clear()}>
@@ -534,8 +540,8 @@ function SettingsBody({ tab, onTab, ...shortcutProps }: { tab: SettingsTab; onTa
             title="Analysis cache"
             detail={
               faceMemory
-                ? `${fileSize(faceMemory[0])} for ${faceMemory[1].toLocaleString()} folder${faceMemory[1] === 1 ? "" : "s"}, so a folder is only ever analysed once. Clearing makes folders scan again on their next visit. Ratings, flags and colours are never affected.`
-                : "What analysis found, kept so a folder is only ever analysed once."
+                ? `${fileSize(faceMemory[0])} for ${faceMemory[1].toLocaleString()} folder${faceMemory[1] === 1 ? "" : "s"}; clearing rescans them, never losing ratings, flags or colours.`
+                : "Saved scan results, so each folder is scanned only once."
             }
             control={
               <Button variant="outline" size="sm" disabled={!faceMemory || faceMemory[1] === 0} onClick={() => void clearFaces()}>

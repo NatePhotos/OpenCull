@@ -32,6 +32,9 @@ use std::time::{Duration, Instant};
 /// every gap and be mid-decode when the next request landed.
 const QUIET: Duration = Duration::from_millis(400);
 
+/// What everyone waiting on work abandoned before it started is told.
+pub const ABANDONED: &str = "no longer wanted";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
     /// For the photo on screen in the loupe.
@@ -53,6 +56,10 @@ struct Job<T> {
     priority: Priority,
     /// Order of asking; larger is more recent.
     seq: u64,
+    /// Someone has stopped to wait for this (`submit_waited`). Spare-time
+    /// work like that is not abandoned when idle work is cleared, and goes
+    /// before spare-time work nobody is waiting on.
+    waited: bool,
     work: Work<T>,
 }
 
@@ -114,7 +121,9 @@ impl<T: Send + Sync + 'static> Pool<T> {
     /// the others waiting. Asking again also moves the job forward: to the
     /// front of the queue, and up to this request's priority if that is
     /// higher — so a photo that was only being looked ahead to jumps the
-    /// queue the moment it is the one on screen.
+    /// queue the moment it is the one on screen. The exception is spare-time
+    /// work asking for a job queued at a higher priority: that leaves the job
+    /// where it was, so it never reorders what the photographer asked for.
     pub fn submit(
         &self,
         key: String,
@@ -122,6 +131,24 @@ impl<T: Send + Sync + 'static> Pool<T> {
         work: impl FnOnce() -> Result<T, String> + Send + 'static,
         done: impl FnOnce(Result<Arc<T>, String>) + Send + 'static,
     ) {
+        self.enqueue(key, priority, false, Box::new(work), Box::new(done));
+    }
+
+    /// As `submit`, for an asker that stops and waits for the answer. Such a
+    /// request for spare-time work is kept when idle work is cleared, and
+    /// goes before the spare-time work nobody is waiting on, so whoever is
+    /// waiting is not left behind a fresh batch of preparation.
+    pub fn submit_waited(
+        &self,
+        key: String,
+        priority: Priority,
+        work: impl FnOnce() -> Result<T, String> + Send + 'static,
+        done: impl FnOnce(Result<Arc<T>, String>) + Send + 'static,
+    ) {
+        self.enqueue(key, priority, true, Box::new(work), Box::new(done));
+    }
+
+    fn enqueue(&self, key: String, priority: Priority, waited: bool, work: Work<T>, done: Done<T>) {
         let (lock, wake) = &*self.shared;
         let mut state = lock.lock().unwrap();
         state.seq += 1;
@@ -131,14 +158,18 @@ impl<T: Send + Sync + 'static> Pool<T> {
         }
 
         if let Some(waiters) = state.waiting.get_mut(&key) {
-            waiters.push(Box::new(done));
+            waiters.push(done);
             if let Some(job) = state.queue.iter_mut().find(|j| j.key == key) {
-                job.priority = job.priority.min(priority);
-                job.seq = seq;
+                job.waited |= waited;
+                // Spare-time asking never reorders anything else.
+                if priority != Priority::Idle || job.priority == Priority::Idle {
+                    job.priority = job.priority.min(priority);
+                    job.seq = seq;
+                }
             }
         } else {
-            state.waiting.insert(key.clone(), vec![Box::new(done)]);
-            state.queue.push(Job { key, priority, seq, work: Box::new(work) });
+            state.waiting.insert(key.clone(), vec![done]);
+            state.queue.push(Job { key, priority, seq, waited, work });
         }
         drop(state);
         wake.notify_all();
@@ -155,20 +186,22 @@ impl<T: Send + Sync + 'static> Pool<T> {
             keys.iter().filter_map(|k| state.waiting.remove(k)).flatten().collect()
         };
         for done in abandoned {
-            done(Err("no longer wanted".into()));
+            done(Err(ABANDONED.into()));
         }
     }
 
     /// Abandons idle work not yet started, and nothing else. For when what
     /// is worth preparing has changed — the photographer has moved to another
     /// part of the folder — and the old list would only delay the new one.
+    /// Idle work someone has stopped to wait for is kept: what they wait on
+    /// has not changed.
     pub fn clear_idle(&self) {
         let (lock, _) = &*self.shared;
         let abandoned: Vec<Done<T>> = {
             let mut state = lock.lock().unwrap();
             let mut keys = Vec::new();
             state.queue.retain(|j| {
-                let idle = j.priority == Priority::Idle;
+                let idle = j.priority == Priority::Idle && !j.waited;
                 if idle {
                     keys.push(j.key.clone());
                 }
@@ -177,7 +210,7 @@ impl<T: Send + Sync + 'static> Pool<T> {
             keys.iter().filter_map(|k| state.waiting.remove(k)).flatten().collect()
         };
         for done in abandoned {
-            done(Err("no longer wanted".into()));
+            done(Err(ABANDONED.into()));
         }
     }
 
@@ -217,8 +250,12 @@ impl<T: Send + Sync + 'static> Pool<T> {
                             Priority::Idle => idle_allowed,
                             _ => !only_now,
                         })
-                        // Highest priority, then most recently asked for.
-                        .min_by_key(|(_, j)| (j.priority, std::cmp::Reverse(j.seq)))
+                        // Highest priority, then most recently asked for —
+                        // except that idle work someone is waiting on goes
+                        // before idle work nobody is.
+                        .min_by_key(|(_, j)| {
+                            (j.priority, j.priority == Priority::Idle && !j.waited, std::cmp::Reverse(j.seq))
+                        })
                         .map(|(i, _)| i);
                     if let Some(i) = pick {
                         let job = state.queue.swap_remove(i);
@@ -443,6 +480,22 @@ mod tests {
     }
 
     #[test]
+    fn idle_work_never_makes_the_pool_busy_and_any_other_request_does() {
+        // Work that stands aside while the pool is busy (the face scan) may
+        // ask for idle work without standing aside for its own request.
+        let pool = Pool::<u32>::new(4);
+        let (tx, rx) = mpsc::channel();
+        let (release, gate) = mpsc::channel::<()>();
+        pool.submit("idle".into(), Priority::Idle, move || { gate.recv().ok(); Ok(1) }, move |_| tx.send(()).unwrap());
+        assert!(!pool.busy(), "queued or under way, idle work leaves the pool free");
+        release.send(()).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!pool.busy());
+        pool.submit("later".into(), Priority::Later, || Ok(2), |_| {});
+        assert!(pool.busy(), "a look-ahead starts the quiet period");
+    }
+
+    #[test]
     fn idle_work_is_held_to_its_share_of_the_workers() {
         // Five workers: one reserved, four general, so two may be idle-working.
         let pool = Pool::<u32>::new(5);
@@ -520,6 +573,111 @@ mod tests {
         assert_eq!(heard, vec![("ahead-1", false), ("ahead-2", false)]);
         open.send(()).unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), ("wanted", true));
+        open_reserved.send(()).unwrap();
+    }
+
+    #[test]
+    fn idle_work_someone_is_waiting_on_survives_clearing_and_goes_before_newer_idle_work() {
+        // A judge's brightness read, blocked on, must not be dropped when
+        // the folder's preparation is started again, nor end up behind it.
+        let pool = Pool::<u32>::new(2);
+        let (open, open_reserved) = hold(&pool, 2);
+        let (tx, rx) = mpsc::channel();
+        let t = tx.clone();
+        pool.submit_waited("judge".into(), Priority::Idle, || Ok(1), move |r| t.send(("judge", r.is_ok())).unwrap());
+        pool.clear_idle();
+        assert_eq!(pool.idle_remaining(), 1, "the waited-on job is kept");
+        for name in ["warm-1", "warm-2"] {
+            let tx = tx.clone();
+            pool.submit(name.into(), Priority::Idle, || Ok(1), move |r| tx.send((name, r.is_ok())).unwrap());
+        }
+
+        // The general worker alone, so the order is exact.
+        open.send(()).unwrap();
+        let order: Vec<(&str, bool)> = (0..3).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+        assert_eq!(order, vec![("judge", true), ("warm-2", true), ("warm-1", true)]);
+        open_reserved.send(()).unwrap();
+    }
+
+    #[test]
+    fn idle_work_nobody_is_waiting_on_is_still_dropped_by_clearing() {
+        let pool = Pool::<u32>::new(2);
+        let (open, open_reserved) = hold(&pool, 2);
+        let (tx, rx) = mpsc::channel();
+        let t = tx.clone();
+        pool.submit("ahead".into(), Priority::Idle, || Ok(1), move |r| t.send(("ahead", r.err())).unwrap());
+        let t = tx.clone();
+        pool.submit_waited("judge".into(), Priority::Idle, || Ok(1), move |r| t.send(("judge", r.err())).unwrap());
+        pool.clear_idle();
+
+        // Only the job nobody waits on is gone, and its asker is told.
+        assert_eq!(pool.queued(), 1);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), ("ahead", Some(ABANDONED.to_string())));
+        open.send(()).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), ("judge", None));
+        open_reserved.send(()).unwrap();
+    }
+
+    #[test]
+    fn asking_again_as_idle_work_leaves_a_higher_priority_job_where_it_was() {
+        let pool = Pool::<u32>::new(2);
+        let (open, open_reserved) = hold(&pool, 2);
+        let (tx, rx) = mpsc::channel();
+        let ask = |name: &'static str, priority| {
+            let tx = tx.clone();
+            pool.submit(name.into(), priority, move || Ok(0), move |_| tx.send(name).unwrap());
+        };
+        ask("older", Priority::Soon);
+        ask("newer", Priority::Soon);
+        let before = {
+            let state = pool.shared.0.lock().unwrap();
+            let job = state.queue.iter().find(|j| j.key == "older").unwrap();
+            (job.priority, job.seq)
+        };
+        // A judge's spare-time read of a thumbnail browsing already wants.
+        ask("older", Priority::Idle);
+        let after = {
+            let state = pool.shared.0.lock().unwrap();
+            let job = state.queue.iter().find(|j| j.key == "older").unwrap();
+            (job.priority, job.seq)
+        };
+        assert_eq!(after, before, "priority and place unchanged");
+
+        open.send(()).unwrap();
+        let order: Vec<&str> = (0..3).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+        assert_eq!(order, vec!["newer", "older", "older"]);
+        open_reserved.send(()).unwrap();
+    }
+
+    #[test]
+    fn asking_again_at_look_ahead_still_moves_a_queued_on_screen_job_to_the_front() {
+        // Holding an arrow key: looking ahead re-asks for frames already
+        // queued for the screen, and that puts the next frame first.
+        let pool = Pool::<u32>::new(2);
+        let (open, open_reserved) = hold(&pool, 2);
+        let (tx, rx) = mpsc::channel();
+        let ask = |name: &'static str, priority| {
+            let tx = tx.clone();
+            pool.submit(name.into(), priority, move || Ok(0), move |_| tx.send(name).unwrap());
+        };
+        ask("next", Priority::Now);
+        ask("current", Priority::Now);
+        let before = {
+            let state = pool.shared.0.lock().unwrap();
+            state.queue.iter().find(|j| j.key == "next").unwrap().seq
+        };
+        ask("next", Priority::Later);
+        let (priority, after) = {
+            let state = pool.shared.0.lock().unwrap();
+            let job = state.queue.iter().find(|j| j.key == "next").unwrap();
+            (job.priority, job.seq)
+        };
+        assert_eq!(priority, Priority::Now, "it keeps its higher priority");
+        assert!(after > before, "and moves to the front");
+
+        open.send(()).unwrap();
+        let order: Vec<&str> = (0..3).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+        assert_eq!(order, vec!["next", "next", "current"]);
         open_reserved.send(()).unwrap();
     }
 
