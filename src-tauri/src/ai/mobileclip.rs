@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
-    io::Write,
+    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::Duration,
@@ -42,7 +42,13 @@ impl Grouping {
 }
 const MODEL_FILE: &str = "mobileclip-s0-vision-v1.onnx";
 const DIM: usize = 512;
-const RAM_ENTRIES: usize = 256;
+/// Fingerprints kept loaded across folders (about 60 MB); least recently used
+/// folders are dropped to stay under it, but the folder in use always stays.
+const VECTOR_BUDGET: usize = 30_000;
+/// Folder store: this header, then fixed-size records of a 16-byte key and
+/// DIM little-endian f32. Records are only ever appended.
+const MAGIC: &[u8; 8] = b"OCMCLIP1";
+const RECORD: usize = 16 + 4 * DIM;
 static MODEL: OnceLock<Mutex<Option<Model>>> = OnceLock::new();
 static INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -219,11 +225,71 @@ fn pixels(rgb: &[u8], width: u32, height: u32) -> Result<Vec<f32>, String> {
     Ok(tensor)
 }
 
+/// One fingerprint's address: the photo's folder and the hash of model,
+/// preprocessing, path and version.
+#[derive(Clone, Debug)]
+struct Key {
+    folder: PathBuf,
+    id: u128,
+}
+/// One folder's fingerprints as loaded from its file.
+#[derive(Default)]
+struct Folder {
+    vectors: HashMap<u128, Vec<f32>>,
+    /// Length of the header plus whole records on disk; 0 when the file is
+    /// missing or its header is wrong.
+    good: u64,
+    /// The file's tail has been checked this session, so appends go straight on.
+    ready: bool,
+}
+#[cfg(test)]
+thread_local! {
+    static FOLDER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+fn folder_file(root: &Path, folder: &Path) -> PathBuf {
+    let name = xxhash_rust::xxh3::xxh3_128(folder.to_string_lossy().as_bytes());
+    root.join("embeddings")
+        .join("folders")
+        .join(format!("{name:032x}.bin"))
+}
+/// Whole records only: a partial one at the end is skipped, a wrong header
+/// reads as empty, and a repeated key keeps its later record.
+fn read_folder(file: &Path) -> Folder {
+    #[cfg(test)]
+    FOLDER_READS.with(|n| n.set(n.get() + 1));
+    let Ok(bytes) = fs::read(file) else {
+        return Folder::default();
+    };
+    if bytes.len() < MAGIC.len() || &bytes[..MAGIC.len()] != MAGIC {
+        return Folder::default();
+    }
+    let whole = (bytes.len() - MAGIC.len()) / RECORD;
+    let end = MAGIC.len() + whole * RECORD;
+    let mut vectors = HashMap::with_capacity(whole);
+    for record in bytes[MAGIC.len()..end].chunks_exact(RECORD) {
+        let id = u128::from_le_bytes(record[..16].try_into().expect("16-byte key"));
+        let vector: Vec<f32> = record[16..]
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes(b.try_into().expect("4-byte float")))
+            .collect();
+        // Zero or garbage vectors are left out so they get recomputed.
+        let norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if vector.iter().all(|x| x.is_finite()) && (norm - 1.0).abs() <= 1e-3 {
+            vectors.insert(id, vector);
+        }
+    }
+    Folder {
+        vectors,
+        good: end as u64,
+        ready: false,
+    }
+}
+
 pub struct Model {
     root: PathBuf,
     session: Option<Session>,
-    memory: HashMap<String, Vec<f32>>,
-    recent: VecDeque<String>,
+    memory: HashMap<PathBuf, Folder>,
+    recent: VecDeque<PathBuf>,
     pub computed: usize,
     pub cached: usize,
 }
@@ -240,57 +306,110 @@ impl Model {
             cached: 0,
         })
     }
-    fn key(path: &Path, version: &str) -> String {
-        format!(
-            "{:032x}",
-            xxhash_rust::xxh3::xxh3_128(
+    fn key(path: &Path, version: &str) -> Key {
+        Key {
+            folder: path.parent().unwrap_or(Path::new("")).to_path_buf(),
+            id: xxhash_rust::xxh3::xxh3_128(
                 format!(
                     "{MODEL_SHA}\0preprocess-v4-screen-fit\0{}\0{version}",
                     path.to_string_lossy()
                 )
-                .as_bytes()
-            )
-        )
-    }
-    fn remember(&mut self, key: String, vector: Vec<f32>) -> Vec<f32> {
-        if self.memory.len() >= RAM_ENTRIES {
-            if let Some(old) = self.recent.pop_front() {
-                self.memory.remove(&old);
-            }
+                .as_bytes(),
+            ),
         }
-        self.recent.push_back(key.clone());
-        self.memory.insert(key, vector.clone());
+    }
+    /// The loaded folder, reading its file on first use. Least recently used
+    /// folders are dropped first, before the read, to stay within the budget.
+    fn folder(&mut self, folder: &Path) -> &mut Folder {
+        self.folder_within(folder, VECTOR_BUDGET)
+    }
+    fn folder_within(&mut self, folder: &Path, budget: usize) -> &mut Folder {
+        if let Some(at) = self.recent.iter().position(|f| f == folder) {
+            if let Some(f) = self.recent.remove(at) {
+                self.recent.push_back(f);
+            }
+        } else {
+            let file = folder_file(&self.root, folder);
+            let incoming = fs::metadata(&file).map_or(0, |m| {
+                (m.len() as usize).saturating_sub(MAGIC.len()) / RECORD
+            });
+            let mut held: usize = self.memory.values().map(|f| f.vectors.len()).sum();
+            while held + incoming > budget {
+                let Some(old) = self.recent.pop_front() else {
+                    break;
+                };
+                if let Some(gone) = self.memory.remove(&old) {
+                    held -= gone.vectors.len();
+                }
+            }
+            self.recent.push_back(folder.into());
+            self.memory.insert(folder.into(), read_folder(&file));
+        }
+        self.memory.get_mut(folder).expect("folder just loaded")
+    }
+    /// Adds one whole record to the folder's file. The first append of a
+    /// session cuts off any torn tail (or rewrites a wrong header) so new
+    /// records always start on a record boundary.
+    fn append(&mut self, key: &Key, vector: &[f32]) -> Result<(), String> {
+        let file = folder_file(&self.root, &key.folder);
+        let mut record = Vec::with_capacity(RECORD);
+        record.extend_from_slice(&key.id.to_le_bytes());
         vector
-    }
-    fn cached(&mut self, key: &str) -> Option<Vec<f32>> {
-        if let Some(v) = self.memory.get(key) {
-            self.cached += 1;
-            return Some(v.clone());
-        }
-        let file = self.root.join("embeddings").join(format!("{key}.json"));
-        let v = normalized(serde_json::from_slice(&fs::read(file).ok()?).ok()?).ok()?;
-        self.cached += 1;
-        Some(self.remember(key.into(), v))
-    }
-    fn persist(&mut self, key: String, vector: Vec<f32>) -> Result<Vec<f32>, String> {
-        let file = self.root.join("embeddings").join(format!("{key}.json"));
-        fs::create_dir_all(file.parent().expect("embedding cache has parent"))
+            .iter()
+            .for_each(|x| record.extend_from_slice(&x.to_le_bytes()));
+        let slot = self.folder(&key.folder);
+        fs::create_dir_all(file.parent().expect("folder file has parent"))
             .map_err(|e| e.to_string())?;
-        let temp = file.with_extension(format!("tmp{}", std::process::id()));
-        fs::write(
-            &temp,
-            serde_json::to_vec(&vector).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        if let Err(error) = fs::rename(&temp, &file) {
-            let _ = fs::remove_file(&temp);
-            // Another invocation may have written the same deterministic
-            // feature first. Treat that as success and use the verified file.
-            if file.exists() {
-                return Ok(self.cached(&key).unwrap_or(vector));
-            }
-            return Err(error.to_string());
+        let mut out = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&file)
+            .map_err(|e| e.to_string())?;
+        // Shorter than what we last knew: deleted or cut outside the app.
+        // Start again from whatever the file really holds.
+        let on_disk = out.metadata().map_err(|e| e.to_string())?.len();
+        if on_disk < slot.good {
+            *slot = read_folder(&file);
         }
+        if !slot.ready {
+            if slot.good == 0 {
+                out.set_len(0).map_err(|e| e.to_string())?;
+                out.write_all(MAGIC).map_err(|e| e.to_string())?;
+                slot.good = MAGIC.len() as u64;
+            } else {
+                out.set_len(slot.good).map_err(|e| e.to_string())?;
+            }
+        }
+        // A failed write may leave a torn tail; recheck before the next one.
+        slot.ready = false;
+        out.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
+        out.write_all(&record).map_err(|e| e.to_string())?;
+        slot.good += RECORD as u64;
+        slot.ready = true;
+        slot.vectors.insert(key.id, vector.to_vec());
+        Ok(())
+    }
+    fn cached(&mut self, key: &Key) -> Option<Vec<f32>> {
+        if let Some(v) = self.folder(&key.folder).vectors.get(&key.id) {
+            let v = v.clone();
+            self.cached += 1;
+            return Some(v);
+        }
+        // An older per-photo file: read once, move into the folder file.
+        let old = self
+            .root
+            .join("embeddings")
+            .join(format!("{:032x}.json", key.id));
+        let v = normalized(serde_json::from_slice(&fs::read(&old).ok()?).ok()?).ok()?;
+        if self.append(key, &v).is_ok() {
+            fs::remove_file(&old).ok();
+        }
+        self.cached += 1;
+        Some(v)
+    }
+    fn persist(&mut self, key: Key, vector: Vec<f32>) -> Result<Vec<f32>, String> {
+        self.append(&key, &vector)?;
         self.computed += 1;
         if self.computed % 32 == 0 {
             eprintln!(
@@ -298,9 +417,9 @@ impl Model {
                 self.computed, self.cached
             );
         }
-        Ok(self.remember(key, vector))
+        Ok(vector)
     }
-    fn infer(&mut self, key: String, input: Vec<f32>) -> Result<Vec<f32>, String> {
+    fn infer(&mut self, key: Key, input: Vec<f32>) -> Result<Vec<f32>, String> {
         let inputs = vec![("pixel_values".to_owned(), vec![1, 3, 256, 256], input)];
         let outputs = vec!["image_embeds".to_owned()];
         let result = if super::file_backend::accelerated() {
@@ -471,13 +590,22 @@ pub fn clear(root: &Path) {
     }
 }
 pub fn cache_bytes(root: &Path) -> u64 {
-    fs::read_dir(root.join("embeddings"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum()
+    fn tree(dir: &Path) -> u64 {
+        fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| Some((e.path(), e.metadata().ok()?)))
+            .map(|(path, meta)| {
+                if meta.is_dir() {
+                    tree(&path)
+                } else {
+                    meta.len()
+                }
+            })
+            .sum()
+    }
+    tree(&root.join("embeddings"))
 }
 
 #[cfg(test)]
@@ -585,6 +713,313 @@ mod tests {
             "restoring an embedding must not run ONNX again"
         );
         assert_eq!(reopened.cached, 1);
+        fs::remove_dir_all(root).ok();
+    }
+    fn key_hex(key: &Key) -> String {
+        format!("{:032x}", key.id)
+    }
+    const RECORD: u64 = 16 + 4 * DIM as u64;
+    fn blank(root: &Path) -> Model {
+        Model {
+            root: root.into(),
+            session: None,
+            memory: HashMap::new(),
+            recent: VecDeque::new(),
+            computed: 0,
+            cached: 0,
+        }
+    }
+    fn scratch(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("opencull-mobileclip-{name}-{}", std::process::id()));
+        fs::remove_dir_all(&root).ok();
+        root
+    }
+    fn unit(i: usize) -> Vec<f32> {
+        let mut v = vec![0.0; DIM];
+        v[i] = 1.0;
+        v
+    }
+    fn folder_files(root: &Path) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = fs::read_dir(root.join("embeddings").join("folders"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        files
+    }
+    fn json_files(root: &Path) -> usize {
+        fs::read_dir(root.join("embeddings"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+            .count()
+    }
+    #[test]
+    fn fingerprints_for_one_folder_live_in_one_file_and_survive_recreation() {
+        let root = scratch("pack-one");
+        let keys: Vec<_> = (0..3)
+            .map(|i| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1"))
+            .collect();
+        let other = Model::key(Path::new("/photos/b/0.jpg"), "v1");
+        let mut first = blank(&root);
+        for (i, key) in keys.iter().enumerate() {
+            first.persist(key.clone(), unit(i)).unwrap();
+        }
+        first.persist(other.clone(), unit(9)).unwrap();
+        drop(first);
+        let files = folder_files(&root);
+        assert_eq!(files.len(), 2, "one file per folder, not per photo");
+        assert_eq!(json_files(&root), 0);
+        let mut sizes: Vec<u64> = files
+            .iter()
+            .map(|f| fs::metadata(f).unwrap().len())
+            .collect();
+        sizes.sort();
+        assert_eq!(sizes, [8 + RECORD, 8 + 3 * RECORD]);
+        assert_eq!(&fs::read(&files[0]).unwrap()[..8], b"OCMCLIP1");
+        let mut reopened = blank(&root);
+        for (i, key) in keys.iter().enumerate() {
+            assert_eq!(reopened.cached(key), Some(unit(i)));
+        }
+        assert_eq!(reopened.cached(&other), Some(unit(9)));
+        assert_eq!(reopened.computed, 0);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn new_photos_only_append_and_old_records_still_read() {
+        let root = scratch("pack-append");
+        let key = |i: usize| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1");
+        let mut first = blank(&root);
+        first.persist(key(0), unit(0)).unwrap();
+        first.persist(key(1), unit(1)).unwrap();
+        drop(first);
+        let file = folder_files(&root).remove(0);
+        let before = fs::read(&file).unwrap();
+        assert_eq!(before.len() as u64, 8 + 2 * RECORD);
+        let mut second = blank(&root);
+        second.persist(key(2), unit(2)).unwrap();
+        drop(second);
+        let after = fs::read(&file).unwrap();
+        assert_eq!(after.len() as u64, 8 + 3 * RECORD);
+        assert_eq!(&after[..before.len()], &before[..], "nothing rewritten");
+        let mut third = blank(&root);
+        for i in 0..3 {
+            assert_eq!(third.cached(&key(i)), Some(unit(i)));
+        }
+        assert_eq!(folder_files(&root).len(), 1);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn a_later_record_for_the_same_key_wins() {
+        let root = scratch("pack-dup");
+        let key = Model::key(Path::new("/photos/a/0.jpg"), "v1");
+        let mut first = blank(&root);
+        first.persist(key.clone(), unit(1)).unwrap();
+        first.persist(key.clone(), unit(2)).unwrap();
+        drop(first);
+        assert_eq!(blank(&root).cached(&key), Some(unit(2)));
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn a_torn_last_record_is_skipped_and_the_next_append_lands_cleanly() {
+        let root = scratch("pack-torn");
+        let key = |i: usize| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1");
+        let mut first = blank(&root);
+        for i in 0..3 {
+            first.persist(key(i), unit(i)).unwrap();
+        }
+        drop(first);
+        let file = folder_files(&root).remove(0);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_len(8 + 3 * RECORD - 100)
+            .unwrap();
+        let mut second = blank(&root);
+        assert_eq!(second.cached(&key(0)), Some(unit(0)));
+        assert_eq!(second.cached(&key(1)), Some(unit(1)));
+        assert_eq!(second.cached(&key(2)), None);
+        second.persist(key(3), unit(3)).unwrap();
+        drop(second);
+        assert_eq!(fs::metadata(&file).unwrap().len(), 8 + 3 * RECORD);
+        let mut third = blank(&root);
+        for i in [0, 1, 3] {
+            assert_eq!(third.cached(&key(i)), Some(unit(i)));
+        }
+        assert_eq!(third.cached(&key(2)), None);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn a_wrong_header_reads_as_empty_and_is_rewritten() {
+        let root = scratch("pack-header");
+        let key = |i: usize| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1");
+        let mut first = blank(&root);
+        first.persist(key(0), unit(0)).unwrap();
+        first.persist(key(1), unit(1)).unwrap();
+        drop(first);
+        let file = folder_files(&root).remove(0);
+        let mut bytes = fs::read(&file).unwrap();
+        bytes[..8].copy_from_slice(b"NOTMYFMT");
+        fs::write(&file, bytes).unwrap();
+        let mut second = blank(&root);
+        assert_eq!(second.cached(&key(0)), None);
+        assert_eq!(second.cached(&key(1)), None);
+        second.persist(key(2), unit(2)).unwrap();
+        drop(second);
+        let bytes = fs::read(&file).unwrap();
+        assert_eq!(&bytes[..8], b"OCMCLIP1");
+        assert_eq!(bytes.len() as u64, 8 + RECORD);
+        let mut third = blank(&root);
+        assert_eq!(third.cached(&key(2)), Some(unit(2)));
+        assert_eq!(third.cached(&key(0)), None);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn an_old_per_photo_json_file_is_moved_into_the_folder_file() {
+        let root = scratch("pack-legacy");
+        let key = Model::key(Path::new("/photos/a/0.jpg"), "v1");
+        let old = root
+            .join("embeddings")
+            .join(format!("{}.json", key_hex(&key)));
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let mut raw = vec![0.0f32; DIM];
+        raw[3] = 2.0;
+        fs::write(&old, serde_json::to_vec(&raw).unwrap()).unwrap();
+        let mut first = blank(&root);
+        assert_eq!(first.cached(&key), Some(unit(3)), "read normalised");
+        assert!(!old.exists(), "old file deleted once moved");
+        assert_eq!((first.cached, first.computed), (1, 0));
+        drop(first);
+        let files = folder_files(&root);
+        assert_eq!(files.len(), 1);
+        assert_eq!(fs::metadata(&files[0]).unwrap().len(), 8 + RECORD);
+        let mut second = blank(&root);
+        assert_eq!(second.cached(&key), Some(unit(3)));
+        assert_eq!(fs::metadata(&files[0]).unwrap().len(), 8 + RECORD);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn clear_removes_everything_and_cache_bytes_counts_old_and_new_files() {
+        let root = scratch("pack-clear");
+        let key = Model::key(Path::new("/photos/a/0.jpg"), "v1");
+        let mut model = blank(&root);
+        model.persist(key.clone(), unit(0)).unwrap();
+        fs::write(root.join("embeddings").join("0123.json"), [b'x'; 10]).unwrap();
+        assert_eq!(cache_bytes(&root), 8 + RECORD + 10);
+        clear(&root);
+        assert!(!root.join("embeddings").exists());
+        assert_eq!(cache_bytes(&root), 0);
+        fs::remove_dir_all(root).ok();
+    }
+    fn reads() -> usize {
+        FOLDER_READS.with(|n| n.get())
+    }
+    #[test]
+    fn interleaved_photos_from_many_folders_read_each_folder_file_once() {
+        let root = scratch("pack-thrash");
+        let key = |f: usize, i: usize| Model::key(Path::new(&format!("/photos/{f}/{i}.jpg")), "v1");
+        let mut first = blank(&root);
+        for f in 0..6 {
+            for i in 0..3 {
+                first.persist(key(f, i), unit(f * 3 + i)).unwrap();
+            }
+        }
+        drop(first);
+        let mut model = blank(&root);
+        let before = reads();
+        for i in 0..3 {
+            for f in 0..6 {
+                assert_eq!(model.cached(&key(f, i)), Some(unit(f * 3 + i)));
+            }
+        }
+        assert_eq!(reads() - before, 6, "one read per folder, not per photo");
+        for i in 3..6 {
+            for f in 0..6 {
+                assert_eq!(model.cached(&key(f, i)), None);
+                model.persist(key(f, i), unit(100 + f * 3 + i)).unwrap();
+            }
+        }
+        assert_eq!(reads() - before, 6, "misses and appends do not reload");
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn the_vector_budget_drops_the_oldest_folders_before_reading_and_keeps_the_current() {
+        let root = scratch("pack-budget");
+        let mut first = blank(&root);
+        for (f, count) in [2usize, 2, 2, 5].into_iter().enumerate() {
+            for i in 0..count {
+                let key = Model::key(Path::new(&format!("/photos/{f}/{i}.jpg")), "v1");
+                first.persist(key, unit(f * 5 + i)).unwrap();
+            }
+        }
+        drop(first);
+        let folder = |f: usize| PathBuf::from(format!("/photos/{f}"));
+        let mut model = blank(&root);
+        model.folder_within(&folder(0), 5);
+        model.folder_within(&folder(1), 5);
+        assert_eq!(model.memory.len(), 2);
+        model.folder_within(&folder(0), 5);
+        model.folder_within(&folder(2), 5);
+        let mut kept: Vec<_> = model.memory.keys().cloned().collect();
+        kept.sort();
+        assert_eq!(kept, [folder(0), folder(2)], "least recently used dropped");
+        model.folder_within(&folder(3), 3);
+        let kept: Vec<_> = model.memory.keys().cloned().collect();
+        assert_eq!(
+            kept,
+            [folder(3)],
+            "the folder in use stays even over budget"
+        );
+        assert_eq!(model.memory[&folder(3)].vectors.len(), 5);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn a_file_deleted_or_cut_outside_the_app_is_repaired_on_the_next_append() {
+        let root = scratch("pack-outside");
+        let key = |i: usize| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1");
+        let mut model = blank(&root);
+        model.persist(key(0), unit(0)).unwrap();
+        model.persist(key(1), unit(1)).unwrap();
+        let file = folder_files(&root).remove(0);
+        fs::remove_file(&file).unwrap();
+        model.persist(key(2), unit(2)).unwrap();
+        let bytes = fs::read(&file).unwrap();
+        assert_eq!(&bytes[..8], b"OCMCLIP1");
+        assert_eq!(bytes.len() as u64, 8 + RECORD);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_len(4)
+            .unwrap();
+        model.persist(key(3), unit(3)).unwrap();
+        drop(model);
+        let mut reopened = blank(&root);
+        assert_eq!(reopened.cached(&key(3)), Some(unit(3)));
+        assert_eq!(reopened.cached(&key(2)), None);
+        assert_eq!(fs::metadata(&file).unwrap().len(), 8 + RECORD);
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn zero_or_unnormalised_records_are_not_returned() {
+        let root = scratch("pack-norm");
+        let key = |i: usize| Model::key(Path::new(&format!("/photos/a/{i}.jpg")), "v1");
+        let mut first = blank(&root);
+        first.persist(key(0), vec![0.0; DIM]).unwrap();
+        let mut big = vec![0.0; DIM];
+        big[0] = 3.0;
+        first.persist(key(1), big).unwrap();
+        first.persist(key(2), unit(2)).unwrap();
+        drop(first);
+        let mut second = blank(&root);
+        assert_eq!(second.cached(&key(0)), None);
+        assert_eq!(second.cached(&key(1)), None);
+        assert_eq!(second.cached(&key(2)), Some(unit(2)));
         fs::remove_dir_all(root).ok();
     }
     #[test]
