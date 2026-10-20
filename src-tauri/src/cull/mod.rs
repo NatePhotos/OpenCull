@@ -9,6 +9,7 @@ pub mod light;
 pub mod net;
 pub mod rules;
 pub mod starter;
+pub mod taught;
 pub mod train;
 
 use std::collections::{HashMap, HashSet};
@@ -373,18 +374,22 @@ pub fn teach(store: &Store, folder: String, groups: &[Vec<Prepared>], now: u64, 
 }
 
 /// Puts frames into their poses and turns each into numbers. `light` and
-/// `print` look up a frame's brightness (by its place in `frames`) and, if wanted, its fingerprint.
+/// `print` look up a frame's brightness (by its place in `frames`) and, if wanted, its fingerprint;
+/// `face_print` looks up the face print of the people it is about, if it has been made.
 /// Every group has at least one frame; a frame with no pose is a group of its own.
 /// Each frame also reads how much lighter or darker it is than the frames shot
 /// around it. `around` are photos shot near these that are not being judged:
 /// their light counts when a frame's exposure is set against the frames around
-/// it, and they are never judged themselves.
+/// it, and they are never judged themselves. Last, a ranker reads each group's
+/// frames that have face prints against one another, in the order they were
+/// shot (see `taught`).
 pub fn prepare_groups(
     frames: &[Frame],
     around: &[(f64, light::Light)],
     kind: features::ShootKind,
     light: impl Fn(usize) -> Option<light::Light>,
     print: impl Fn(usize) -> Option<Vec<f32>>,
+    face_print: impl Fn(usize) -> Option<crate::ai::faceprint::PhotoPrint>,
 ) -> Vec<Vec<Prepared>> {
     let known: Vec<Option<light::Light>> = (0..frames.len()).map(light).collect();
     let stops = stops_vs_neighbours(frames, &known, around);
@@ -401,17 +406,44 @@ pub fn prepare_groups(
         .into_iter()
         .map(|(_, members)| {
             let best = members.iter().map(|&i| features::mark(&frames[i])).fold(0.0f32, f32::max);
+            let mut readings: Vec<[f32; features::READINGS]> = members.iter().map(|&i| features::readings(&frames[i], lights[i], best, kind, stops[i])).collect();
+            // A frame on its own has nothing to be ranked against, so its print is not looked up.
+            // The ranker reads a burst in the order it was shot, which need not be the order
+            // given; the group itself keeps the order given.
+            if members.len() >= 2 {
+                let shot = capture_order(frames, &members);
+                let prints: Vec<Option<crate::ai::faceprint::PhotoPrint>> = shot.iter().map(|&k| face_print(members[k])).collect();
+                let before: Vec<[f32; taught::READS]> = shot.iter().map(|&k| std::array::from_fn(|j| readings[k][j])).collect();
+                let taught = taught::readings(&before, &prints.iter().map(Option::as_ref).collect::<Vec<_>>());
+                shot.iter().zip(taught).for_each(|(&k, t)| readings[k][features::TAUGHT] = t);
+            }
             members
                 .into_iter()
-                .map(|i| {
+                .zip(readings)
+                .map(|(i, readings)| {
                     let f = &frames[i];
-                    let readings = features::readings(f, lights[i], best, kind, stops[i]);
                     let embedding = print(i);
                     Prepared { path: f.path.clone(), version: f.version.clone(), x: features::inputs(&readings, embedding.as_deref()), readings, rating: f.rating, flag: flag_of(&f.flag) }
                 })
                 .collect()
         })
         .collect()
+}
+
+/// The order a group's frames were shot in, as places in `members`: the
+/// frames with a time by time, equal times in the order given, each put in
+/// one of the places a timed frame held; a frame with no time keeps its place.
+fn capture_order(frames: &[Frame], members: &[usize]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..members.len()).collect();
+    let places: Vec<usize> = order.iter().copied().filter(|&k| frames[members[k]].time.is_some()).collect();
+    let mut by_time = places.clone();
+    let time = |k: usize| frames[members[k]].time.unwrap_or(0.0);
+    // Stable, so equal times keep the order given.
+    by_time.sort_by(|&a, &b| time(a).total_cmp(&time(b)));
+    for (place, k) in places.into_iter().zip(by_time) {
+        order[place] = k;
+    }
+    order
 }
 
 fn flag_of(flag: &str) -> i8 {
@@ -551,18 +583,18 @@ mod tests {
         let times = [0.0, 1000.0, 2000.0, 60_000.0, 61_000.0, 62_000.0, 63_000.0];
         let lights = [0.5, 0.45, 0.5, 0.5, 0.1, 0.5, 0.55];
         let frames: Vec<Frame> = times.iter().enumerate().map(|(i, &t)| frame_at(i, t)).collect();
-        let whole = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let whole = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let stops = |groups: &[Vec<Prepared>], path: &str| groups.iter().flatten().find(|p| p.path == path).unwrap().readings[STOPS_VS_NEIGHBOURS];
         // The second run alone, told of the first run's photos.
         let around: Vec<(f64, light::Light)> = (0..3).map(|i| (times[i], lit(lights[i]))).collect();
-        let run = prepare_groups(&frames[3..], &around, ShootKind::Events, |i| Some(lit(lights[3 + i])), |_| None);
+        let run = prepare_groups(&frames[3..], &around, ShootKind::Events, |i| Some(lit(lights[3 + i])), |_| None, |_| None);
         for i in 3..7 {
             let path = format!("/f/{i}.ARW");
             assert_eq!(stops(&run, &path), stops(&whole, &path), "{path}");
         }
         // ...and the first run alone, told of the second's.
         let around: Vec<(f64, light::Light)> = (3..7).map(|i| (times[i], lit(lights[i]))).collect();
-        let run = prepare_groups(&frames[..3], &around, ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let run = prepare_groups(&frames[..3], &around, ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         for i in 0..3 {
             let path = format!("/f/{i}.ARW");
             assert_eq!(stops(&run, &path), stops(&whole, &path), "{path}");
@@ -577,14 +609,14 @@ mod tests {
         let times = [0.0, 1000.0, 2000.0, 7000.0, 8000.0, 9000.0, 10_000.0];
         let lights = [0.1, 0.1, 0.1, 0.5, 0.5, 0.5, 0.55];
         let frames: Vec<Frame> = times.iter().enumerate().map(|(i, &t)| frame_at(i, t)).collect();
-        let whole = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let whole = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let stops = |groups: &[Vec<Prepared>], path: &str| groups.iter().flatten().find(|p| p.path == path).unwrap().readings[STOPS_VS_NEIGHBOURS];
-        let alone = prepare_groups(&frames[3..], &[], ShootKind::Events, |i| Some(lit(lights[3 + i])), |_| None);
+        let alone = prepare_groups(&frames[3..], &[], ShootKind::Events, |i| Some(lit(lights[3 + i])), |_| None, |_| None);
         assert_ne!(stops(&alone, "/f/3.ARW"), stops(&whole, "/f/3.ARW"), "the setup must make the photos around matter");
         // (a) the second run, told of the first; (b) a slice of it, told of everything else.
         for (from, to) in [(3usize, 7usize), (3, 5)] {
             let around: Vec<(f64, light::Light)> = (0..7).filter(|i| !(from..to).contains(i)).map(|i| (times[i], lit(lights[i]))).collect();
-            let run = prepare_groups(&frames[from..to], &around, ShootKind::Events, |i| Some(lit(lights[from + i])), |_| None);
+            let run = prepare_groups(&frames[from..to], &around, ShootKind::Events, |i| Some(lit(lights[from + i])), |_| None, |_| None);
             for i in from..to {
                 let path = format!("/f/{i}.ARW");
                 assert_eq!(stops(&run, &path), stops(&whole, &path), "{from}..{to} {path}");
@@ -596,7 +628,7 @@ mod tests {
     fn photos_around_are_only_compared_with_never_judged() {
         let frames = vec![frame_at(0, 1000.0)];
         let around = [(0.0, light::Light::neutral()), (2000.0, light::Light::neutral())];
-        let groups = prepare_groups(&frames, &around, features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None);
+        let groups = prepare_groups(&frames, &around, features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |_| None);
         assert_eq!(groups.iter().flatten().count(), 1);
         assert_eq!(groups[0][0].path, "/f/0.ARW");
     }
@@ -608,20 +640,20 @@ mod tests {
         // it would pull the first frame's median towards itself.
         let frames: Vec<Frame> = [0.0, 1000.0, 2000.0].iter().enumerate().map(|(i, &t)| frame_at(i, t)).collect();
         let lights = [Some(lit(0.1)), None, Some(lit(0.4))];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| lights[i], |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| lights[i], |_| None, |_| None);
         let stops = |groups: &[Vec<Prepared>], path: &str| groups.iter().flatten().find(|p| p.path == path).unwrap().readings[STOPS_VS_NEIGHBOURS];
         assert_eq!(stops(&groups, "/f/1.ARW"), 0.0, "unknown light: no stops reading");
         // The others read exactly as if the unknown frame were not there at all.
         let without = [frames[0].clone(), frames[2].clone()];
         let known = [lit(0.1), lit(0.4)];
-        let alone = prepare_groups(&without, &[], ShootKind::Events, |i| Some(known[i]), |_| None);
+        let alone = prepare_groups(&without, &[], ShootKind::Events, |i| Some(known[i]), |_| None, |_| None);
         for path in ["/f/0.ARW", "/f/2.ARW"] {
             assert_eq!(stops(&groups, path), stops(&alone, path), "{path}");
         }
         // The same with no clock: neighbours by order given.
         let untimed: Vec<Frame> = (0..3).map(|i| frame(&format!("/f/{i}.ARW"), None, 0)).collect();
-        let groups = prepare_groups(&untimed, &[], ShootKind::Events, |i| lights[i], |_| None);
-        let alone = prepare_groups(&[untimed[0].clone(), untimed[2].clone()], &[], ShootKind::Events, |i| Some(known[i]), |_| None);
+        let groups = prepare_groups(&untimed, &[], ShootKind::Events, |i| lights[i], |_| None, |_| None);
+        let alone = prepare_groups(&[untimed[0].clone(), untimed[2].clone()], &[], ShootKind::Events, |i| Some(known[i]), |_| None, |_| None);
         assert_eq!(stops(&groups, "/f/1.ARW"), 0.0);
         for path in ["/f/0.ARW", "/f/2.ARW"] {
             assert_eq!(stops(&groups, path), stops(&alone, path), "untimed {path}");
@@ -633,7 +665,7 @@ mod tests {
         use features::*;
         let frames = vec![frame_at(0, 2000.0)];
         let around: Vec<(f64, light::Light)> = [0.0, 1000.0, 3000.0, 4000.0].iter().map(|&t| (t, lit(0.5))).collect();
-        let groups = prepare_groups(&frames, &around, ShootKind::Events, |_| Some(lit(0.1)), |_| None);
+        let groups = prepare_groups(&frames, &around, ShootKind::Events, |_| Some(lit(0.1)), |_| None, |_| None);
         assert!(groups[0][0].readings[STOPS_VS_NEIGHBOURS] < -0.6, "{}", groups[0][0].readings[STOPS_VS_NEIGHBOURS]);
     }
 
@@ -667,12 +699,12 @@ mod tests {
     #[test]
     fn frames_are_grouped_by_pose_and_no_group_is_empty() {
         let frames = vec![frame("/a", Some(1), 5), frame("/b", None, 0), frame("/c", Some(1), 2), frame("/d", Some(7), 0), frame("/e", None, 4)];
-        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::default()), |_| None);
+        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::default()), |_| None, |_| None);
         let paths: Vec<Vec<&str>> = groups.iter().map(|g| g.iter().map(|p| p.path.as_str()).collect()).collect();
         assert_eq!(paths, vec![vec!["/a", "/c"], vec!["/b"], vec!["/d"], vec!["/e"]]);
         assert!(groups.iter().all(|g| !g.is_empty()));
         assert!(groups.iter().flatten().all(|p| p.x.len() == features::INPUTS));
-        assert!(prepare_groups(&[], &[], features::ShootKind::Events, |_| Some(light::Light::default()), |_| None).is_empty());
+        assert!(prepare_groups(&[], &[], features::ShootKind::Events, |_| Some(light::Light::default()), |_| None, |_| None).is_empty());
     }
 
     #[test]
@@ -680,7 +712,7 @@ mod tests {
         use features::*;
         let frames: Vec<Frame> = (0..5).map(|i| frame_at(i, i as f64 * 1000.0)).collect();
         let lights = [0.5, 0.5, 0.1, 0.5, 0.5];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let dark = groups.iter().flatten().find(|p| p.path == "/f/2.ARW").unwrap();
         assert!(dark.readings[STOPS_VS_NEIGHBOURS] < -0.6, "{}", dark.readings[STOPS_VS_NEIGHBOURS]); // about -2.3 stops / 3
         let ok = groups.iter().flatten().find(|p| p.path == "/f/0.ARW").unwrap();
@@ -698,7 +730,7 @@ mod tests {
         let frames: Vec<Frame> = (0..5).map(|i| frame_at(i, i as f64 * 1000.0)).collect();
         // The middle frame got half the light of the others: one stop under.
         let lights = [0.4, 0.4, 0.2, 0.4, 0.4];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let dark = groups.iter().flatten().find(|p| p.path == "/f/2.ARW").unwrap();
         assert!((dark.readings[STOPS_VS_NEIGHBOURS] + 1.0 / 3.0).abs() < 0.03, "{}", dark.readings[STOPS_VS_NEIGHBOURS]);
     }
@@ -709,12 +741,12 @@ mod tests {
         let frames: Vec<Frame> = (0..5).map(|i| frame_at(i, i as f64 * 1000.0)).collect();
         let under = 0.4 / 2f32.powf(1.6);
         let lights = [0.4, 0.4, under, 0.4, 0.4];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let dark = groups.iter().flatten().find(|p| p.path == "/f/2.ARW").unwrap();
         assert!(rules::faults(&dark.readings).contains(&rules::Fault::Underexposed), "{}", dark.readings[STOPS_VS_NEIGHBOURS]);
         // A stop under is a different moment, not a misfire.
         let lights = [0.4, 0.4, 0.2, 0.4, 0.4];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let dark = groups.iter().flatten().find(|p| p.path == "/f/2.ARW").unwrap();
         assert!(!rules::faults(&dark.readings).contains(&rules::Fault::Underexposed));
     }
@@ -725,7 +757,7 @@ mod tests {
         // Four frames seconds apart; the fifth is over two minutes after the last and very dark.
         let frames: Vec<Frame> = [0.0, 1000.0, 2000.0, 3000.0, 200_000.0].iter().enumerate().map(|(i, &t)| frame_at(i, t)).collect();
         let lights = [0.5, 0.5, 0.5, 0.5, 0.05];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let last = groups.iter().flatten().find(|p| p.path == "/f/4.ARW").unwrap();
         assert_eq!(last.readings[STOPS_VS_NEIGHBOURS], 0.0);
     }
@@ -738,7 +770,7 @@ mod tests {
         frames[4].flag = "pick".into();
         frames[3].flag = "reject".into();
         let lights = [0.5, 0.5, 0.5, 0.5, 0.05];
-        let groups = prepare_groups(&frames, &[], ShootKind::Portraits, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Portraits, |i| Some(lit(lights[i])), |_| None, |_| None);
         let last = groups.iter().flatten().find(|p| p.path == "/f/4.ARW").unwrap();
         assert!(last.readings[STOPS_VS_NEIGHBOURS] < -0.6, "{}", last.readings[STOPS_VS_NEIGHBOURS]);
         assert_eq!((last.flag, ShootKind::of(&last.readings)), (1, ShootKind::Portraits));
@@ -752,10 +784,10 @@ mod tests {
         use features::*;
         let frames: Vec<Frame> = (0..5).map(|i| frame(&format!("/f/{i}.ARW"), None, 0)).collect();
         let lights = [0.5, 0.5, 0.1, 0.5, 0.5];
-        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None);
+        let groups = prepare_groups(&frames, &[], ShootKind::Events, |i| Some(lit(lights[i])), |_| None, |_| None);
         let dark = groups.iter().flatten().find(|p| p.path == "/f/2.ARW").unwrap();
         assert!(dark.readings[STOPS_VS_NEIGHBOURS] < -0.6);
-        let single = prepare_groups(&frames[..1], &[], ShootKind::Events, |_| Some(light::Light::neutral()), |_| None);
+        let single = prepare_groups(&frames[..1], &[], ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |_| None);
         assert_eq!(single[0][0].readings[STOPS_VS_NEIGHBOURS], 0.0);
     }
 
@@ -954,5 +986,189 @@ mod tests {
         assert!(said.starts_with("Couldn't remember which colours Auto-label set"), "{said}");
         let said = store.save_model(&starter::starting_net()).unwrap_err();
         assert!(said.starts_with("Couldn't save what OpenCull learned"), "{said}");
+    }
+
+    /// A made-up face print, different for each `seed`.
+    fn print_of(seed: usize) -> crate::ai::faceprint::PhotoPrint {
+        let at = |k: usize, salt: usize| (((k * 31 + seed * 17 + salt) % 97) as f32 / 97.0 - 0.5) * 0.08;
+        crate::ai::faceprint::PhotoPrint { mean: (0..512).map(|k| at(k, 0)).collect(), min: (0..512).map(|k| at(k, 5) - 0.04).collect() }
+    }
+
+    /// Four frames of one pose, then one on its own, with marks that differ.
+    fn burst_and_one() -> Vec<Frame> {
+        let mut frames: Vec<Frame> = (0..5).map(|i| frame_at(i, i as f64 * 300.0)).collect();
+        for (i, f) in frames.iter_mut().enumerate() {
+            f.pose = Some(if i < 4 { 1 } else { 2 });
+            f.record.score = Some(40.0 + 10.0 * i as f32);
+            f.compared_score = f.record.score;
+        }
+        frames
+    }
+
+    fn taught_of(groups: &[Vec<Prepared>]) -> Vec<f32> {
+        groups.iter().flatten().map(|p| {
+            assert_eq!(p.x[features::TAUGHT], p.readings[features::TAUGHT] - 0.5, "the network sees the reading too, centred on average");
+            p.readings[features::TAUGHT]
+        }).collect()
+    }
+
+    #[test]
+    fn without_face_prints_every_frame_reads_average() {
+        let groups = prepare_groups(&burst_and_one(), &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |_| None);
+        assert_eq!(taught_of(&groups), vec![0.5; 5]);
+    }
+
+    #[test]
+    fn a_burst_with_face_prints_is_read_by_the_ranker_and_a_lone_frame_is_average() {
+        let frames = burst_and_one();
+        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |i| Some(print_of(i)));
+        let taught = taught_of(&groups);
+        assert_eq!(taught[4], 0.5, "a frame on its own");
+        let burst = &groups[0];
+        let readings: Vec<[f32; taught::READS]> = burst.iter().map(|p| p.readings[..taught::READS].try_into().unwrap()).collect();
+        let prints: Vec<_> = (0..4).map(print_of).collect();
+        let want = taught::readings(&readings, &prints.iter().map(Some).collect::<Vec<_>>());
+        assert_eq!(taught[..4].to_vec(), want);
+        assert!(taught::off() || want.iter().any(|&t| t != 0.5), "the ranker tells these frames apart: {want:?}");
+    }
+
+    #[test]
+    fn a_frame_without_a_face_print_reads_average_and_the_rest_of_its_burst_is_ranked_without_it() {
+        let frames = burst_and_one();
+        let some = |i: usize| (i != 2).then(|| print_of(i));
+        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, some);
+        let taught = taught_of(&groups);
+        assert_eq!(taught[2], 0.5);
+        let burst = &groups[0];
+        let readings: Vec<[f32; taught::READS]> = [0, 1, 3].iter().map(|&i| burst[i].readings[..taught::READS].try_into().unwrap()).collect();
+        let prints: Vec<_> = [0, 1, 3].iter().map(|&i| print_of(i)).collect();
+        assert_eq!(vec![taught[0], taught[1], taught[3]], taught::readings(&readings, &prints.iter().map(Some).collect::<Vec<_>>()));
+        // With only one print left in the burst, nothing is ranked.
+        let one = |i: usize| (i == 0).then(|| print_of(i));
+        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, one);
+        assert_eq!(taught_of(&groups), vec![0.5; 5]);
+    }
+
+    #[test]
+    fn the_type_of_shoot_does_not_change_the_rankers_reading() {
+        let frames = burst_and_one();
+        let read = |kind| taught_of(&prepare_groups(&frames, &[], kind, |_| Some(light::Light::neutral()), |_| None, |i| Some(print_of(i))));
+        let events = read(features::ShootKind::Events);
+        assert_eq!(read(features::ShootKind::Portraits), events);
+        assert_eq!(read(features::ShootKind::Sports), events);
+    }
+
+    #[test]
+    fn without_face_prints_teaching_never_touches_the_rankers_column() {
+        use features::{INPUTS, TAUGHT};
+        // Every frame reads average, so the network's input for it is exactly 0.
+        let groups = prepare_groups(&burst_and_one(), &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |_| None);
+        assert!(groups.iter().flatten().all(|p| p.x[TAUGHT] == 0.0));
+        let lessons: Vec<lessons::Lesson> = lessons::lessons_from(&rated(200, 1, true), lessons::Source::Stars).into_iter().map(|t| t.lesson).collect();
+        assert!(lessons.iter().all(|l| match l { lessons::Lesson::Keep { x, .. } => x[TAUGHT] == 0.0, _ => true }));
+        let start = starter::starting_net();
+        let column = |net: &net::Net| (0..net.hidden).map(|j| net.params[j * INPUTS + TAUGHT]).collect::<Vec<f32>>();
+        let fitted = train::fit(&start, &lessons, train::PULL, train::EPOCHS);
+        assert_eq!(column(&fitted), column(&start), "no gradient reaches the column");
+        // Whatever the column starts at, everything else is taught exactly the same,
+        // so it is as if the column were not there.
+        let mut other = start.clone();
+        (0..other.hidden).for_each(|j| other.params[j * INPUTS + TAUGHT] = 0.25 + j as f32 * 0.01);
+        let mut refitted = train::fit(&other, &lessons, train::PULL, train::EPOCHS);
+        assert_eq!(column(&refitted), column(&other));
+        (0..refitted.hidden).for_each(|j| refitted.params[j * INPUTS + TAUGHT] = 0.0);
+        assert_eq!(refitted, fitted);
+    }
+
+    /// A made-up face print for a frame, by its file: the same frame has the
+    /// same print whatever order it is given in.
+    fn print_by_path(frames: &[Frame]) -> impl Fn(usize) -> Option<crate::ai::faceprint::PhotoPrint> + '_ {
+        |i| Some(print_of(frames[i].path.trim_start_matches("/f/").trim_end_matches(".ARW").parse().unwrap()))
+    }
+
+    /// Each frame's ranker reading, by its file.
+    fn taught_by_path(groups: &[Vec<Prepared>]) -> HashMap<String, f32> {
+        groups.iter().flatten().map(|p| (p.path.clone(), p.readings[features::TAUGHT])).collect()
+    }
+
+    #[test]
+    fn a_burst_given_out_of_time_order_is_read_by_the_ranker_in_the_order_it_was_shot() {
+        let shot = burst_and_one();
+        // The same burst in another order, as files named out of shooting order would come.
+        let given: Vec<Frame> = [2, 0, 3, 1, 4].iter().map(|&i| shot[i].clone()).collect();
+        let read = |frames: &[Frame]| taught_by_path(&prepare_groups(frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, print_by_path(frames)));
+        assert_eq!(read(&given), read(&shot));
+        // Order matters to the ranker, so this would differ were the burst read as given.
+        let burst: Vec<Prepared> = prepare_groups(&given, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, print_by_path(&given)).remove(0);
+        let readings: Vec<[f32; taught::READS]> = burst.iter().map(|p| p.readings[..taught::READS].try_into().unwrap()).collect();
+        let prints: Vec<_> = [2, 0, 3, 1].iter().map(|&i| print_of(i)).collect();
+        let as_given = taught::readings(&readings, &prints.iter().map(Some).collect::<Vec<_>>());
+        assert!(taught::off() || as_given != burst.iter().map(|p| p.readings[features::TAUGHT]).collect::<Vec<_>>(), "the order given is not the order read");
+        // Frames with no time keep their places; the timed ones are put in shooting order around them.
+        let mut untimed = given.clone();
+        untimed[1].time = None;
+        let order = capture_order(&untimed, &[0, 1, 2, 3]);
+        assert_eq!(order, vec![3, 1, 0, 2], "times 600, none, 900 and 300");
+    }
+
+    #[test]
+    fn a_frame_on_its_own_has_its_face_print_never_looked_up() {
+        let frames = burst_and_one();
+        let asked = Mutex::new(Vec::new());
+        prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |i| {
+            asked.lock().unwrap().push(i);
+            Some(print_of(i))
+        });
+        let mut asked = asked.into_inner().unwrap();
+        asked.sort();
+        assert_eq!(asked, vec![0, 1, 2, 3], "the burst's frames once each; not frame 4, which stands alone");
+    }
+
+    #[test]
+    fn reading_a_burst_in_shooting_order_changes_nothing_without_face_prints() {
+        let shot = burst_and_one();
+        let given: Vec<Frame> = [2, 0, 3, 1, 4].iter().map(|&i| shot[i].clone()).collect();
+        let groups = prepare_groups(&given, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, |_| None);
+        // Every frame reads average, and the groups keep the order given.
+        assert_eq!(taught_of(&groups), vec![0.5; 5]);
+        let paths: Vec<&str> = groups.iter().flatten().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, ["/f/2.ARW", "/f/0.ARW", "/f/3.ARW", "/f/1.ARW", "/f/4.ARW"]);
+    }
+
+    #[test]
+    fn a_frame_ahead_only_on_the_rankers_reading_is_green_and_says_so() {
+        if taught::off() {
+            return;
+        }
+        // Two frames alike in every reading but their face prints.
+        let mut frames: Vec<Frame> = (0..2).map(|i| frame_at(i, i as f64 * 300.0)).collect();
+        for f in frames.iter_mut() {
+            f.pose = Some(1);
+            f.record.score = Some(60.0);
+            f.compared_score = f.record.score;
+        }
+        let groups = prepare_groups(&frames, &[], features::ShootKind::Events, |_| Some(light::Light::neutral()), |_| None, print_by_path(&frames));
+        let taught = taught_of(&groups);
+        assert_ne!(taught[0], taught[1], "the ranker tells them apart");
+        let best = if taught[0] > taught[1] { "/f/0.ARW" } else { "/f/1.ARW" };
+        let verdicts = decide::decide(&starter::starting_net(), &groups);
+        let verdict = verdicts.iter().find(|v| v.path == best).unwrap();
+        assert_eq!((verdict.color, verdict.why.as_str()), ("green", "Best of 2: ahead mostly on expressions (Events)"));
+    }
+
+    #[test]
+    fn readings_are_format_4_and_what_was_saved_under_format_3_is_not_used() {
+        assert_eq!((features::FORMAT, features::READINGS, features::TAUGHT, features::INPUTS), (4, 34, 33, 34 + 512));
+        let (store, dir) = fresh_store("format3");
+        // The right shape, but saved for readings of the format before.
+        let mut old = starter::starting_net();
+        old.red_line = 1.5;
+        std::fs::write(dir.join("model.json"), serde_json::to_vec(&serde_json::json!({ "format": 3, "net": old })).unwrap()).unwrap();
+        std::fs::write(dir.join("starter.json"), serde_json::to_vec(&serde_json::json!({ "format": 3, "version": starter::STARTER_VERSION, "net": old })).unwrap()).unwrap();
+        let lessons = lessons::lessons_from(&rated(4, 1, true), lessons::Source::Stars);
+        store.lessons().save(&lessons::Shoot { folder: "/old".into(), format: 3, taught_at: 1, lessons, set_aside: false, accepted: true }).unwrap();
+        assert_eq!(store.model(), starter::starting_net());
+        assert!(store.lessons().all().is_empty());
+        std::fs::remove_dir_all(dir).ok();
     }
 }

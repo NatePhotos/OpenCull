@@ -22,7 +22,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use opencull_lib::ai::{self, series, store::Record};
+use opencull_lib::ai::{self, series, store::Record, PhotoPrint};
 use opencull_lib::cull::{self, decide, light, lessons, starter, train};
 use opencull_lib::{preview, raw};
 use rayon::prelude::*;
@@ -158,34 +158,38 @@ fn main() {
     // Each photo's light is read twice: from a 320 px picture, as from its
     // thumbnail, and from the picture the scan decoded (as the app's scan does
     // with Advanced), timing the scan alone and the extra the second costs.
-    struct Analysed { record: Option<Record>, light: Option<light::Light>, scan_light: Option<light::Light>, analyse: f64, extra: f64 }
+    // The face prints come from the same analysis, as the app's scan keeps them with Advanced.
+    struct Analysed { record: Option<Record>, prints: Option<PhotoPrint>, light: Option<light::Light>, scan_light: Option<light::Light>, analyse: f64, extra: f64 }
     let analysed: Vec<Analysed> = shots
         .par_iter()
         .map(|shot| {
             let mut scan_light = None;
             let mut extra = 0.0;
             let started = std::time::Instant::now();
-            let record = ai::analyze_then(&shot.path, ai::Rules::Advanced, |p| {
+            let analysis = ai::analyze_then(&shot.path, ai::Rules::Advanced, |p| {
                 let at = std::time::Instant::now();
                 scan_light = Some(light::light_of_picture(&p.rgb, p.width, p.height));
                 extra = at.elapsed().as_secs_f64() * 1000.0;
-            })
-            .as_ref()
-            .ok()
-            .map(Record::from);
+            });
+            let record = analysis.as_ref().ok().map(Record::from);
+            let prints = analysis.ok().and_then(|a| a.prints);
             let analyse = started.elapsed().as_secs_f64() * 1000.0 - extra;
             let light = preview::decode_upright(&shot.path, 320).ok().map(|p| light::light_of_sized(&p.rgb, p.width as usize, p.height as usize));
-            Analysed { record, light, scan_light, analyse, extra }
+            Analysed { record, prints, light, scan_light, analyse, extra }
         })
         .collect();
     let n = analysed.len().max(1) as f64;
     let (analyse, extra) = (analysed.iter().map(|a| a.analyse).sum::<f64>() / n, analysed.iter().map(|a| a.extra).sum::<f64>() / n);
     println!("per photo, on {} threads: scan (ai::analyze) {analyse:.1} ms; light from the scan's picture {extra:.2} ms extra ({:.2}% of the scan)", rayon::current_num_threads(), 100.0 * extra / analyse.max(1e-9));
     println!("light unreadable: {} from a 320 px picture, {} from the scan's picture", analysed.iter().filter(|a| a.light.is_none()).count(), analysed.iter().filter(|a| a.scan_light.is_none()).count());
+    let prints: Vec<Option<PhotoPrint>> = analysed.iter().map(|a| a.prints.clone()).collect();
+    println!("photos with face prints: {}", percent(prints.iter().filter(|p| p.is_some()).count(), prints.len()));
     let analysed: Vec<(Option<Record>, Option<light::Light>, Option<light::Light>)> = analysed.into_iter().map(|a| (a.record, a.light, a.scan_light)).collect();
     let failed = analysed.iter().filter(|a| a.0.is_none()).count();
     println!("analyses failed: {failed} (left out of the no-people count)");
     let records: Vec<Record> = analysed.iter().map(|a| a.0.clone().unwrap_or_default()).collect();
+    // In capture order, as the app sends them: the ranker reads each frame's place in its burst.
+    assert!(shots.windows(2).all(|w| w[0].time <= w[1].time));
     let frames = frames_of(&shots, &records);
     // A photo has no people when it was analysed and its record has no subject faces.
     let no_people: HashSet<String> = frames
@@ -195,11 +199,27 @@ fn main() {
         .map(|(f, _)| f.path.clone())
         .collect();
     let lights: Vec<Option<light::Light>> = analysed.iter().map(|a| a.1).collect();
-    let prepare = |from: usize, to: usize| cull::prepare_groups(&frames[from..to], &[], kind, |i| lights[from + i], |_| None);
+    let prepare = |from: usize, to: usize| cull::prepare_groups(&frames[from..to], &[], kind, |i| lights[from + i], |_| None, |i| prints[from + i].clone());
 
     let all = prepare(0, frames.len());
     let (poses, multi) = (all.len(), all.iter().filter(|g| g.len() > 1).count());
     println!("{poses} groups, {multi} with more than one frame");
+    // How the ranker's reading falls: groups it reads, and groups where frames without a print sit at average beside printed ones.
+    let with_print: HashSet<&str> = frames.iter().zip(&prints).filter(|(_, p)| p.is_some()).map(|(f, _)| f.path.as_str()).collect();
+    let printed = |g: &Vec<cull::Prepared>| g.iter().filter(|p| with_print.contains(p.path.as_str())).count();
+    let counts: Vec<(usize, usize)> = all.iter().filter(|g| g.len() > 1).map(|g| (g.len(), printed(g))).collect();
+    let mixed = counts.iter().filter(|(n, k)| *k >= 2 && k < n).count();
+    let read = counts.iter().filter(|(_, k)| *k >= 2).count();
+    let off = cull::taught::off();
+    println!(
+        "ranker: weight {}, {}; groups of 2+ it reads (2+ prints) {read} of {multi}, of them mixing frames with and without a print {mixed} ({} frames without); 2+ groups with under 2 prints {}",
+        cull::rules::TAUGHT_WEIGHT,
+        if off { "switched off (OPENCULL_NO_TAUGHT=1)" } else { "on" },
+        counts.iter().filter(|(n, k)| *k >= 2 && k < n).map(|(n, k)| n - k).sum::<usize>(),
+        counts.iter().filter(|(_, k)| *k < 2).count(),
+    );
+    let rated_mixed = all.iter().filter(|g| g.len() > 1 && g.iter().any(|p| p.rating == 5)).filter(|g| { let k = printed(g); k >= 2 && k < g.len() }).count();
+    println!("  of the groups holding a 5-star frame, mixing: {rated_mixed}");
     let stars: Vec<usize> = (1..=5).map(|s| shots.iter().filter(|x| x.rating == s).count()).collect();
     println!("photos by stars 1 to 5: {stars:?}");
 
@@ -207,7 +227,7 @@ fn main() {
     report("Starting network, every photo", &start, &all, &no_people);
 
     // The same verdicts whether the light came from a 320 px picture or from the scan's?
-    let from_scan = cull::prepare_groups(&frames, &[], kind, |i| analysed[i].2, |_| None);
+    let from_scan = cull::prepare_groups(&frames, &[], kind, |i| analysed[i].2, |_| None, |i| prints[i].clone());
     let by_path = |groups: &[Vec<cull::Prepared>]| -> std::collections::HashMap<String, decide::Judgement> { decide::decide(&start, groups).into_iter().map(|j| (j.path.clone(), j)).collect() };
     let (thumb, scan) = (by_path(&all), by_path(&from_scan));
     let colour = thumb.iter().filter(|(p, j)| scan.get(*p).is_some_and(|k| k.color == j.color)).count();
@@ -230,7 +250,7 @@ fn main() {
         }
         let near = |j: usize| (from..to).any(|k| (shots[j].time - shots[k].time).abs() <= 120_000.0);
         let around: Vec<(f64, light::Light)> = (0..frames.len()).filter(|&j| (j < from || j >= to) && near(j)).filter_map(|j| lights[j].map(|l| (shots[j].time, l))).collect();
-        let groups = cull::prepare_groups(&frames[from..to], &around, kind, |i| lights[from + i], |_| None);
+        let groups = cull::prepare_groups(&frames[from..to], &around, kind, |i| lights[from + i], |_| None, |i| prints[from + i].clone());
         for j in decide::decide(&start, &groups) {
             checked += 1;
             same += usize::from(whole.get(&j.path) == Some(&(j.color, j.place, j.reject, j.why.clone())));

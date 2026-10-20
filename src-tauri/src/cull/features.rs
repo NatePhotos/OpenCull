@@ -8,9 +8,10 @@ use super::light::Light;
 use super::Frame;
 
 // 3: stops against neighbours measured in real stops of light.
+// 4: a ranker's reading of the frame against the rest of its burst, at the end.
 /// Bump whenever the list below changes meaning or length.
-pub const FORMAT: u32 = 3;
-pub const READINGS: usize = 33;
+pub const FORMAT: u32 = 4;
+pub const READINGS: usize = 34;
 /// The MobileCLIP fingerprint, when the photographer has it switched on.
 pub const EMBED: usize = 512;
 pub const INPUTS: usize = READINGS + EMBED;
@@ -48,6 +49,9 @@ pub const KIND_PORTRAITS: usize = 29;
 pub const KIND_SPORTS: usize = 30;
 pub const STOPS_VS_NEIGHBOURS: usize = 31;
 pub const DETAIL: usize = 32;
+/// A ranker's reading of the frame against the others of its burst, 0 to 1,
+/// 0.5 being average. It reads the readings above, so it comes last.
+pub const TAUGHT: usize = 33;
 
 /// What sort of shoot a folder is, which changes what counts as a good frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,13 +140,18 @@ pub fn readings(frame: &Frame, light: Light, best_mark: f32, kind: ShootKind, st
     r[kind.column()] = 1.0;
     r[STOPS_VS_NEIGHBOURS] = (stops / 3.0).clamp(-1.0, 1.0);
     r[DETAIL] = light.detail;
+    // Average until the ranker has read the frame's whole burst.
+    r[TAUGHT] = 0.5;
     r
 }
 
 /// The readings followed by the fingerprint, or by zeros where there is none.
+/// The ranker's reading goes in less its average, 0.5, so a frame it has not
+/// told apart reads exactly 0 and teaching moves nothing through it.
 pub fn inputs(readings: &[f32; READINGS], embedding: Option<&[f32]>) -> Vec<f32> {
     let mut x = Vec::with_capacity(INPUTS);
     x.extend_from_slice(readings);
+    x[TAUGHT] = readings[TAUGHT] - 0.5;
     x[HAS_EMBEDDING] = 0.0;
     match embedding.filter(|e| e.len() == EMBED) {
         Some(e) => {
@@ -231,5 +240,13 @@ mod tests {
         assert_eq!(with.len(), INPUTS);
         assert_eq!(with[HAS_EMBEDDING], 1.0);
         assert_eq!(with[READINGS], 0.1);
+    }
+
+    #[test]
+    fn the_rankers_reading_reaches_the_network_centred_on_average() {
+        let mut r = [0.5; READINGS];
+        assert_eq!(inputs(&r, None)[TAUGHT], 0.0);
+        r[TAUGHT] = 0.8;
+        assert!((inputs(&r, None)[TAUGHT] - 0.3).abs() < 1e-6);
     }
 }

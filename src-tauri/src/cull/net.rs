@@ -4,7 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::features::READINGS;
+use super::features::{READINGS, TAUGHT};
+use super::rules::TAUGHT_WEIGHT;
 
 pub fn sigmoid(z: f32) -> f32 { 1.0 / (1.0 + (-z).exp()) }
 
@@ -37,7 +38,9 @@ pub struct Net {
     pub rule_base: bool,
 }
 
-pub struct Pass { pub keep: f32, pub rank: f32, pub hidden: Vec<f32> }
+/// `rank` orders a burst's frames; `base` is the same without the ranker's
+/// reading (see `features::TAUGHT`), which says how far behind the best a frame is.
+pub struct Pass { pub keep: f32, pub rank: f32, pub base: f32, pub hidden: Vec<f32> }
 
 impl Net {
     pub fn new(inputs: usize, hidden: usize, readings: usize, seed: u64) -> Net {
@@ -59,8 +62,16 @@ impl Net {
 
     pub fn forward(&self, x: &[f32]) -> Pass { self.forward_sparse(&nonzero(x)) }
 
+    /// `forward` with the ranker's reading weighed by `taught_weight`.
+    pub fn forward_with(&self, x: &[f32], taught_weight: f32) -> Pass { self.forward_sparse_with(&nonzero(x), taught_weight) }
+
     /// `forward` for inputs already reduced to the ones that are not zero.
-    pub fn forward_sparse(&self, x: &[(usize, f32)]) -> Pass {
+    pub fn forward_sparse(&self, x: &[(usize, f32)]) -> Pass { self.forward_sparse_with(x, TAUGHT_WEIGHT) }
+
+    /// `forward_sparse` with the ranker's reading weighed by `taught_weight`.
+    /// The weights never see that weight: it is added to the rank after them,
+    /// so the same network ranks the same at any weight when the reading is average.
+    pub fn forward_sparse_with(&self, x: &[(usize, f32)], taught_weight: f32) -> Pass {
         let (b1, w2, b2) = self.at();
         let mut hidden = vec![0.0; self.hidden];
         for (j, h) in hidden.iter_mut().enumerate() {
@@ -70,16 +81,28 @@ impl Net {
         }
         let keep = self.params[b2] + (0..self.hidden).map(|j| self.params[w2 + j] * hidden[j]).sum::<f32>();
         let rank = self.params[b2 + 1] + (0..self.hidden).map(|j| self.params[w2 + self.hidden + j] * hidden[j]).sum::<f32>();
-        Pass { keep, rank: rank + self.rule_rank(x), hidden }
+        let base = rank + self.rule_rank(x);
+        // Nothing is added for an average frame, so its rank is exactly the base.
+        let term = self.taught_term(x, taught_weight);
+        Pass { keep, rank: if term == 0.0 { base } else { base + term }, base, hidden }
     }
 
-    /// The starting rules' rank for these inputs when the network ranks on top of
-    /// it, else 0. It does not depend on the weights, so training is unchanged.
+    /// The starting rules' rank for these inputs, without the ranker's reading,
+    /// when the network ranks on top of it, else 0. It does not depend on the
+    /// weights, so training is unchanged.
     fn rule_rank(&self, x: &[(usize, f32)]) -> f32 {
         if !self.rule_base || self.inputs < READINGS { return 0.0; }
         let mut r = [0.0f32; READINGS];
         for &(i, v) in x.iter().take_while(|(i, _)| *i < READINGS) { r[i] = v; }
-        super::rules::rule_rank(&r)
+        super::rules::rule_rank_with(&r, 0.0)
+    }
+
+    /// What the ranker's reading adds to the rank on top of the rules: the
+    /// weight times the reading less its average, which is how it comes in
+    /// (see `features::inputs`). Exactly 0 for an average frame, which `x` leaves out.
+    fn taught_term(&self, x: &[(usize, f32)], taught_weight: f32) -> f32 {
+        if !self.rule_base || self.inputs < READINGS || taught_weight == 0.0 { return 0.0; }
+        x.iter().find(|(i, _)| *i == TAUGHT).map_or(0.0, |&(_, v)| taught_weight * v)
     }
 
     pub fn backward(&self, x: &[f32], pass: &Pass, d_keep: f32, d_rank: f32, grads: &mut [f32]) {
@@ -173,7 +196,31 @@ mod tests {
         let own = net.forward(&x).rank;
         net.rule_base = true;
         let on_rules = net.forward(&x).rank;
-        assert!((on_rules - own - crate::cull::rules::rule_rank(&r)).abs() < 1e-5, "{on_rules} vs {own}");
+        // The rules' rank, plus the ranker's reading less its average by its weight.
+        let rules = crate::cull::rules::rule_rank_with(&r, 0.0) + crate::cull::rules::TAUGHT_WEIGHT * (r[TAUGHT] - 0.5);
+        assert!((on_rules - own - rules).abs() < 1e-5, "{on_rules} vs {own}");
+    }
+
+    #[test]
+    fn the_rankers_reading_is_added_to_the_rank_after_the_network() {
+        use crate::cull::features::{inputs, HAS_FACES, KIND_EVENTS, MARK, MIN_SHARP};
+        let mut r = [0.0; READINGS];
+        r[HAS_FACES] = 1.0; r[MIN_SHARP] = 0.8; r[MARK] = 0.7; r[KIND_EVENTS] = 1.0; r[TAUGHT] = 0.5;
+        let mut net = Net::new(inputs(&r, None).len(), 4, READINGS, 5);
+        net.rule_base = true;
+        let even = net.forward_with(&inputs(&r, None), 0.0);
+        let mut high = r;
+        high[TAUGHT] = 0.9;
+        for w in [0.0, 0.2, 0.3] {
+            // An average frame ranks exactly the same at any weight.
+            let a = net.forward_with(&inputs(&r, None), w);
+            assert_eq!((a.rank.to_bits(), a.base.to_bits(), a.keep.to_bits()), (even.rank.to_bits(), even.rank.to_bits(), even.keep.to_bits()));
+            // Otherwise the base is the same and the rank moves by the weight times the reading less average.
+            let b = net.forward_with(&inputs(&high, None), w);
+            assert_eq!(b.base.to_bits(), net.forward_with(&inputs(&high, None), 0.0).rank.to_bits());
+            assert!((b.rank - b.base - w * 0.4).abs() < 1e-6, "{w}: {} {}", b.rank, b.base);
+        }
+        assert_eq!(net.forward(&inputs(&high, None)).rank, net.forward_with(&inputs(&high, None), crate::cull::rules::TAUGHT_WEIGHT).rank);
     }
 
     #[test]

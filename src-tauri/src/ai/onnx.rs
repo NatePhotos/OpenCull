@@ -17,10 +17,19 @@ pub(super) fn builder() -> Result<SessionBuilder, String> {
         .map_err(|e| e.to_string())?;
     builder.with_intra_threads(1).map_err(|e| e.to_string())
 }
+/// What `run` fails with, before the reason, when the model could not be opened.
+const NOT_OPENED: &str = "could not load a model";
+
+/// Whether `run` failed because the model could not be opened, rather than on
+/// the numbers it was given.
+pub fn not_opened(error: &str) -> bool {
+    error.starts_with(NOT_OPENED)
+}
+
 fn open(bytes: &[u8]) -> Result<Session, String> {
     builder()?
         .commit_from_memory(bytes)
-        .map_err(|e| format!("could not load a model: {e}"))
+        .map_err(|e| format!("{NOT_OPENED}: {e}"))
 }
 
 /// Borrows caller-owned tensors while running, avoiding an extra image copy.
@@ -168,6 +177,11 @@ mod cuda_tests {
                                 include_bytes!("../../models/mouth.onnx"),
                                 vec![("band", vec![n, 3, 64, 128])],
                                 vec!["expression"],
+                            ),
+                            (
+                                include_bytes!("../../models/faceprint.onnx"),
+                                vec![("face", vec![n, 3, 224, 224])],
+                                vec!["embedding"],
                             ),
                         ];
                         for (bytes, shapes, outputs) in cases {

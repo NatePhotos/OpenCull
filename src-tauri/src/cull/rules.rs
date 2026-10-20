@@ -84,7 +84,17 @@ pub fn warnings(r: &[f32; READINGS]) -> Vec<Fault> {
     }
 }
 
+/// How much the ranker's reading (0 to 1, 0.5 average) adds to a frame's rank
+/// beside its mark. Chosen by measurement.
+pub const TAUGHT_WEIGHT: f32 = 0.2;
+
 pub fn rule_rank(r: &[f32; READINGS]) -> f32 {
+    rule_rank_with(r, TAUGHT_WEIGHT)
+}
+
+/// `rule_rank` with the ranker's reading weighed by `taught_weight`: the
+/// weight times how far the reading is above or below 0.5.
+pub fn rule_rank_with(r: &[f32; READINGS], taught_weight: f32) -> f32 {
     let base = match ShootKind::of(r) {
         ShootKind::Events => r[MARK],
         // Portraits: how open and sharp the eyes are matters beside the mark.
@@ -92,7 +102,9 @@ pub fn rule_rank(r: &[f32; READINGS]) -> f32 {
         // Sports: the frame where the athlete is crisp wins.
         ShootKind::Sports => 0.6 * r[MARK] + 0.4 * if r[HAS_FACES] > 0.5 { r[MIN_SHARP] } else { r[SCORE] },
     };
-    base - if faults(r).is_empty() { 0.0 } else { 0.5 }
+    // Less its average, as the network's own rank takes it (`Net::taught_term`):
+    // an average frame gains nothing and the order is the same.
+    base + taught_weight * (r[TAUGHT] - 0.5) - if faults(r).is_empty() { 0.0 } else { 0.5 }
 }
 
 #[cfg(test)]
@@ -104,7 +116,45 @@ mod tests {
         r[HAS_FACES] = 1.0; r[MIN_SHARP] = 0.8; r[MEAN_SHARP] = 0.8; r[MARK] = 0.7; r[SCORE] = 0.7; r[HAS_SCORE] = 1.0;
         r[LIGHT_MEAN] = 0.45; r[LIGHT_P95] = 0.9; r[DETAIL] = 0.5; r[STOPS_VS_NEIGHBOURS] = 0.0;
         r[kind.column()] = 1.0;
+        r[TAUGHT] = 0.5;
         r
+    }
+
+    #[test]
+    fn the_rankers_reading_adds_to_the_rank_by_its_weight() {
+        let mut low = clean(ShootKind::Events); low[TAUGHT] = 0.2;
+        let mut high = low; high[TAUGHT] = 0.8;
+        assert!(TAUGHT_WEIGHT >= 0.0);
+        assert_eq!(rule_rank(&high), rule_rank_with(&high, TAUGHT_WEIGHT));
+        for kind in [ShootKind::Events, ShootKind::Portraits, ShootKind::Sports] {
+            let mut low = clean(kind); low[TAUGHT] = 0.2;
+            let mut high = low; high[TAUGHT] = 0.8;
+            assert!(((rule_rank_with(&high, 0.3) - rule_rank_with(&low, 0.3)) - 0.18).abs() < 1e-6, "{}", kind.label());
+            assert_eq!(rule_rank_with(&high, 0.0), rule_rank_with(&low, 0.0));
+        }
+        // It never makes or clears a fault.
+        assert_eq!(faults(&high), faults(&low));
+    }
+
+    #[test]
+    fn an_average_reading_from_the_ranker_adds_nothing() {
+        for kind in [ShootKind::Events, ShootKind::Portraits, ShootKind::Sports] {
+            let mut r = clean(kind);
+            r[TAUGHT] = 0.5;
+            for w in [0.0, 0.2, 0.3] {
+                assert_eq!(rule_rank_with(&r, w), rule_rank_with(&r, 0.0), "{} at {w}", kind.label());
+            }
+            let mut faulty = r;
+            faulty[ANY_SHUT] = 1.0;
+            assert_eq!(rule_rank_with(&faulty, TAUGHT_WEIGHT), rule_rank_with(&faulty, 0.0));
+            // Above average adds, below takes away, by the weight times the distance.
+            let mut high = r;
+            high[TAUGHT] = 0.9;
+            assert!((rule_rank_with(&high, 0.3) - rule_rank_with(&r, 0.0) - 0.3 * 0.4).abs() < 1e-6);
+            let mut low = r;
+            low[TAUGHT] = 0.1;
+            assert!((rule_rank_with(&low, 0.3) - rule_rank_with(&r, 0.0) + 0.3 * 0.4).abs() < 1e-6);
+        }
     }
 
     #[test]

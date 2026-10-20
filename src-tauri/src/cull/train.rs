@@ -223,7 +223,7 @@ pub fn refit(net: &mut Net, lessons: &[Lesson]) {
             net.red_line = cut;
         }
     }
-    let gaps: Vec<(f32, bool)> = lessons.iter().filter_map(|l| match l { Lesson::Behind { best, this, blue } => Some((net.forward(best).rank - net.forward(this).rank, *blue)), _ => None }).collect();
+    let gaps: Vec<(f32, bool)> = lessons.iter().filter_map(|l| match l { Lesson::Behind { best, this, blue } => Some((net.forward(best).base - net.forward(this).base, *blue)), _ => None }).collect();
     if gaps.iter().any(|g| g.1) && gaps.iter().any(|g| !g.1) {
         let scores: Vec<f32> = gaps.iter().map(|g| g.0).collect();
         if let Some(cut) = best_cut(&scores, |cut| balanced(&gaps, |gap| gap <= cut)) {

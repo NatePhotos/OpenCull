@@ -5,16 +5,26 @@ use std::sync::OnceLock;
 
 use super::features::*;
 use super::net::{sigmoid, Adam, Net, Rng};
-use super::rules::{faults, rule_rank, RULE_BLUE_MARGIN};
+use super::rules::{faults, rule_rank_with, RULE_BLUE_MARGIN};
 
 pub const HIDDEN: usize = 32;
 const SEED: u64 = 20261018;
+/// Seeds the ranker's reading's own stream of made-up values.
+const RANKED_SEED: u64 = 20261019;
 /// Bump whenever the rules, the readings' meaning or the made-up readings
 /// change, so a starting network saved by an earlier version is rebuilt.
-pub const STARTER_VERSION: u32 = 1;
+// 2: the ranker's reading.
+pub const STARTER_VERSION: u32 = 2;
 
 /// Readings of a plausible photo, with each fault turning up often enough to be learned.
 pub fn sample(rng: &mut Rng) -> [f32; READINGS] {
+    let mut r = drawn(rng);
+    r[TAUGHT] = rng.next_f32();
+    r
+}
+
+/// Every reading of `sample` but the ranker's, which is left average.
+fn drawn(rng: &mut Rng) -> [f32; READINGS] {
     let mut r = [0.0f32; READINGS];
     let chance = |rng: &mut Rng, p: f32| if rng.next_f32() < p { 1.0 } else { 0.0 };
     let kind = [ShootKind::Events, ShootKind::Portraits, ShootKind::Sports][(rng.next_f32() * 3.0) as usize % 3];
@@ -90,6 +100,7 @@ pub fn sample(rng: &mut Rng) -> [f32; READINGS] {
     r[MARK] = rng.next_f32();
     r[GAP_TO_BEST] = if r[ALONE] > 0.5 { 0.0 } else { rng.next_f32() * 0.4 };
     r[MIN_EYE_SHARE] = if faces { 0.3 + rng.next_f32() * 0.7 } else { 1.0 };
+    r[TAUGHT] = 0.5;
     r
 }
 
@@ -100,13 +111,30 @@ pub fn starting_net() -> Net {
 }
 
 fn train() -> Net {
+    train_at(super::rules::TAUGHT_WEIGHT)
+}
+
+/// `train` with the ranker's reading weighed by `taught_weight` wherever the rank is formed.
+fn train_at(taught_weight: f32) -> Net {
     let mut rng = Rng::new(SEED);
-    let data: Vec<([f32; READINGS], Vec<f32>)> = (0..30_000).map(|_| { let r = sample(&mut rng); (r, inputs(&r, None)[..READINGS].to_vec()) }).collect();
+    // The ranker's reading is drawn from a stream of its own, so every other
+    // reading is drawn exactly as before it existed.
+    let mut ranked = Rng::new(RANKED_SEED);
+    let data: Vec<([f32; READINGS], Vec<f32>)> = (0..30_000)
+        .map(|_| {
+            let mut r = drawn(&mut rng);
+            r[TAUGHT] = ranked.next_f32();
+            (r, inputs(&r, None)[..READINGS].to_vec())
+        })
+        .collect();
     // Photo fingerprints are absent here, so only the readings columns can
     // learn anything: train that narrow net, then widen it. It ranks on top of
     // the rules, so its own rank answer is taught to be nothing: the rules'
-    // order stands until the photographer's stars say otherwise.
-    let mut net = Net::new(READINGS, HIDDEN, READINGS, SEED);
+    // order stands until the photographer's stars say otherwise. The ranker's
+    // reading is added to the rank after the network, by its weight (see
+    // `Net::forward_sparse_with`), so its column is held at exactly 0 and the
+    // network is the one it was before that reading existed, at any weight.
+    let mut net = with_inputs(&Net::new(TAUGHT, HIDDEN, TAUGHT, SEED), READINGS);
     net.rule_base = true;
     let mut adam = Adam::new(net.params.len());
     let mut grads = vec![0.0; net.params.len()];
@@ -114,32 +142,44 @@ fn train() -> Net {
         for batch in data.chunks(256) {
             grads.iter_mut().for_each(|g| *g = 0.0);
             for (r, x) in batch {
-                let pass = net.forward(x);
+                let pass = net.forward_with(x, taught_weight);
                 let target = if faults(r).is_empty() { 1.0 } else { 0.0 };
                 let d_keep = sigmoid(pass.keep) - target;
-                let d_rank = 2.0 * (pass.rank - rule_rank(r));
+                // Against the rules without the ranker's reading, on the rank before it is
+                // added, so the weights come out the same whatever its weight.
+                let d_rank = 2.0 * (pass.base - rule_rank_with(r, 0.0));
                 net.backward(x, &pass, d_keep, d_rank, &mut grads);
             }
             let n = batch.len() as f32;
             grads.iter_mut().for_each(|g| *g /= n);
+            (0..HIDDEN).for_each(|j| grads[j * READINGS + TAUGHT] = 0.0);
             adam.step(&mut net.params, &grads, 0.01);
         }
     }
     widen(&net)
 }
 
+/// The same network reading `inputs` numbers: the columns it had are copied
+/// and the new ones start at exactly 0.
+fn with_inputs(narrow: &Net, inputs: usize) -> Net {
+    let had = narrow.inputs;
+    let mut wide = Net::new(inputs, narrow.hidden, READINGS, SEED);
+    wide.params.iter_mut().for_each(|p| *p = 0.0);
+    for j in 0..narrow.hidden {
+        wide.params[j * inputs..j * inputs + had].copy_from_slice(&narrow.params[j * had..(j + 1) * had]);
+    }
+    let (from, to) = (narrow.hidden * had, narrow.hidden * inputs);
+    wide.params[to..].copy_from_slice(&narrow.params[from..]);
+    wide.red_line = narrow.red_line;
+    wide.blue_margin = narrow.blue_margin;
+    wide.rule_base = narrow.rule_base;
+    wide
+}
+
 /// The same network with room for a fingerprint: those columns start at exactly 0.
 fn widen(narrow: &Net) -> Net {
-    let mut wide = Net::new(INPUTS, HIDDEN, READINGS, SEED);
-    wide.params.iter_mut().for_each(|p| *p = 0.0);
-    for j in 0..HIDDEN {
-        wide.params[j * INPUTS..j * INPUTS + READINGS].copy_from_slice(&narrow.params[j * READINGS..(j + 1) * READINGS]);
-    }
-    let (from, to) = (HIDDEN * READINGS, HIDDEN * INPUTS);
-    let tail = narrow.params.len() - from;
-    wide.params[to..to + tail].copy_from_slice(&narrow.params[from..]);
+    let mut wide = with_inputs(narrow, INPUTS);
     wide.red_line = 0.0;
-    wide.rule_base = narrow.rule_base;
     // The rules' margin is in mark points; the network's ranking score is
     // the rule rank plus an answer taught to be nothing, so the same margin carries over.
     wide.blue_margin = RULE_BLUE_MARGIN;
@@ -150,7 +190,7 @@ fn widen(narrow: &Net) -> Net {
 mod tests {
     use super::*;
     use crate::cull::features::inputs;
-    use crate::cull::rules::{faults, rule_rank, Fault};
+    use crate::cull::rules::{faults, rule_rank, rule_rank_with, Fault};
 
     #[test]
     fn the_starting_network_agrees_with_the_rules() {
@@ -312,4 +352,38 @@ mod tests {
 
     #[test]
     fn it_is_the_same_every_time() { assert_eq!(train(), train()); }
+
+    #[test]
+    fn the_rankers_reading_counts_only_through_the_rules() {
+        let net = starting_net();
+        assert!((0..HIDDEN).all(|j| net.params[j * INPUTS + TAUGHT] == 0.0), "its column is exactly 0");
+        let mut rng = Rng::new(5);
+        for _ in 0..200 {
+            let mut low = sample(&mut rng);
+            low[TAUGHT] = 0.1;
+            let mut high = low;
+            high[TAUGHT] = 0.9;
+            let (a, b) = (net.forward(&inputs(&low, None)), net.forward(&inputs(&high, None)));
+            assert_eq!(a.keep, b.keep);
+            // What the network adds to the rules' rank is the same whatever the reading...
+            assert!(((b.rank - rule_rank(&high)) - (a.rank - rule_rank(&low))).abs() < 1e-6);
+            // ...so at any weight the rank moves by exactly the weight times the reading.
+            assert!(((rule_rank_with(&high, 0.3) - rule_rank_with(&low, 0.3)) - 0.3 * 0.8).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn the_starting_network_is_the_same_whatever_the_rankers_weight() {
+        let at_zero = train_at(0.0);
+        assert_eq!(train_at(0.3), at_zero);
+        assert_eq!(train(), at_zero);
+    }
+
+    #[test]
+    fn samples_carry_the_rankers_reading() {
+        let mut rng = Rng::new(3);
+        let taught: Vec<f32> = (0..500).map(|_| sample(&mut rng)[TAUGHT]).collect();
+        assert!(taught.iter().all(|t| (0.0..1.0).contains(t)));
+        assert!(taught.iter().any(|&t| t < 0.2) && taught.iter().any(|&t| t > 0.8));
+    }
 }

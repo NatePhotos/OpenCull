@@ -771,6 +771,11 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                         };
                         let analysis = ai::analyze_then(&image.display, rules, light);
                         let record = analysis.as_ref().map(ai::store::Record::from).unwrap_or_default();
+                        // The subjects' face prints stay here, for ranking
+                        // a burst; the interface is never sent them.
+                        if let Some(print) = analysis.ok().and_then(|a| a.prints) {
+                            app.faces.prints.put(&session.folder, &image.display, &image.version, print);
+                        }
                         known.lock().unwrap().insert(image.display.to_string_lossy().into_owned(), (image.version.clone(), record.clone()));
                         if tx.send(Analysed { index, record }).is_err() {
                             return;
@@ -798,6 +803,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                 }
                 if unsaved >= AI_SAVE_EVERY {
                     app.faces.save(&session.folder, rules, &known.lock().unwrap());
+                    app.faces.prints.save(&session.folder);
                     unsaved = 0;
                 }
             }
@@ -806,6 +812,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
             }
             if unsaved > 0 {
                 app.faces.save(&session.folder, rules, &known.lock().unwrap());
+                app.faces.prints.save(&session.folder);
             }
         });
         events.send(AiEvent::Done { finished: queue.exhausted() && wanted() }).ok();
@@ -974,7 +981,41 @@ fn autocull_groups(app: &App, root: &Path, frames: &[crate::cull::Frame], around
     };
     // A photo around whose thumbnail cannot be read is left out, not counted as mid-grey.
     let around: Vec<(f64, crate::cull::light::Light)> = around.iter().zip(around_lights).filter_map(|(a, l)| l.map(|l| (a.time, l))).collect();
-    crate::cull::prepare_groups(frames, &around, kind, |i| lights[i], |i| prints[i].clone())
+    let sessions = open_sessions(app);
+    let folders = folders_of(&sessions, frames);
+    // Looked up only for frames with others in their group: a lone frame is not ranked.
+    crate::cull::prepare_groups(frames, &around, kind, |i| lights[i], |i| prints[i].clone(), |i| face_print_of(&app.faces.prints, folders[i], &frames[i]))
+}
+
+/// The folders open now, the one opened last first.
+fn open_sessions(app: &App) -> Vec<Arc<Session>> {
+    let mut open: Vec<(u64, Arc<Session>)> = app.sessions.lock().unwrap().iter().map(|(id, s)| (*id, s.clone())).collect();
+    open.sort_by(|a, b| b.0.cmp(&a.0));
+    open.into_iter().map(|(_, s)| s).collect()
+}
+
+/// For each frame, the open folder it was found in: the one whose photos
+/// include the file it is drawn from. That is where the scan kept its face
+/// print, whatever folder the file is in: a review of several cards is opened
+/// on the first card and holds the photos of all of them. Of two open folders
+/// holding the same photo, the first given. None for a photo of no open folder.
+fn folders_of<'a>(sessions: &'a [Arc<Session>], frames: &[crate::cull::Frame]) -> Vec<Option<&'a Path>> {
+    let mut folder_of: HashMap<&Path, Option<&'a Path>> = frames.iter().map(|f| (Path::new(&f.path), None)).collect();
+    for session in sessions {
+        for image in &session.images {
+            if let Some(slot @ None) = folder_of.get_mut(image.display.as_path()) {
+                *slot = Some(&session.folder);
+            }
+        }
+    }
+    frames.iter().map(|f| folder_of[Path::new(&f.path)]).collect()
+}
+
+/// A frame's face print, if the Advanced scan made one for this version of
+/// its file, kept under `folder`, the open folder it was found in. Only the
+/// Advanced scan makes prints, and only Advanced judges.
+fn face_print_of(store: &ai::store::PrintStore, folder: Option<&Path>, frame: &crate::cull::Frame) -> Option<ai::faceprint::PhotoPrint> {
+    store.get(folder?, Path::new(&frame.path), &frame.version)
 }
 
 /// The new judging's verdict on these frames, set against the photos shot around them.
@@ -1484,4 +1525,77 @@ pub fn video_source(handle: tauri::AppHandle, app: AppState, path: String) -> Re
     if !on_cover && !sessions.values().any(|s| s.images.iter().any(|p| p.path.canonicalize().ok().as_ref() == Some(&requested))) { return Err("Video is not in the selected session".into()); }
     handle.asset_protocol_scope().allow_file(&requested).map_err(|e| e.to_string())?;
     crate::video_stream::url(requested)
+}
+
+#[cfg(test)]
+mod print_lookup_tests {
+    use super::*;
+
+    fn session(folder: &str, photos: &[&str]) -> Arc<Session> {
+        let images = photos
+            .iter()
+            .map(|p| Scanned { path: PathBuf::from(p), display: PathBuf::from(p), name: String::new(), subpath: None, version: "v1".into(), size: 0, modified: 0 })
+            .collect();
+        Arc::new(Session { folder: PathBuf::from(folder), images, timed: true, closed: AtomicBool::new(false) })
+    }
+
+    fn frame(path: &str, version: &str) -> crate::cull::Frame {
+        serde_json::from_value(serde_json::json!({ "path": path, "version": version, "faces": [], "score": null, "focus": null, "gaze": null, "key": null })).unwrap()
+    }
+
+    fn print(seed: f32) -> ai::faceprint::PhotoPrint {
+        ai::faceprint::PhotoPrint { mean: (0..512).map(|i| seed + i as f32 / 1000.0).collect(), min: (0..512).map(|i| seed - i as f32 / 1000.0).collect() }
+    }
+
+    fn prints_of(sessions: &[Arc<Session>], store: &ai::store::PrintStore, frames: &[crate::cull::Frame]) -> Vec<Option<ai::faceprint::PhotoPrint>> {
+        folders_of(sessions, frames).into_iter().zip(frames).map(|(folder, f)| face_print_of(store, folder, f)).collect()
+    }
+
+    #[test]
+    fn judging_finds_the_prints_the_scan_kept_by_path_and_version() {
+        let dir = std::env::temp_dir().join(format!("opencull-judge-prints-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let (a, b, c) = ("/shoots/wedding/100MSDCF/A.JPG", "/shoots/wedding/B.JPG", "/shoots/wedding/C.JPG");
+        // As the scan keeps them: under the folder opened, by the path drawn from and its version.
+        let store = ai::store::Store::new(dir.clone());
+        store.prints.put(Path::new("/shoots/wedding"), Path::new(a), "v1", print(0.25));
+        store.prints.put(Path::new("/shoots/wedding"), Path::new(b), "v1", print(0.5));
+        store.prints.save(Path::new("/shoots/wedding"));
+
+        // Read back afresh, as after the app is opened again.
+        let again = ai::store::Store::new(dir.clone());
+        let sessions = [session("/shoots/wedding", &[a, b, c])];
+        let frames = [frame(a, "v1"), frame(b, "v2"), frame(c, "v1"), frame("/elsewhere/D.JPG", "v1")];
+        let got = prints_of(&sessions, &again.prints, &frames);
+        assert!(got == vec![Some(print(0.25)), None, None, None], "found in a subfolder; not for a changed file, a photo with none, or one of no open folder");
+        assert!(prints_of(&[], &again.prints, &frames[..1]) == vec![None], "nothing is looked up with no folder open");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_review_of_several_cards_finds_the_prints_of_every_card() {
+        let dir = std::env::temp_dir().join(format!("opencull-judge-cards-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let (on_a, on_b) = ("/Volumes/A/DCIM/1.JPG", "/Volumes/B/DCIM/2.JPG");
+        // The review is opened on card A and holds the photos of both cards; the scan keeps them all under card A.
+        let store = ai::store::Store::new(dir.clone());
+        store.prints.put(Path::new("/Volumes/A"), Path::new(on_a), "v1", print(0.25));
+        store.prints.put(Path::new("/Volumes/A"), Path::new(on_b), "v1", print(0.5));
+        let sessions = [session("/Volumes/A", &[on_a, on_b])];
+        let frames = [frame(on_a, "v1"), frame(on_b, "v1")];
+        assert!(prints_of(&sessions, &store.prints, &frames) == vec![Some(print(0.25)), Some(print(0.5))]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_photo_belongs_to_the_open_folder_whose_photos_include_it() {
+        let (outer, inner) = (session("/shoots", &["/shoots/x.JPG"]), session("/shoots/wedding", &["/shoots/wedding/A.JPG"]));
+        let frames = [frame("/shoots/wedding/A.JPG", "v1"), frame("/shoots/x.JPG", "v1"), frame("/shoots/wedding/B.JPG", "v1")];
+        let both = [outer.clone(), inner.clone()];
+        assert_eq!(folders_of(&both, &frames), vec![Some(Path::new("/shoots/wedding")), Some(Path::new("/shoots")), None], "inside a folder is not enough: it must be one of its photos");
+        // Held by two open folders: the first given, which is the one opened last.
+        let twice = session("/shoots", &["/shoots/x.JPG", "/shoots/wedding/A.JPG"]);
+        assert_eq!(folders_of(&[inner.clone(), twice.clone()], &frames[..1]), vec![Some(Path::new("/shoots/wedding"))]);
+        assert_eq!(folders_of(&[twice, inner], &frames[..1]), vec![Some(Path::new("/shoots"))]);
+    }
 }

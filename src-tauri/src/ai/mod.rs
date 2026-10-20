@@ -8,6 +8,7 @@ mod cuda;
 pub mod acceleration;
 pub mod basic;
 pub mod eyes;
+pub mod faceprint;
 pub mod file_backend;
 pub mod finder;
 pub mod focus;
@@ -29,6 +30,7 @@ use std::path::Path;
 use crate::faces::{self, FaceBox};
 use crate::preview;
 
+pub use faceprint::PhotoPrint;
 pub use judge::Verdict;
 pub use subject::Reason;
 
@@ -99,6 +101,10 @@ pub struct Analysis {
     /// With no faces: the part of the photo it is about, which it is then
     /// marked on.
     pub key: Option<key::Key>,
+    /// What the face prints of its subjects come to. Advanced only; `None`
+    /// with no subjects. Kept by the scan for ranking a burst, never sent to
+    /// the interface.
+    pub prints: Option<PhotoPrint>,
 }
 
 // Faces narrower than this, in the finder's picture, are not accused of
@@ -196,6 +202,8 @@ const NOT_A_FACE_IF_UNSURE: f32 = 0.5;
 /// The patch around each eye that focus is measured on, as a share of the
 /// face's box. About what the Mac app took around each eye's landmarks.
 const EYE_PATCH: (f64, f64) = (0.28, 0.18);
+/// How many numbers one face picture the judge is shown takes.
+const FACE_PICTURE: usize = 3 * faces::FACE_SIDE as usize * faces::FACE_SIDE as usize;
 
 /// A face standing at a turn, cut out of the photograph and stood upright,
 /// with where it sits in the cut-out.
@@ -241,16 +249,25 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
     }
 
     let places: Vec<FaceBox> = found.iter().map(|f| f.as_face_box(sw, sh)).collect();
-    let mut verdicts = judge::judge(rgb, width, height, &places)?;
+    // Advanced keeps the face pictures the judge was shown, for the face
+    // network to be shown the same ones.
+    let (mut verdicts, mut pictures) = match rules {
+        Rules::Advanced => judge::judge_keeping(rgb, width, height, &places)?,
+        Rules::Basic => (judge::judge(rgb, width, height, &places)?, Vec::new()),
+    };
     // A face standing at a turn is judged, and its eyes and mouth read, from a
     // cut-out of its own stood upright: the judge and the readers were only
     // ever shown faces the right way up. MEASURED on the hand-graded faces
     // turned upside down: open eyes called shut 4 times in 1,230, not 135.
+    // Its print is made from that upright picture too.
     let mut stood: Vec<Option<Upright>> = found.iter().map(|f| if f.turn != 0 { upright(rgb, width, height, f, 1.0 / k) } else { None }).collect();
     for (i, u) in stood.iter().enumerate() {
         if let Some(u) = u {
-            if let Ok(v) = judge::judge(&u.rgb, u.w, u.h, &[u.place]) {
+            if let Ok((v, picture)) = judge::judge_keeping(&u.rgb, u.w, u.h, &[u.place]) {
                 verdicts[i] = v[0];
+                if let Some(slot) = pictures.get_mut(i * FACE_PICTURE..(i + 1) * FACE_PICTURE) {
+                    slot.copy_from_slice(&picture);
+                }
             }
         }
     }
@@ -302,6 +319,17 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
             basic::classify(&signals)
         }
     };
+
+    // The subjects' prints, from the pictures the judge was shown: by the
+    // finder's numbering, which the pictures still follow.
+    let mut subject = vec![false; pictures.len() / FACE_PICTURE];
+    for (n, &i) in real.iter().enumerate() {
+        if let Some(s) = subject.get_mut(i) {
+            *s = decisions[n].subject;
+        }
+    }
+    let prints = photo_print(rules, &pictures, &subject);
+    drop(pictures);
 
     // The closer look at the eyes, for faces large enough to be accused.
     // The basic rules take no closer look at anything.
@@ -402,7 +430,7 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
         Rules::Advanced => score::parts(&readings, false),
         Rules::Basic => basic::parts(&readings, false),
     };
-    Ok(Analysis { faces, score: parts.map(|p| p.total()), parts, key: None })
+    Ok(Analysis { faces, score: parts.map(|p| p.total()), parts, key: None, prints })
 }
 
 /// A photograph with nobody in it: found what it is about, and marked on
@@ -411,7 +439,28 @@ pub fn analyze_pixels(rgb: &[u8], width: u32, height: u32, rules: Rules) -> Resu
 fn about(rgb: &[u8], width: u32, height: u32) -> Result<Analysis, String> {
     let key = key::find(rgb, width, height)?;
     let score = key.focus_log.map(|log| focus::score(10f64.powf(log)));
-    Ok(Analysis { faces: Vec::new(), score, parts: None, key: Some(key) })
+    Ok(Analysis { faces: Vec::new(), score, parts: None, key: Some(key), prints: None })
+}
+
+/// What the prints of a photograph's subjects come to, from the judge's own
+/// face pictures (`subject.len()` of them, laid out as it takes them). Only
+/// the subjects are printed; the basic rules print nothing.
+fn photo_print(rules: Rules, planes: &[f32], subject: &[bool]) -> Option<PhotoPrint> {
+    let chosen: Vec<usize> = (0..subject.len()).filter(|&i| subject[i]).collect();
+    if rules != Rules::Advanced || chosen.is_empty() || planes.len() != subject.len() * FACE_PICTURE {
+        return None;
+    }
+    // All of them at once: one run of the network for the whole photograph.
+    let gathered: Vec<f32>;
+    let batch = if chosen.len() == subject.len() {
+        planes
+    } else {
+        gathered = chosen.iter().flat_map(|&i| planes[i * FACE_PICTURE..(i + 1) * FACE_PICTURE].iter().copied()).collect();
+        &gathered
+    };
+    // A face network that fails leaves the photograph without prints, not
+    // without its analysis.
+    faceprint::prints(batch, chosen.len()).ok().and_then(|p| faceprint::summarise(&p))
 }
 
 /// Whether a box the finder drew is something other than a face.
@@ -510,6 +559,31 @@ mod tests {
         assert!(is_away(&verdict(0.0, 0.97, 0.0, 0.0), Some(0.30)), "the score says away and the eyes half agree");
         assert!(!is_away(&verdict(0.0, 0.97, 0.0, 0.0), Some(0.05)), "a turned head with the eyes plainly on the lens");
         assert!(!is_away(&verdict(0.0, 0.45, 0.0, 0.0), Some(0.30)), "neither says so");
+    }
+
+    fn pictures(seeds: &[usize]) -> Vec<f32> {
+        let face = 3 * faces::FACE_SIDE as usize * faces::FACE_SIDE as usize;
+        seeds.iter().flat_map(|s| (0..face).map(move |i| ((i * s + s * 31) % 256) as f32)).collect()
+    }
+
+    #[test]
+    fn a_photos_print_is_the_mean_and_least_of_its_subjects_only() {
+        let planes = pictures(&[7, 11, 13]);
+        let got = photo_print(Rules::Advanced, &planes, &[true, false, true]).unwrap();
+        let each = faceprint::prints(&planes, 3).unwrap();
+        let want = faceprint::summarise(&[each[0], each[2]]).unwrap();
+        assert!(got.mean.iter().zip(&want.mean).all(|(a, b)| (a - b).abs() < 1e-5));
+        assert!(got.min.iter().zip(&want.min).all(|(a, b)| (a - b).abs() < 1e-5));
+        assert_ne!(Some(got), faceprint::summarise(&each), "the face in the background is left out");
+        assert_eq!(photo_print(Rules::Advanced, &planes, &[false, false, false]), None, "nobody it is about, nothing to print");
+    }
+
+    #[test]
+    fn the_basic_rules_print_nothing_and_are_remembered_as_they_were() {
+        let planes = pictures(&[7, 11]);
+        assert_eq!(photo_print(Rules::Basic, &planes, &[true, true]), None);
+        assert_eq!(store::version(Rules::Basic), "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1");
+        assert!(store::version(Rules::Advanced).ends_with("|print-1"));
     }
 
     #[test]

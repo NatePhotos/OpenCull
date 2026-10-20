@@ -55,8 +55,19 @@ fn planes(rgb: &[u8], into: &mut Vec<f32>) {
 
 /// Judges every face in an upright picture, in the order given.
 pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<Vec<Verdict>, String> {
+    judged(rgb, width, height, boxes, false).map(|(verdicts, _)| verdicts)
+}
+
+/// As `judge`, also giving back the face pictures it was shown, laid out as
+/// it took them (3 × 224 × 224 numbers a face, in the order given), so that
+/// the face network can be shown the same ones without cutting them again.
+pub fn judge_keeping(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<(Vec<Verdict>, Vec<f32>), String> {
+    judged(rgb, width, height, boxes, true).map(|(verdicts, kept)| (verdicts, kept.unwrap_or_default()))
+}
+
+fn judged(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox], keep: bool) -> Result<(Vec<Verdict>, Option<Vec<f32>>), String> {
     if boxes.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
     let n = boxes.len();
     let (side, (strip_w, strip_h)) = (FACE_SIDE as usize, (STRIP.0 as usize, STRIP.1 as usize));
@@ -71,8 +82,9 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
         planes(&eyes, &mut eyes_in);
     }
 
+    let kept = keep.then(|| face_in.clone());
     let inputs = vec![("face", vec![n, 3, side, side], face_in), ("eyes", vec![n, 3, strip_h, strip_w], eyes_in)];
-    onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw", "expression", "profile", "down"], |out| {
+    let verdicts = onnx::run(&SESSION, MODEL, inputs, &["validity", "eyes_state", "gaze", "ear", "quality", "away", "eye_offset", "head_yaw", "expression", "profile", "down"], |out| {
         (0..n)
             .map(|i| {
                 let take = |which: usize, len: usize| &out[which].1[i * len..(i + 1) * len];
@@ -91,7 +103,8 @@ pub fn judge(rgb: &[u8], width: u32, height: u32, boxes: &[FaceBox]) -> Result<V
                 v
             })
             .collect()
-    })
+    })?;
+    Ok((verdicts, kept))
 }
 
 #[cfg(test)]
@@ -113,6 +126,20 @@ mod tests {
             assert!((0.0..=1.0).contains(&v.profile) && (0.0..=1.0).contains(&v.down));
             assert!((0.0..=0.41).contains(&v.ear) && (0.0..=1.0).contains(&v.quality) && (0.0..=1.0).contains(&v.away));
         }
+    }
+
+    #[test]
+    fn the_face_pictures_it_was_shown_are_given_back_in_order() {
+        let (w, h) = (640u32, 480u32);
+        let rgb: Vec<u8> = (0..w * h * 3).map(|i| (i % 251) as u8).collect();
+        let boxes = [FaceBox { mid_x: 0.3, mid_y: 0.5, w: 0.2, h: 0.3 }, FaceBox { mid_x: 0.7, mid_y: 0.6, w: 0.1, h: 0.15 }];
+        let (verdicts, kept) = judge_keeping(&rgb, w, h, &boxes).unwrap();
+        assert_eq!(verdicts, judge(&rgb, w, h, &boxes).unwrap());
+        let side = FACE_SIDE as usize;
+        assert_eq!(kept.len(), 2 * 3 * side * side);
+        let mut second = Vec::new();
+        planes(&faces::cut(&rgb, w, h, boxes[1].face_rect(w, h), FACE_SIDE, FACE_SIDE).unwrap(), &mut second);
+        assert_eq!(&kept[3 * side * side..], &second[..]);
     }
 
     #[test]

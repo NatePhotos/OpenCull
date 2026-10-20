@@ -6,16 +6,19 @@
 //! remembered is from a different judge and is not used.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex};
 
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_128;
 
-use super::{focus, Analysis, Rules};
+use super::faceprint::LEN;
+use super::{focus, Analysis, PhotoPrint, Rules};
 
 /// Changes whenever the models or the rules applied to them do, so that
 /// verdicts from an earlier version are never shown as this one's.
-const ADVANCED: &str = "finder-turning-yolo26-3-0.3-patch-160|upright-1|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.6-agree-0.2-turned-posed-0.4|rules-3|eyes-2|states-3|mark-4|key-1";
+const ADVANCED: &str = "finder-turning-yolo26-3-0.3-patch-160|upright-1|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-eyes-0.6-agree-0.2-turned-posed-0.4|rules-3|eyes-2|states-3|mark-4|key-1|print-1";
 /// The basic rules are those of release 0.3 and are remembered under its
 /// name, so a folder analysed by that release is not analysed again.
 const BASIC: &str = "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1";
@@ -128,12 +131,14 @@ type Entry = (String, Record);
 #[derive(Clone)]
 pub struct Store {
     dir: PathBuf,
+    /// The face prints of the same photos, kept beside their records.
+    pub prints: PrintStore,
 }
 
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).ok();
-        Self { dir }
+        Self { prints: PrintStore::new(dir.clone()), dir }
     }
 
     fn file_for(&self, folder: &Path, rules: Rules) -> PathBuf {
@@ -156,20 +161,278 @@ impl Store {
         }
     }
 
-    /// Bytes on disk, and how many folders that is.
+    /// Bytes on disk, and how many folders that is. A folder's prints sit
+    /// beside its record and are counted in the bytes, not as a folder.
     pub fn usage(&self) -> (u64, usize) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return (0, 0) };
-        let sizes: Vec<u64> = entries.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).collect();
-        (sizes.iter().sum(), sizes.len())
+        let files: Vec<(u64, bool)> = entries
+            .flatten()
+            .filter_map(|e| Some((e.metadata().ok().filter(|m| m.is_file())?.len(), e.path().extension().is_some_and(|x| x == "prints"))))
+            .collect();
+        (files.iter().map(|f| f.0).sum(), files.iter().filter(|f| !f.1).count())
     }
 
     /// Forgets everything. Folders are analysed again when next opened.
     pub fn clear(&self) {
+        self.prints.forget();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
         for entry in entries.flatten() {
             std::fs::remove_file(entry.path()).ok();
         }
     }
+}
+
+/// The face prints of a folder's photos, remembered as the records are:
+/// by folder, under the Advanced rules' version, each with the version of
+/// the file it describes. Prints are only ever made by the Advanced rules.
+///
+/// A print is 4 KB, so they are kept apart from the records, in a file only
+/// ever added to: saving writes only what is new, not the whole folder
+/// again. The two folders last asked about are held in memory, so judging
+/// one folder does not put out the folder being scanned.
+#[derive(Clone)]
+pub struct PrintStore {
+    dir: PathBuf,
+    open: Arc<Mutex<Held>>,
+    /// Woken whenever a folder's file has been read in.
+    read_in: Arc<Condvar>,
+    /// Counts the files of prints read, for the tests.
+    #[cfg(test)]
+    reads: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// The folders whose prints are held, the one last asked about last.
+#[derive(Default)]
+struct Held {
+    folders: Vec<Prints>,
+    /// The folders whose file is being read in. Whoever else asks about one
+    /// waits for that read rather than reading the file again.
+    reading: Vec<PathBuf>,
+    /// Counts the times a folder stopped being held, after which a file read
+    /// meanwhile may miss what was written to it.
+    changes: u64,
+}
+
+/// How many folders' prints are held in memory at once.
+const HELD: usize = 2;
+
+/// One folder's prints, as held in memory.
+struct Prints {
+    folder: PathBuf,
+    known: HashMap<String, (String, PhotoPrint)>,
+    /// Paths put since the last save.
+    unsaved: Vec<String>,
+    /// How many entries the file holds, the stale ones included.
+    on_disk: usize,
+    /// The file could not be read to its end and is written afresh.
+    damaged: bool,
+}
+
+/// What a file of prints starts with.
+const PRINTS_MAGIC: &[u8; 8] = b"OCPRINT1";
+
+impl PrintStore {
+    pub fn new(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            open: Arc::new(Mutex::new(Held::default())),
+            read_in: Arc::default(),
+            #[cfg(test)]
+            reads: Arc::default(),
+        }
+    }
+
+    fn file_for(&self, folder: &Path) -> PathBuf {
+        let key = format!("{}\0{}", version(Rules::Advanced), folder.to_string_lossy());
+        self.dir.join(format!("{:032x}.prints", xxh3_128(key.as_bytes())))
+    }
+
+    /// Holds `folder`'s prints in memory, reading them in if they were not
+    /// held. The file is read with the store let go, so that photos of a
+    /// folder already held are not kept waiting, and once: photos of the same
+    /// folder that ask meanwhile wait for that read. Making room puts out the
+    /// folder asked about longest ago, after saving what of it was not yet saved.
+    fn with<T>(&self, folder: &Path, then: impl FnOnce(&mut Prints) -> T) -> T {
+        loop {
+            let seen = {
+                let mut held = self.open.lock().unwrap();
+                loop {
+                    if let Some(at) = held.folders.iter().position(|p| p.folder == folder) {
+                        let prints = held.folders.remove(at);
+                        held.folders.push(prints);
+                        return then(held.folders.last_mut().expect("held"));
+                    }
+                    if !held.reading.iter().any(|f| f == folder) {
+                        break;
+                    }
+                    held = self.read_in.wait(held).unwrap();
+                }
+                held.reading.push(folder.to_path_buf());
+                held.changes
+            };
+            // Wakes whoever waits for this read once it is over, however it ends.
+            let reading = Reading { store: self, folder };
+            let fresh = self.read(folder);
+            let mut held = self.open.lock().unwrap();
+            // Over, in the same hold of the store as the prints are taken in,
+            // so nobody finds the folder neither held nor being read meanwhile.
+            held.reading.retain(|f| f != folder);
+            // The file may have been written while it was read: start again.
+            if held.changes != seen || held.folders.iter().any(|p| p.folder == folder) {
+                continue;
+            }
+            if held.folders.len() >= HELD {
+                let mut old = held.folders.remove(0);
+                self.write(&mut old);
+                held.changes += 1;
+            }
+            held.folders.push(fresh);
+            let done = then(held.folders.last_mut().expect("held"));
+            drop(held);
+            drop(reading);
+            return done;
+        }
+    }
+
+    /// A photo's print, if one is remembered for this version of the file.
+    pub fn get(&self, folder: &Path, path: &Path, version: &str) -> Option<PhotoPrint> {
+        self.with(folder, |p| p.known.get(path.to_string_lossy().as_ref()).filter(|(was, _)| was == version).map(|(_, print)| print.clone()))
+    }
+
+    /// Remembers a photo's print, until the next `save` in memory only.
+    pub fn put(&self, folder: &Path, path: &Path, version: &str, print: PhotoPrint) {
+        let path = path.to_string_lossy().into_owned();
+        self.with(folder, |p| {
+            p.known.insert(path.clone(), (version.to_string(), print));
+            p.unsaved.push(path);
+        });
+    }
+
+    /// Writes what has been put for `folder` since the last save.
+    pub fn save(&self, folder: &Path) {
+        if let Some(p) = self.open.lock().unwrap().folders.iter_mut().find(|p| p.folder == folder) {
+            self.write(p);
+        }
+    }
+
+    /// Forgets what is held in memory; the files go with the records'.
+    fn forget(&self) {
+        let mut held = self.open.lock().unwrap();
+        held.folders.clear();
+        held.changes += 1;
+    }
+
+    fn read(&self, folder: &Path) -> Prints {
+        let mut prints = Prints { folder: folder.to_path_buf(), known: HashMap::new(), unsaved: Vec::new(), on_disk: 0, damaged: false };
+        #[cfg(test)]
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let Ok(bytes) = std::fs::read(self.file_for(folder)) else { return prints };
+        if !bytes.starts_with(PRINTS_MAGIC) {
+            prints.damaged = true;
+            return prints;
+        }
+        let mut at = PRINTS_MAGIC.len();
+        while at < bytes.len() {
+            let Some((path, version, print, next)) = entry(&bytes, at) else {
+                // Cut short, most likely while being written: what came
+                // before is whole.
+                prints.damaged = true;
+                break;
+            };
+            prints.known.insert(path, (version, print));
+            prints.on_disk += 1;
+            at = next;
+        }
+        prints
+    }
+
+    fn write(&self, prints: &mut Prints) {
+        if prints.unsaved.is_empty() && !prints.damaged {
+            return;
+        }
+        let path = self.file_for(&prints.folder);
+        // Written afresh when the file is damaged, new, or mostly stale.
+        let afresh = prints.damaged || prints.on_disk == 0 || prints.on_disk > 2 * prints.known.len();
+        let mut bytes = Vec::new();
+        if afresh {
+            bytes.extend_from_slice(PRINTS_MAGIC);
+            for (p, (v, print)) in &prints.known {
+                encode(&mut bytes, p, v, print);
+            }
+        } else {
+            for p in &prints.unsaved {
+                if let Some((v, print)) = prints.known.get(p) {
+                    encode(&mut bytes, p, v, print);
+                }
+            }
+        }
+        let written = if afresh {
+            let temp = path.with_extension(format!("tmp{}", std::process::id()));
+            let ok = std::fs::write(&temp, &bytes).is_ok() && std::fs::rename(&temp, &path).is_ok();
+            if !ok {
+                std::fs::remove_file(&temp).ok();
+            }
+            ok.then_some(prints.known.len())
+        } else {
+            let ok = std::fs::OpenOptions::new().append(true).open(&path).and_then(|mut f| f.write_all(&bytes)).is_ok();
+            ok.then_some(prints.on_disk + prints.unsaved.len())
+        };
+        match written {
+            Some(on_disk) => {
+                prints.on_disk = on_disk;
+                prints.unsaved.clear();
+                prints.damaged = false;
+            }
+            // Not written, or only partly added to, or the file was taken
+            // away meanwhile: what it holds is not known, so the next save
+            // writes it afresh.
+            None => prints.damaged = true,
+        }
+    }
+}
+
+/// A folder whose file is being read in. Going, it makes sure the folder is
+/// no longer marked as being read, and wakes whoever waits so they look again.
+struct Reading<'a> {
+    store: &'a PrintStore,
+    folder: &'a Path,
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        let mut held = self.store.open.lock().unwrap_or_else(|e| e.into_inner());
+        held.reading.retain(|f| f != self.folder);
+        drop(held);
+        self.store.read_in.notify_all();
+    }
+}
+
+/// One photo's print as it is written: the path and the file's version,
+/// each with its length before it, then the mean and the least.
+fn encode(into: &mut Vec<u8>, path: &str, version: &str, print: &PhotoPrint) {
+    for text in [path, version] {
+        into.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        into.extend_from_slice(text.as_bytes());
+    }
+    for x in print.mean.iter().chain(&print.min) {
+        into.extend_from_slice(&x.to_le_bytes());
+    }
+}
+
+/// The entry starting at `at`, and where the next starts. `None` if it is
+/// not all there.
+fn entry(bytes: &[u8], at: usize) -> Option<(String, String, PhotoPrint, usize)> {
+    let mut at = at;
+    let mut text = || -> Option<String> {
+        let len = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
+        let s = String::from_utf8(bytes.get(at + 4..at + 4 + len)?.to_vec()).ok()?;
+        at += 4 + len;
+        Some(s)
+    };
+    let (path, version) = (text()?, text()?);
+    let numbers: Vec<f32> = bytes.get(at..at + 2 * LEN * 4)?.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+    let print = PhotoPrint { mean: numbers[..LEN].to_vec(), min: numbers[LEN..].to_vec() };
+    Some((path, version, print, at + 2 * LEN * 4))
 }
 
 /// The remembered analysis of a photo, if it still describes the file.
@@ -211,6 +474,168 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    fn print(seed: f32) -> PhotoPrint {
+        PhotoPrint { mean: (0..512).map(|i| seed + i as f32 / 1000.0).collect(), min: (0..512).map(|i| seed - i as f32 / 1000.0).collect() }
+    }
+
+    #[test]
+    fn a_print_comes_back_by_path_and_version_and_outlives_the_session() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-{}", std::process::id()));
+        let store = Store::new(dir.clone());
+        let (folder, a, b) = (Path::new("/shoots/wedding"), Path::new("/shoots/wedding/A.ARW"), Path::new("/shoots/wedding/B.ARW"));
+        assert_eq!(store.prints.get(folder, a, "v1"), None, "nothing is remembered of a folder never analysed");
+
+        store.prints.put(folder, a, "v1", print(0.25));
+        assert_eq!(store.prints.get(folder, a, "v1"), Some(print(0.25)));
+        assert_eq!(store.prints.get(folder, a, "v2"), None, "the file has changed since");
+        assert_eq!(store.prints.get(folder, b, "v1"), None);
+        store.prints.save(folder);
+        store.prints.put(folder, b, "v1", print(0.5));
+        store.prints.save(folder);
+
+        let again = PrintStore::new(dir.clone());
+        assert_eq!(again.get(folder, a, "v1"), Some(print(0.25)), "read back from disk");
+        assert_eq!(again.get(folder, b, "v1"), Some(print(0.5)));
+        assert_eq!(again.get(Path::new("/shoots/other"), Path::new("/shoots/other/A.ARW"), "v1"), None, "another folder's prints are its own");
+        assert_eq!(again.get(folder, a, "v2"), None);
+
+        // A photo analysed again, after it changed, is remembered as it is now.
+        again.put(folder, a, "v2", print(0.75));
+        again.save(folder);
+        let third = PrintStore::new(dir.clone());
+        assert_eq!(third.get(folder, a, "v2"), Some(print(0.75)));
+        assert_eq!(third.get(folder, a, "v1"), None);
+
+        assert_eq!(store.usage().1, 0, "prints alone are not a folder's record");
+        assert!(store.usage().0 > 2 * 4096);
+        store.clear();
+        assert_eq!(store.prints.get(folder, b, "v1"), None, "forgotten with the records");
+        assert_eq!(PrintStore::new(dir.clone()).get(folder, b, "v1"), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn judging_another_folder_keeps_the_scanned_one_held_and_a_third_saves_it() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-held-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = PrintStore::new(dir.clone());
+        let (a, b, c) = (Path::new("/shoots/a"), Path::new("/shoots/b"), Path::new("/shoots/c"));
+        let photo = Path::new("/shoots/a/1.ARW");
+        store.put(a, photo, "v1", print(0.25));
+        assert_eq!(store.get(b, Path::new("/shoots/b/1.ARW"), "v1"), None);
+        assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), None, "a is still held, not yet saved");
+        assert_eq!(store.get(a, photo, "v1"), Some(print(0.25)));
+        // b was asked about before a last was, so c puts out b, not a.
+        store.get(c, Path::new("/shoots/c/1.ARW"), "v1");
+        assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), None, "a is still held");
+        store.get(b, Path::new("/shoots/b/1.ARW"), "v1");
+        assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), Some(print(0.25)), "put out, and saved as it went");
+        assert_eq!(store.get(a, photo, "v1"), Some(print(0.25)));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn prints_put_while_other_folders_are_judged_are_all_kept() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-busy-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = PrintStore::new(dir.clone());
+        let a = Path::new("/shoots/a");
+        let photo = |i: usize| PathBuf::from(format!("/shoots/a/{i}.ARW"));
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for i in 0..200 {
+                    store.put(a, &photo(i), "v1", print(i as f32));
+                    if i % 50 == 49 {
+                        store.save(a);
+                    }
+                }
+            });
+            for folder in ["/shoots/b", "/shoots/c"] {
+                let store = &store;
+                scope.spawn(move || {
+                    for i in 0..100 {
+                        store.get(Path::new(folder), Path::new(&format!("{folder}/{i}.ARW")), "v1");
+                    }
+                });
+            }
+        });
+        assert!((0..200).all(|i| store.get(a, &photo(i), "v1") == Some(print(i as f32))), "in memory or read back");
+        store.get(Path::new("/shoots/b"), Path::new("/shoots/b/0.ARW"), "v1");
+        store.get(Path::new("/shoots/c"), Path::new("/shoots/c/0.ARW"), "v1");
+        let back = PrintStore::new(dir.clone());
+        assert!((0..200).all(|i| back.get(a, &photo(i), "v1") == Some(print(i as f32))), "and on disk once put out");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn photos_that_miss_a_folder_together_read_its_file_once() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-once-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = Path::new("/shoots/a");
+        let photo = |i: usize| PathBuf::from(format!("/shoots/a/{i}.ARW"));
+        let first = PrintStore::new(dir.clone());
+        (0..500).for_each(|i| first.put(a, &photo(i), "v1", print(i as f32)));
+        first.save(a);
+        for _ in 0..5 {
+            let store = PrintStore::new(dir.clone());
+            let start = std::sync::Barrier::new(6);
+            std::thread::scope(|scope| {
+                for t in 0..6 {
+                    let (store, start) = (&store, &start);
+                    scope.spawn(move || {
+                        start.wait();
+                        assert_eq!(store.get(a, &photo(t), "v1"), Some(print(t as f32)));
+                    });
+                }
+            });
+            assert_eq!(store.reads.load(std::sync::atomic::Ordering::SeqCst), 1, "one read, the others wait for it");
+        }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_save_that_could_not_add_to_the_file_writes_it_afresh_next_time() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-gone-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = PrintStore::new(dir.clone());
+        let (folder, a, b) = (Path::new("/shoots/wedding"), Path::new("/shoots/wedding/A.ARW"), Path::new("/shoots/wedding/B.ARW"));
+        store.put(folder, a, "v1", print(0.25));
+        store.save(folder);
+        store.put(folder, b, "v1", print(0.5));
+        // The file goes, as when everything is forgotten meanwhile: there is nothing to add to.
+        std::fs::remove_file(store.file_for(folder)).unwrap();
+        store.save(folder);
+        assert!(!store.file_for(folder).exists(), "an addition does not make a file");
+        store.save(folder);
+        let back = PrintStore::new(dir.clone());
+        assert!(back.get(folder, a, "v1") == Some(print(0.25)) && back.get(folder, b, "v1") == Some(print(0.5)), "written whole");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn prints_cut_short_keep_what_was_whole() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-prints-cut-{}", std::process::id()));
+        let store = PrintStore::new(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        let folder = Path::new("/shoots/wedding");
+        store.put(folder, Path::new("/shoots/wedding/A.ARW"), "v1", print(0.25));
+        store.put(folder, Path::new("/shoots/wedding/B.ARW"), "v1", print(0.5));
+        store.save(folder);
+        let file = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e == "prints")).unwrap();
+        let bytes = std::fs::read(&file).unwrap();
+        std::fs::write(&file, &bytes[..bytes.len() - 100]).unwrap();
+        let back = PrintStore::new(dir.clone());
+        let whole = [Path::new("/shoots/wedding/A.ARW"), Path::new("/shoots/wedding/B.ARW")].iter().filter(|p| back.get(folder, p, "v1").is_some()).count();
+        assert_eq!(whole, 1, "the photo written in full is kept, the one cut short is not");
+        std::fs::write(&file, b"not prints at all").unwrap();
+        assert_eq!(PrintStore::new(dir.clone()).get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn a_damaged_record_costs_a_fresh_analysis_not_an_error() {
         let dir = std::env::temp_dir().join(format!("opencull-ai-store-bad-{}", std::process::id()));
@@ -242,7 +667,7 @@ mod tests {
             open: false,
             eyes_read: true,
         };
-        let r = Record::from(&Analysis { faces: vec![face], score: Some(50.0), parts: None, key: None });
+        let r = Record::from(&Analysis { faces: vec![face], score: Some(50.0), parts: None, key: None, prints: None });
         let f = &r.faces[0];
         assert!((f.x - 0.4).abs() < 1e-6 && (f.y - 0.2).abs() < 1e-6, "its middle is three quarters of the way UP, so its top is a fifth of the way down");
         assert_eq!(f.reason.as_deref(), Some("Background — small beside the others"));

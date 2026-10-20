@@ -44,11 +44,12 @@ fn ranked(passes: &[Pass], red: &[bool]) -> Vec<usize> {
 }
 
 /// Groups of readings that can be named in a reason.
-const NAMED: [(&str, &[usize]); 4] = [
+const NAMED: [(&str, &[usize]); 5] = [
     ("eyes", &[MIN_EYE, ANY_SHUT, MAX_CONCERN, MIN_EYE_SHARE, ALL_OPEN]),
     ("sharpness", &[MIN_SHARP, MEAN_SHARP, FOCUS]),
     ("where people look", &[ANY_AWAY, ANY_MAYBE_AWAY, GAZE]),
     ("light", &[LIGHT_MEAN, LIGHT_P05, LIGHT_P95, SHADOWS, HIGHLIGHTS]),
+    ("expressions", &[TAUGHT]),
 ];
 
 fn why_behind(net: &Net, this: &Prepared, best: &Prepared) -> String {
@@ -132,7 +133,9 @@ pub fn decide(net: &Net, groups: &[Vec<Prepared>]) -> Vec<Judgement> {
                 }
             } else if red[i] {
                 ("red", reject_why(i))
-            } else if passes[first].rank - passes[i].rank <= net.blue_margin {
+            // The ranker's reading orders the frames but does not say how far behind
+            // the best one is: that is measured without it.
+            } else if passes[first].base - passes[i].base <= net.blue_margin {
                 ("blue", format!("{} of {n}: close behind the best", ordinal(place + 1)))
             } else {
                 ("yellow", format!("{} of {n}: behind the best mostly on {}", ordinal(place + 1), why_behind(net, &group[i], &group[first])))
@@ -194,8 +197,34 @@ mod tests {
     }
 
     #[test]
+    fn the_rankers_reading_orders_the_frames_but_not_how_far_behind_they_count() {
+        use crate::cull::rules::TAUGHT_WEIGHT;
+        // a and b are close (b blue behind a by the rules alone); c is well behind.
+        let read = |name: &str, mark: f32, taught: f32| {
+            let mut p = frame(name, mark, false);
+            p.readings[TAUGHT] = taught;
+            p.x = inputs(&p.readings, None);
+            p
+        };
+        let net = starting_net();
+        let even = decide(&net, &[vec![read("a", 0.80, 0.5), read("b", 0.77, 0.5), read("c", 0.50, 0.5)]]);
+        assert_eq!((colour(&even, "a"), colour(&even, "b"), colour(&even, "c")), ("green", "blue", "yellow"));
+        // The ranker prefers b: with a weight above the gap in marks, b goes first...
+        assert!(TAUGHT_WEIGHT > 0.03, "needs a weight that can reorder a and b");
+        let d = decide(&net, &[vec![read("a", 0.80, 0.0), read("b", 0.77, 1.0), read("c", 0.50, 0.5)]]);
+        assert_eq!((find(&d, "b").place, find(&d, "a").place, find(&d, "c").place), (Some(1), Some(2), Some(3)));
+        assert_eq!(colour(&d, "b"), "green");
+        assert!(why(&d, "b").contains("expressions"), "{}", why(&d, "b"));
+        // ...but a is no further behind it than the rules say: still blue, and c still yellow.
+        assert_eq!((colour(&d, "a"), colour(&d, "c")), ("blue", "yellow"));
+        // The order follows the ranker the other way too.
+        let back = decide(&net, &[vec![read("a", 0.80, 1.0), read("b", 0.77, 0.0), read("c", 0.50, 0.5)]]);
+        assert_eq!((find(&back, "a").place, colour(&back, "b")), (Some(1), "blue"));
+    }
+
+    #[test]
     fn rejects_come_after_every_other_frame_whatever_their_rank() {
-        let pass = |keep: f32, rank: f32| crate::cull::net::Pass { keep, rank, hidden: Vec::new() };
+        let pass = |keep: f32, rank: f32| crate::cull::net::Pass { keep, rank, base: rank, hidden: Vec::new() };
         // b ranks highest but is a reject; it goes last, after a and c in rank order.
         let passes = [pass(1.0, 0.5), pass(-5.0, 0.9), pass(1.0, 0.7)];
         let red = [false, true, false];
@@ -268,6 +297,18 @@ mod tests {
         assert_eq!(why(&d, "a"), "Likely reject: underexposed, 1.8 stops darker than the shots around it");
         assert_eq!(why(&d, "b"), "Likely reject: underexposed, 3 or more stops darker than the shots around it");
         assert_eq!(why(&d, "c"), "Likely reject: blown out, 1.8 stops brighter than the shots around it");
+    }
+
+    #[test]
+    fn the_rankers_reading_can_be_named_as_the_reason() {
+        // One hidden unit that reads only the ranker's reading, and a rank answer that reads only that unit.
+        let mut net = Net::new(INPUTS, 1, READINGS, 1);
+        net.params.iter_mut().for_each(|p| *p = 0.0);
+        net.params[TAUGHT] = 1.0;
+        net.params[INPUTS + 2] = 1.0;
+        let mut best = frame("a", 0.7, false); best.readings[TAUGHT] = 0.9; best.x = inputs(&best.readings, None);
+        let mut this = frame("b", 0.7, false); this.readings[TAUGHT] = 0.2; this.x = inputs(&this.readings, None);
+        assert_eq!(why_behind(&net, &this, &best), "expressions");
     }
 
     #[test]
