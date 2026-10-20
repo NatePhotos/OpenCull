@@ -44,7 +44,7 @@ function Details({ photo }: { photo: Photo }) {
   const ext = (path: string) => path.split(".").pop()?.toUpperCase() ?? "";
 
   return (
-    <div className="metadata-details flex-1 space-y-4 overflow-y-auto p-3.5 select-text">
+    <div className="metadata-details @container flex-1 space-y-4 overflow-y-auto p-3.5 select-text">
       {why ? (
         <>
           <Section title="Why">
@@ -54,7 +54,7 @@ function Details({ photo }: { photo: Photo }) {
         </>
       ) : null}
       <Section title="Exposure">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 @[13rem]:grid-cols-2">
           <Badge title="Shutter" value={fmt.shutter(e?.shutter)} icon={<Timer />} />
           <Badge title="Aperture" value={fmt.aperture(e?.aperture)} icon={<Aperture />} />
           <Badge title="ISO" value={e?.iso ? `ISO ${e.iso}` : null} icon={<Sun />} />
@@ -146,6 +146,9 @@ function StillHistogram({ photo }: { photo: Photo | undefined }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [data, setData] = useState<HistogramData | null>(null);
   const [width, setWidth] = useState(0);
+  // Whether the histogram sits on a light background, as in the light theme:
+  // there the bars are drawn dark, or white ones would vanish into it.
+  const [light, setLight] = useState(false);
   const rgb = useStore((s) => s.rgbHistogram);
   const path = photo?.display;
   const version = photo?.version;
@@ -172,6 +175,26 @@ function StillHistogram({ photo }: { photo: Photo | undefined }) {
     observer.observe(el);
     measure();
     return () => observer.disconnect();
+  }, []);
+
+  // Read from the background actually drawn, and again whenever the theme changes.
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const read = () => {
+      const [r, g, b] = (getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? ["0", "0", "0"]).map(Number);
+      setLight(0.2126 * r + 0.7152 * g + 0.0722 * b > 128);
+    };
+    read();
+    const watch = new MutationObserver(read);
+    watch.observe(document.documentElement, { attributes: true });
+    watch.observe(document.body, { attributes: true });
+    const scheme = matchMedia("(prefers-color-scheme: light)");
+    scheme.addEventListener("change", read);
+    return () => {
+      watch.disconnect();
+      scheme.removeEventListener("change", read);
+    };
   }, []);
 
   useEffect(() => {
@@ -201,17 +224,18 @@ function StillHistogram({ photo }: { photo: Photo | undefined }) {
       ctx.fill();
     };
     if (!rgb) {
-      draw(data.luma, "rgba(255, 255, 255, .78)");
+      draw(data.luma, light ? "rgba(40, 40, 46, .72)" : "rgba(255, 255, 255, .78)");
       return;
     }
-    // Added together where they overlap, so equal parts of all three read as grey.
-    ctx.globalCompositeOperation = "lighter";
-    draw(data.r, "rgba(235, 70, 70, .62)");
-    draw(data.g, "rgba(70, 200, 90, .62)");
-    draw(data.b, "rgba(70, 120, 245, .62)");
+    // Where they overlap the three mix to grey: added together on a dark
+    // background, multiplied on a light one.
+    ctx.globalCompositeOperation = light ? "multiply" : "lighter";
+    draw(data.r, light ? "rgba(225, 60, 60, .55)" : "rgba(235, 70, 70, .62)");
+    draw(data.g, light ? "rgba(50, 170, 70, .55)" : "rgba(70, 200, 90, .62)");
+    draw(data.b, light ? "rgba(50, 100, 230, .55)" : "rgba(70, 120, 245, .62)");
     ctx.globalCompositeOperation = "source-over";
-    draw(data.luma, "rgba(255, 255, 255, .16)");
-  }, [data, rgb, width]);
+    draw(data.luma, light ? "rgba(0, 0, 0, .14)" : "rgba(255, 255, 255, .16)");
+  }, [data, rgb, width, light]);
 
   return <canvas ref={canvas} className="block w-full bg-[var(--ui-surface-101014)]" style={{ height: H }} />;
 }

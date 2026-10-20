@@ -1,9 +1,8 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   ArrowUpDown,
   ChevronLeft,
   ClipboardCheck,
-  CircleCheck,
   Crop,
   Folder,
   Funnel,
@@ -95,6 +94,46 @@ const SORTS: { key: SortKey; title: string; up: string; down: string }[] = [
  * It is also what the window is dragged by. On a Mac the window's own buttons
  * sit over its left end, so everything starts to the right of them.
  */
+/** A toolbar item's width with its margins; a bar that scrolls counts at its full width. */
+function outerWidth(e: Element): number {
+  const style = getComputedStyle(e);
+  return Math.max(e.getBoundingClientRect().width, e.scrollWidth) + parseFloat(style.marginLeft) + parseFloat(style.marginRight);
+}
+
+/**
+ * Whether the open bars (AI, filters) go on a row of their own under the
+ * toolbar. Only when, beside the buttons, they would not fit on one line;
+ * as soon as there is room again they go back. A little slack either way
+ * keeps it from flicking between the two at the edge.
+ */
+function useBarsRow(row: RefObject<HTMLDivElement | null>, bars: RefObject<HTMLDivElement | null>, open: boolean): boolean {
+  const [split, setSplit] = useState(false);
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const check = () => {
+      if (!open) return setSplit(false);
+      const style = getComputedStyle(el);
+      const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      // The stretch between the left and right groups needs only its least width.
+      let need = [...el.children].filter((k) => !(k as HTMLElement).dataset.spacer).reduce((w, k) => w + outerWidth(k), 8);
+      if (split) need += [...(bars.current?.children ?? [])].reduce((w, k) => w + outerWidth(k), 0);
+      setSplit(split ? need > room - 12 : need > room + 0.5);
+    };
+    check();
+    const resized = new ResizeObserver(check);
+    resized.observe(el);
+    if (bars.current) resized.observe(bars.current);
+    const changed = new MutationObserver(check);
+    changed.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => {
+      resized.disconnect();
+      changed.disconnect();
+    };
+  }, [row, bars, open, split]);
+  return split && open;
+}
+
 export function Toolbar() {
   const name = useStore((s) => s.session?.name ?? "");
   const kinds = useStore((s) => s.session?.fileKinds ?? "both");
@@ -104,6 +143,7 @@ export function Toolbar() {
   const showFilterBar = useStore((s) => s.showFilterBar);
   const showAiBar = useStore((s) => s.showAiBar);
   const aiEnabled = useStore((s) => s.aiEnabled);
+  const aiAdvanced = useStore((s) => s.aiAdvanced);
   const filtering = useStore(hasActiveFilter);
   const showExif = useStore((s) => s.showExif);
   const showFilmstrip = useStore((s) => s.showFilmstrip);
@@ -111,12 +151,31 @@ export function Toolbar() {
   const cropOpen = useStore((s) => s.cropOpen);
   const showFaces = useStore((s) => s.showFaces);
   const speedCull = useStore(speedCulling);
+  // Held on by the Caps Lock light rather than the switch: clicking can't turn the light off.
+  const speedCullByCaps = useStore((s) => s.speedCull && !s.speedCullAlways);
   const reviewStage = useStore((s) => s.review?.stage ?? null);
   const loading = useStore((s) => s.loading);
   const s = useStore.getState();
+  const aiBar = aiEnabled && aiAdvanced && showAiBar;
+  const rowRef = useRef<HTMLDivElement>(null);
+  const barsRef = useRef<HTMLDivElement>(null);
+  const barsRow = useBarsRow(rowRef, barsRef, aiBar || showFilterBar);
+  const inset = platform === "macos" ? "pl-[calc(78px/var(--ui-scale,1))]" : "pl-3";
+  // The AI and Filter buttons go with their bars: in the toolbar, or on the row below it.
+  const aiButton = aiEnabled && aiAdvanced && (
+    <Tool label="AI" active={showAiBar} onClick={() => s.toggle("showAiBar")}>
+      <Sparkles />
+    </Tool>
+  );
+  const filterButton = (
+    <Tool label="Filter Images" active={showFilterBar} onClick={() => s.toggle("showFilterBar")}>
+      <Funnel className={cn(filtering && "fill-current")} />
+    </Tool>
+  );
 
   return (
-    <div data-tauri-drag-region className={cn("relative z-10 flex min-h-[50px] flex-wrap shrink-0 items-center gap-y-1 py-1 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar pr-2.5", platform === "macos" ? "pl-[calc(78px/var(--ui-scale,1))]" : "pl-3")}>
+    <div data-tauri-drag-region className="relative z-10 shrink-0 border-b border-[var(--ui-line-2e2e2e)] bg-toolbar">
+    <div ref={rowRef} data-tauri-drag-region className={cn("flex min-h-[50px] flex-wrap items-center gap-y-1 py-1 pr-2.5", inset)}>
       <Tool label="Back to Home" onClick={() => s.closeFolder()} className="w-9">
         <ChevronLeft className="size-[17px]!" strokeWidth={2.5} />
       </Tool>
@@ -139,26 +198,23 @@ export function Toolbar() {
       <Status />
       <AutoCullAsk />
 
-      <Divider className="mx-2" />
-      {aiEnabled && (
+      {!barsRow && (
         <>
-          <Tool label="AI" active={showAiBar} onClick={() => s.toggle("showAiBar")}>
-            <Sparkles />
-          </Tool>
-          {showAiBar && <AiBar />}
+          <Divider className="mx-2" />
+          {aiButton}
+          {aiBar && <AiBar />}
+          {filterButton}
+          {showFilterBar && <FilterBar />}
         </>
       )}
-      <Tool label="Filter Images" active={showFilterBar} onClick={() => s.toggle("showFilterBar")}>
-        <Funnel className={cn(filtering && "fill-current")} />
-      </Tool>
-      {showFilterBar && <FilterBar />}
 
-      <span data-tauri-drag-region className="min-w-2 flex-1 self-stretch" />
+      <span data-tauri-drag-region data-spacer="1" className="min-w-2 flex-1 self-stretch" />
 
       {speedCull && (
-        <span className="mr-3 flex shrink-0 items-center gap-1 rounded-full bg-[#ffcc33]/15 px-2 py-1 text-[11px] font-medium text-star" title="Marking a photo moves to the next one">
-          <Zap className="size-3 fill-current" /> Speed Cull
-        </span>
+        // On while marking a photo moves to the next one; clicking it turns Speed Cull off.
+        <Tool label={speedCullByCaps ? "Speed Cull: on while Caps Lock is on" : "Speed Cull: marking moves to the next photo. Click to turn off"} onClick={() => useStore.setState({ speedCull: false, speedCullAlways: false })} className="mr-2 bg-[#ffcc33]/15 text-star hover:bg-[#ffcc33]/25 hover:text-star">
+          <Zap className="fill-current" />
+        </Tool>
       )}
 
       <div className="flex shrink-0 overflow-hidden rounded-md bg-foreground/[0.07]">
@@ -241,6 +297,16 @@ export function Toolbar() {
         <Settings />
       </Tool>
     </div>
+    {/* The AI and Filter buttons with their open bars, on their own line, only when they don't fit on the toolbar's. */}
+    {barsRow && (
+      <div ref={barsRef} data-tauri-drag-region className={cn("flex flex-wrap items-center gap-x-1 gap-y-1 pb-1.5 pr-2.5", inset)}>
+        {aiButton}
+        {aiBar && <AiBar />}
+        {filterButton}
+        {showFilterBar && <FilterBar />}
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -314,12 +380,8 @@ function Status() {
     const done = toPrepare > 0 ? Math.min(0.99, Math.max(0, 1 - preparing / toPrepare)) : 0;
     return <Working label="Preparing previews…" fraction={done} className={cn(chip, "text-[var(--ui-text-8c8c8c)]")} title="Getting nearby photos ready so they open at once. Pauses while you work." />;
   }
-  return (
-    <span className={cn(chip, "text-[var(--ui-text-cccccc)]")} title={`${total.toLocaleString()} photos, all ready`}>
-      <CircleCheck className="size-3 text-[#33cc66]" />
-      <span className="hidden xl:inline">Ready</span>
-    </span>
-  );
+  // Nothing left to do: nothing to show.
+  return null;
 }
 
 /**
