@@ -114,17 +114,35 @@ system, reports are very welcome.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-### What's new in 0.6.1
+### What's new in 0.7.0
 
-* **Portrait photos analysed faster.** Photos taken with the camera turned
-  on its side are stood upright about three times faster before their faces
-  are read, so a face scan of a shoot with many portrait frames finishes
-  sooner, and a portrait photo's first preview appears sooner. The results
-  are exactly the same as before.
-* **Full-size previews from newer Panasonic cameras.** Newer Lumix RAW files
-  (the S5 II, for one) hold a full-size preview beside the small one; OpenCull
-  now finds it, so zooming in and the face analysis see the whole picture
-  instead of a 1920-pixel copy.
+* **Auto-label (Advanced AI).** One click colours a whole folder from the
+  AI's judgement: red for clear rejects, yellow for repeats, green for the
+  best frame of a burst, blue for good frames that aren't the pick, and
+  purple for a best frame that still has a flaw. Undo takes back a whole run,
+  and Clear removes Auto-label's colours again. Colours you set yourself are
+  never changed without asking.
+* **Shoot types.** Tell OpenCull whether a folder is an event, portraits &
+  family, or sports & dance, and it changes which faults count and how the
+  best frame of a burst is chosen.
+* **Show why.** Turn it on to see, for each photo, why it was picked or
+  passed over: for example "ahead mostly on expressions", or "underexposed,
+  1.5 stops darker than the shots around it".
+* **Better best-frame picks (Advanced AI).** A new face reading compares the
+  faces across a burst, so the frame with the best expressions is put first
+  more often.
+* **Visual grouping up to 20× faster (Advanced AI).** With "Group visually
+  similar photos" on, OpenCull's own small scene network now settles the
+  easy cases itself and asks MobileCLIP only about the photos it is unsure
+  of. The groups come out the same.
+* **Faster scans.** Portrait photos are stood upright twice as fast, so a
+  face scan finishes about 7% sooner, with exactly the same results.
+* **A tidier toolbar.** An AI button (with Advanced AI on) opens a bar with
+  the shoot type, Show why, Auto-label and Clear. Speed Cull is a lightning
+  bolt you can click to turn off, and the "Ready" sign is gone.
+* **Worth knowing:** folders already scanned with Advanced AI are scanned
+  once more the first time you open them, for the new face reading. Basic AI
+  is unchanged.
 
 ### Built With
 

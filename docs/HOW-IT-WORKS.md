@@ -177,6 +177,19 @@ run ONNX again for unchanged files. The model downloads only after the
 photographer asks for it in Settings → AI. Once installed, image processing
 stays local and runs on the CPU in a plain build.
 
+**With Advanced AI on, visual grouping asks OpenCull's own scene network
+first.** A small network (4 MB, about 4 ms a photo) makes a 512-number print
+of each photo from the 320-pixel copy the scan already makes for brightness,
+only while visual grouping is on; photos scanned earlier get theirs once from
+the saved preview grouping reads anyway. Each pair is decided by the prints
+when they are clearly alike or clearly not, and MobileCLIP is asked only in
+between (loose 0.68-0.86, normal 0.79-0.93, tight 0.87-0.97). MEASURED: on
+445 photos, 0.5 s / 2.1 s / 2.8 s at loose / normal / tight against about
+11 s with MobileCLIP alone, the same groups for 444-445 of them; on 3,002
+rated photos, 97% of MobileCLIP's scene changes found at normal and 96% at
+tight, 85% at loose, with at most 0.6% of pairs joined that MobileCLIP keeps
+apart. Without visual grouping, and in Basic, grouping is as before.
+
 MEASURED against the Mac app on 356 labelled faces: eyes 0.936 to 0.892,
 gaze 0.962 to 0.880, background people caught 91% to 71% at the same cost. Of
 what the finder wrongly boxes, 88% is thrown out, and with it 1.2% of real
