@@ -159,6 +159,7 @@ export interface AiGroupingOptions {
   revision?: number;
   mobileClip?: boolean;
   mobileClipGrouping?: MobileClipGrouping;
+  advanced?: boolean;
 }
 export interface MobileClipStatus {
   ready: boolean;

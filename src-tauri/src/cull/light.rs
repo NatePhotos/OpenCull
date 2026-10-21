@@ -48,9 +48,18 @@ pub const THUMB_EDGE: u32 = 320;
 /// face scan has already decoded, so no photo is decoded twice. A picture no
 /// larger than a thumbnail is read as it is.
 pub fn light_of_picture(rgb: &[u8], w: u32, h: u32) -> Light {
+    let (small, tw, th) = shrink_to_thumb(rgb, w, h);
+    light_of_sized(&small, tw as usize, th as usize)
+}
+
+/// A picture shrunk by averaging to the size its thumbnail would be, with
+/// that size. Brightness and the scene print are both read from this one
+/// copy. A picture no larger than a thumbnail, or one that cannot be shrunk,
+/// is given as it is.
+pub fn shrink_to_thumb(rgb: &[u8], w: u32, h: u32) -> (std::borrow::Cow<'_, [u8]>, u32, u32) {
     let long = w.max(h);
     if long <= THUMB_EDGE {
-        return light_of_sized(rgb, w as usize, h as usize);
+        return (std::borrow::Cow::Borrowed(rgb), w, h);
     }
     // Sized as the thumbnail is (`preview::shrink_to`).
     let k = THUMB_EDGE as f64 / long as f64;
@@ -61,8 +70,8 @@ pub fn light_of_picture(rgb: &[u8], w: u32, h: u32) -> Light {
         Some(dst.into_vec())
     });
     match shrunk {
-        Some(small) => light_of_sized(&small, tw as usize, th as usize),
-        None => light_of_sized(rgb, w as usize, h as usize),
+        Some(small) => (std::borrow::Cow::Owned(small), tw, th),
+        None => (std::borrow::Cow::Borrowed(rgb), w, h),
     }
 }
 
@@ -123,6 +132,18 @@ mod tests {
     use super::*;
 
     fn flat(value: u8, pixels: usize) -> Vec<u8> { vec![value; pixels * 3] }
+
+    #[test]
+    fn brightness_reads_the_same_from_the_shared_shrink() {
+        let (w, h) = (1200u32, 800u32);
+        let rgb: Vec<u8> = (0..w * h * 3).map(|i| (i * 31 % 251) as u8).collect();
+        let (small, tw, th) = shrink_to_thumb(&rgb, w, h);
+        assert_eq!((tw, th), (320, 213));
+        assert_eq!(light_of_picture(&rgb, w, h), light_of_sized(&small, tw as usize, th as usize));
+        let tiny = vec![9u8; 300 * 200 * 3];
+        let (same, sw, sh) = shrink_to_thumb(&tiny, 300, 200);
+        assert_eq!((sw, sh, same.len()), (300, 200, tiny.len()), "a picture no larger than a thumbnail is used as it is");
+    }
 
     #[test]
     fn a_black_frame_is_dark_and_clipped_in_the_shadows() {

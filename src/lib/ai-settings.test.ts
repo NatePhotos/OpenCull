@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api";
+import { scanFolder } from "./faces";
 import { PLAIN } from "./framing";
 import { useStore } from "./store";
 import type { AiResult, Compared, Photo } from "./types";
@@ -159,5 +160,38 @@ describe("AI grouping controls", () => {
     await Promise.resolve();
     expect(useStore.getState().compared).toEqual([]);
     expect(useStore.getState().ranks).toEqual([]);
+  });
+
+  it("tells grouping when Advanced is on", () => {
+    const compare = vi.spyOn(api, "aiCompare").mockResolvedValue([[{ pose: 0, score: 100, eyes: [] }, { pose: 0, score: 0, eyes: [] }]]);
+    useStore.setState({
+      session: { id: 9, folder: "/folder-9", name: "folder-9", includeSubfolders: false, subfolderCount: 0, fileKinds: "both" as const, leftOut: 0, timed: false },
+      metaProgress: 1,
+      aiEnabled: true,
+      aiAdvanced: true,
+      smartGroups: true,
+      photos: [photo(0), photo(1)],
+      order: [0, 1],
+      view: [0, 1],
+      ai: [result(), result()],
+      compared: [],
+      ranks: [],
+      poses: [],
+    });
+    useStore.getState().regroup();
+    expect(compare).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ advanced: true }));
+  });
+
+  it("asks the scan for scene prints only with Advanced and MobileCLIP grouping both on", () => {
+    const scan = vi.spyOn(api, "aiScan").mockResolvedValue(undefined);
+    vi.spyOn(api, "aiStop").mockResolvedValue(undefined);
+    const scene = (advanced: boolean, grouping: boolean) => {
+      scan.mockClear();
+      useStore.setState({ photos: [photo(0), photo(1)], order: [0, 1], current: 0, aiMobileClipGrouping: grouping });
+      scanFolder(9, advanced)?.();
+      expect(scan).toHaveBeenCalledTimes(1);
+      return scan.mock.calls[0][3];
+    };
+    expect([scene(true, true), scene(true, false), scene(false, true), scene(false, false)]).toEqual([true, false, false, false]);
   });
 });

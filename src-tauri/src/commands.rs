@@ -704,7 +704,7 @@ const AI_SAVE_EVERY: usize = 150;
 /// through on spare time: whenever the photographer is being served, the
 /// scan waits. Asking again, or closing the folder, stops this one.
 #[tauri::command]
-pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, events: Channel<AiEvent>) -> Result<(), String> {
+pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advanced: bool, scene: bool, events: Channel<AiEvent>) -> Result<(), String> {
     let rules = if advanced { ai::Rules::Advanced } else { ai::Rules::Basic };
     let Some(session) = app.sessions.lock().unwrap().get(&session).cloned() else {
         return Err("that folder is no longer open".into());
@@ -761,12 +761,20 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                         let image = &session.images[index];
                         // A photo that cannot be analysed is remembered as
                         // having no faces, so it is not tried on every open.
-                        // With Advanced, the picture decoded for the scan
-                        // also gives the photo's brightness for judging, so
-                        // its thumbnail need not be made or read for that.
+                        // With Advanced, the picture decoded for the scan also
+                        // gives the photo's brightness, and its scene print
+                        // when MobileCLIP grouping is on, from one small copy
+                        // of it, so its thumbnail need not be made or read
+                        // for either.
                         let light = |picture: &crate::preview::Upright| {
                             if rules == ai::Rules::Advanced {
-                                app.cull.keep_light(&image.display.to_string_lossy(), &image.version, crate::cull::light::light_of_picture(&picture.rgb, picture.width, picture.height));
+                                let (small, w, h) = crate::cull::light::shrink_to_thumb(&picture.rgb, picture.width, picture.height);
+                                app.cull.keep_light(&image.display.to_string_lossy(), &image.version, crate::cull::light::light_of_sized(&small, w as usize, h as usize));
+                                if scene {
+                                    if let Ok(print) = ai::scene::print(&small, w, h) {
+                                        app.faces.scenes.put(&session.folder, &image.display, &image.version, print);
+                                    }
+                                }
                             }
                         };
                         let analysis = ai::analyze_then(&image.display, rules, light);
@@ -804,6 +812,7 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
                 if unsaved >= AI_SAVE_EVERY {
                     app.faces.save(&session.folder, rules, &known.lock().unwrap());
                     app.faces.prints.save(&session.folder);
+                    app.faces.scenes.save(&session.folder);
                     unsaved = 0;
                 }
             }
@@ -813,12 +822,58 @@ pub async fn ai_scan(app: AppState<'_>, session: u64, order: Vec<usize>, advance
             if unsaved > 0 {
                 app.faces.save(&session.folder, rules, &known.lock().unwrap());
                 app.faces.prints.save(&session.folder);
+                app.faces.scenes.save(&session.folder);
             }
         });
         events.send(AiEvent::Done { finished: queue.exhausted() && wanted() }).ok();
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Which grouping a run gets: MobileCLIP's, the scene network's with
+/// MobileCLIP asked about the rest, or faces'.
+#[derive(Debug, PartialEq)]
+enum Grouper { Faces, MobileClip, Cascade }
+
+/// Whether the scene network can settle anything in a run: with no prints it
+/// asks MobileCLIP about every pair, which the batched path does faster.
+fn cascade_worth_it(scene: &[Option<ai::scene::ScenePrint>]) -> bool {
+    scene.iter().any(Option::is_some)
+}
+
+/// A photo's scene print made from the small picture grouping reads anyway
+/// (a saved preview, else the file's own small preview), for photos analysed
+/// before visual grouping was on. In a test of 29,956 pairs it grouped as the
+/// scan's own prints do, to within 0.2%.
+fn preview_scene_print(path: &Path, version: &str, cache: &crate::cache::Cache) -> Option<ai::scene::ScenePrint> {
+    let picture = crate::preview::grouping_pixels(path, version, cache).ok()?;
+    print_of_picture(&picture)
+}
+
+/// The scene print of a decoded picture, from the same small copy the scan uses.
+fn print_of_picture(picture: &crate::preview::Upright) -> Option<ai::scene::ScenePrint> {
+    let (small, w, h) = crate::cull::light::shrink_to_thumb(&picture.rgb, picture.width, picture.height);
+    ai::scene::print(&small, w, h).ok()
+}
+
+/// The frames of a run that will be compared with another: those with a
+/// neighbour (before or after) taken within POSE_GAP_MS. A frame without a
+/// time is counted, as making its print costs a few milliseconds.
+fn compared_frames(times: &[Option<f64>]) -> Vec<bool> {
+    let near = |a: Option<f64>, b: Option<f64>| matches!((a, b), (Some(a), Some(b)) if (b - a).abs() <= ai::series::POSE_GAP_MS);
+    (0..times.len()).map(|i| {
+        let Some(t) = times[i] else { return true };
+        (i > 0 && near(Some(t), times[i - 1])) || (i + 1 < times.len() && near(Some(t), times[i + 1]))
+    }).collect()
+}
+
+fn grouper(advanced: bool, mobile_clip: bool) -> Grouper {
+    match (advanced, mobile_clip) {
+        (true, true) => Grouper::Cascade,
+        (false, true) => Grouper::MobileClip,
+        _ => Grouper::Faces,
+    }
 }
 
 /// A photo of a run to be compared, as the interface sends it.
@@ -848,6 +903,7 @@ pub async fn ai_compare(
     revision: Option<u64>,
     mobile_clip: Option<bool>,
     mobile_clip_grouping: Option<ai::mobileclip::Grouping>,
+    advanced: Option<bool>,
 ) -> Result<Vec<Vec<ai::series::Compared>>, String> {
     let app = app.inner().clone();
     let source = if let Some(id) = session { Some(app.sessions.lock().unwrap().get(&id).cloned().ok_or("that folder is no longer open")?) } else { None };
@@ -858,16 +914,21 @@ pub async fn ai_compare(
     }
     if runs.is_empty() { return Ok(Vec::new()); }
     let root = mobileclip_root(&handle)?;
+    let advanced = advanced.unwrap_or(false);
 
     tauri::async_runtime::spawn_blocking(move || {
         let wanted = || source.as_ref().is_none_or(|s| !s.closed.load(Ordering::SeqCst))
             && (session.is_none() || *app.ai_grouping_epoch.lock().unwrap() == epoch);
+        fn frames_of(run: &[RunFrame]) -> Vec<ai::series::Frame<'_>> {
+            run.iter().map(|f| ai::series::Frame { record: &f.record, time: f.time, burst: f.burst, upright: f.upright }).collect()
+        }
         let compare = |run: &[RunFrame], visual: Option<&[Vec<f32>]>| {
-            let frames = run.iter().map(|f| ai::series::Frame { record: &f.record, time: f.time, burst: f.burst, upright: f.upright }).collect::<Vec<_>>();
-            ai::series::compare_run_with_visual(&frames, poses, visual, mobile_clip_grouping.unwrap_or_default())
+            ai::series::compare_run_with_visual(&frames_of(run), poses, visual, mobile_clip_grouping.unwrap_or_default())
         };
-        if !mobile_clip.unwrap_or(false) {
-            return Ok(runs.iter().map(|run| compare(run, None)).collect());
+        let choice = grouper(advanced, mobile_clip.unwrap_or(false));
+        match choice {
+            Grouper::Faces => return Ok(runs.iter().map(|run| compare(run, None)).collect()),
+            Grouper::MobileClip | Grouper::Cascade => {}
         }
         let source = source.as_ref().ok_or("Open a folder before using MobileCLIP.")?;
         ai::mobileclip::with_model(&root, |model| {
@@ -883,6 +944,39 @@ pub async fn ai_compare(
                     let photo = frame.index.and_then(|i| source.images.get(i)).ok_or("Invalid grouping photo index.")?;
                     Ok((photo.display.as_path(), photo.version.as_str()))
                 }).collect::<Result<Vec<_>, String>>()?;
+                if choice == Grouper::Cascade {
+                    // The scene network's prints, per frame, as far as the scan has made them.
+                    let mut scene: Vec<Option<ai::scene::ScenePrint>> = run.iter().map(|f| {
+                        let photo = f.index.and_then(|i| source.images.get(i))?;
+                        app.faces.scenes.get(&source.folder, &photo.display, &photo.version)
+                    }).collect();
+                    // Photos analysed before visual grouping was on have none: made now, once, from the
+                    // saved preview, and only for frames that will be compared with a neighbour.
+                    let times: Vec<Option<f64>> = run.iter().map(|f| f.time).collect();
+                    let mut made = false;
+                    for (i, needed) in compared_frames(&times).into_iter().enumerate() {
+                        if !needed || scene[i].is_some() { continue; }
+                        if !wanted() { return Err("Grouping cancelled.".to_string()); }
+                        let Some(photo) = run[i].index.and_then(|j| source.images.get(j)) else { continue };
+                        if let Some(print) = preview_scene_print(&photo.display, &photo.version, &app.previews.cache) {
+                            app.faces.scenes.put(&source.folder, &photo.display, &photo.version, print.clone());
+                            scene[i] = Some(print);
+                            made = true;
+                        }
+                    }
+                    if made { app.faces.scenes.save(&source.folder); }
+                    if cascade_worth_it(&scene) {
+                        // The scene network settles most pairs; MobileCLIP is asked only about the rest, one photo at a time.
+                        let frames = frames_of(run);
+                        let mut cancelled = false;
+                        let marked = ai::series::compare_run_cascade(&frames, poses, &scene, |i| {
+                            if !wanted() { cancelled = true; return None; }
+                            model.embeddings(&paths[i..=i], &app.previews.cache, wanted).ok().and_then(|mut v| v.pop())
+                        }, mobile_clip_grouping.unwrap_or_default());
+                        if cancelled || !wanted() { return Err("Grouping cancelled.".to_string()); }
+                        return Ok(marked);
+                    }
+                }
                 let embeddings = model.embeddings(&paths, &app.previews.cache, wanted)?;
                 Ok(compare(run, Some(&embeddings)))
             }).collect::<Result<Vec<_>, String>>();
@@ -945,32 +1039,9 @@ fn light_readers() -> Option<&'static rayon::ThreadPool> {
     READERS.get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(4).thread_name(|i| format!("opencull-light-{i}")).build().ok()).as_ref()
 }
 
-/// Frames grouped and turned into numbers, with fingerprints when the
-/// photographer has MobileCLIP switched on. Fingerprints are made in small
-/// batches that give way to previews being made, as grouping does. If
-/// MobileCLIP cannot be used, the frames go without fingerprints rather than
-/// not at all.
-fn autocull_groups(app: &App, root: &Path, frames: &[crate::cull::Frame], around: &[crate::cull::Around], mobile_clip: bool, kind: crate::cull::features::ShootKind) -> Vec<Vec<crate::cull::Prepared>> {
-    let none = || vec![None; frames.len()];
-    let prints: Vec<Option<Vec<f32>>> = if mobile_clip {
-        let paths: Vec<(&Path, &str)> = frames.iter().map(|f| (Path::new(&f.path), f.version.as_str())).collect();
-        let made = ai::mobileclip::with_model(root, |model| {
-            let mut all = Vec::with_capacity(paths.len());
-            for chunk in paths.chunks(32) {
-                while app.ai_yields.load(Ordering::Relaxed) && app.previews.pool.busy() {
-                    std::thread::sleep(Duration::from_millis(60));
-                }
-                all.extend(model.embeddings(chunk, &app.previews.cache, || true)?);
-            }
-            Ok(all)
-        });
-        match made {
-            Ok(all) if all.len() == frames.len() => all.into_iter().map(Some).collect(),
-            _ => none(),
-        }
-    } else {
-        none()
-    };
+/// Frames grouped and turned into numbers. MobileCLIP fingerprints are not
+/// read: the judging network was made without them.
+fn autocull_groups(app: &App, frames: &[crate::cull::Frame], around: &[crate::cull::Around], kind: crate::cull::features::ShootKind) -> Vec<Vec<crate::cull::Prepared>> {
     let (lights, around_lights): (Vec<Option<crate::cull::light::Light>>, Vec<Option<crate::cull::light::Light>>) = {
         let frame_light = |f: &crate::cull::Frame| light_for(app, &f.path, &f.version);
         let around_light = |a: &crate::cull::Around| light_for(app, &a.path, &a.version);
@@ -984,8 +1055,11 @@ fn autocull_groups(app: &App, root: &Path, frames: &[crate::cull::Frame], around
     let sessions = open_sessions(app);
     let folders = folders_of(&sessions, frames);
     // Looked up only for frames with others in their group: a lone frame is not ranked.
-    crate::cull::prepare_groups(frames, &around, kind, |i| lights[i], |i| prints[i].clone(), |i| face_print_of(&app.faces.prints, folders[i], &frames[i]))
+    crate::cull::prepare_groups(frames, &around, kind, |i| lights[i], no_fingerprint, |i| face_print_of(&app.faces.prints, folders[i], &frames[i]))
 }
+
+/// Judging gives no frame a MobileCLIP fingerprint.
+fn no_fingerprint(_: usize) -> Option<Vec<f32>> { None }
 
 /// The folders open now, the one opened last first.
 fn open_sessions(app: &App) -> Vec<Arc<Session>> {
@@ -1020,21 +1094,21 @@ fn face_print_of(store: &ai::store::PrintStore, folder: Option<&Path>, frame: &c
 
 /// The new judging's verdict on these frames, set against the photos shot around them.
 #[tauri::command]
-pub async fn autocull_judge(app: AppState<'_>, handle: tauri::AppHandle, frames: Vec<crate::cull::Frame>, around: Vec<crate::cull::Around>, mobile_clip: bool, kind: crate::cull::features::ShootKind) -> Result<Vec<crate::cull::decide::Judgement>, String> {
+pub async fn autocull_judge(app: AppState<'_>, _handle: tauri::AppHandle, frames: Vec<crate::cull::Frame>, around: Vec<crate::cull::Around>, mobile_clip: bool, kind: crate::cull::features::ShootKind) -> Result<Vec<crate::cull::decide::Judgement>, String> {
     let app = app.inner().clone();
-    let root = mobileclip_root(&handle)?;
+    let _ = mobile_clip; // Kept so the interface need not change; judging no longer reads MobileCLIP.
     tauri::async_runtime::spawn_blocking(move || {
-        let groups = autocull_groups(&app, &root, &frames, &around, mobile_clip, kind);
+        let groups = autocull_groups(&app, &frames, &around, kind);
         Ok(crate::cull::decide::decide(&app.cull.model(), &groups))
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn autocull_learn(app: AppState<'_>, handle: tauri::AppHandle, folder: String, frames: Vec<crate::cull::Frame>, mobile_clip: bool, kind: crate::cull::features::ShootKind, source: crate::cull::lessons::Source) -> Result<crate::cull::LearnReply, String> {
+pub async fn autocull_learn(app: AppState<'_>, _handle: tauri::AppHandle, folder: String, frames: Vec<crate::cull::Frame>, mobile_clip: bool, kind: crate::cull::features::ShootKind, source: crate::cull::lessons::Source) -> Result<crate::cull::LearnReply, String> {
     let app = app.inner().clone();
-    let root = mobileclip_root(&handle)?;
+    let _ = mobile_clip; // Kept so the interface need not change; judging no longer reads MobileCLIP.
     tauri::async_runtime::spawn_blocking(move || {
-        let groups = autocull_groups(&app, &root, &frames, &[], mobile_clip, kind);
+        let groups = autocull_groups(&app, &frames, &[], kind);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         crate::cull::teach(&app.cull, folder, &groups, now, source)
     }).await.map_err(|e| e.to_string())?
@@ -1113,6 +1187,55 @@ pub async fn ai_clear_cache(app: AppState<'_>, handle: tauri::AppHandle) -> Resu
     let store = app.faces.clone();
     let root = mobileclip_root(&handle)?;
     tauri::async_runtime::spawn_blocking(move || { store.clear(); ai::mobileclip::clear(&root); }).await.map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod grouper_tests {
+    use super::{cascade_worth_it, compared_frames, grouper, preview_scene_print, Grouper};
+    use crate::ai::scene::ScenePrint;
+
+    #[test]
+    fn only_frames_with_a_near_neighbour_are_compared() {
+        assert_eq!(compared_frames(&[Some(0.0), Some(1000.0), Some(20000.0), None]), vec![true, true, false, true]);
+        assert_eq!(compared_frames(&[]), Vec::<bool>::new());
+        assert_eq!(compared_frames(&[Some(0.0)]), vec![false]);
+        assert_eq!(compared_frames(&[Some(0.0), Some(5000.0), Some(10001.0)]), vec![true, true, false]);
+    }
+
+    #[test]
+    fn a_print_is_made_from_the_saved_preview_as_the_scan_makes_it() {
+        let (w, h) = (640u32, 427u32);
+        let rgb: Vec<u8> = (0..w * h).flat_map(|i| { let (x, y) = (i % w, i / w); [(x * 255 / w) as u8, (y * 255 / h) as u8, ((x + y) % 256) as u8] }).collect();
+        let jpeg = crate::preview::encode_jpeg(rgb, w, h, 90).unwrap();
+        let root = std::env::temp_dir().join(format!("opencull-preview-print-{}", std::process::id()));
+        let cache = crate::cache::Cache::new(root.join("previews"));
+        let path = std::path::Path::new("/nowhere/A.RAW");
+        cache.put(&cache.path_for(path, "v1", &crate::preview::Tier::Thumb(640).label()), &jpeg);
+        let got = preview_scene_print(path, "v1", &cache).expect("a print from the cached preview");
+        // The picture as grouping reads it, so the decoder the app is built with is the one checked.
+        // The file does not exist, so this can only be the cached preview.
+        let picture = crate::preview::grouping_pixels(path, "v1", &cache).unwrap();
+        let (small, sw, sh) = crate::cull::light::shrink_to_thumb(&picture.rgb, picture.width, picture.height);
+        let want = crate::ai::scene::print(&small, sw, sh).unwrap();
+        assert_eq!(got.0.len(), want.0.len());
+        assert!(got.0.iter().zip(&want.0).all(|(a, b)| (a - b).abs() < 1e-5));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_cascade_is_used_only_when_a_print_exists() {
+        assert!(!cascade_worth_it(&[]));
+        assert!(!cascade_worth_it(&[None, None]));
+        assert!(cascade_worth_it(&[None, Some(ScenePrint(vec![1.0]))]));
+    }
+
+    #[test]
+    fn grouping_is_chosen_by_advanced_and_mobileclip() {
+        assert_eq!(grouper(false, false), Grouper::Faces, "Basic as today");
+        assert_eq!(grouper(false, true), Grouper::MobileClip);
+        assert_eq!(grouper(true, false), Grouper::Faces, "Advanced without MobileCLIP groups as today");
+        assert_eq!(grouper(true, true), Grouper::Cascade);
+    }
 }
 
 #[cfg(test)]
@@ -1585,6 +1708,18 @@ mod print_lookup_tests {
         let frames = [frame(on_a, "v1"), frame(on_b, "v1")];
         assert!(prints_of(&sessions, &store.prints, &frames) == vec![Some(print(0.25)), Some(print(0.5))]);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn auto_label_reads_no_mobileclip_fingerprints() {
+        // The judging network was made without them: HAS_EMBEDDING must read 0 for every frame.
+        let grouped = |path: &str| -> crate::cull::Frame {
+            serde_json::from_value(serde_json::json!({ "path": path, "version": "v1", "faces": [], "score": null, "focus": null, "gaze": null, "key": null, "pose": 1 })).unwrap()
+        };
+        let frames = [grouped("/shoots/a.JPG"), grouped("/shoots/b.JPG")];
+        let groups = crate::cull::prepare_groups(&frames, &[], crate::cull::features::ShootKind::Events, |_| None, no_fingerprint, |_| None);
+        assert_eq!(groups.iter().map(Vec::len).sum::<usize>(), 2);
+        assert!(groups.iter().flatten().all(|p| p.x[crate::cull::features::HAS_EMBEDDING] == 0.0));
     }
 
     #[test]

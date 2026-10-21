@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_128;
 
 use super::faceprint::LEN;
+use super::scene::ScenePrint;
 use super::{focus, Analysis, PhotoPrint, Rules};
 
 /// Changes whenever the models or the rules applied to them do, so that
@@ -125,6 +126,44 @@ impl From<&Analysis> for Record {
     }
 }
 
+/// A kind of print a `PrintStore` keeps: what its file starts with, what it
+/// is called, how many numbers it is, and how they are written and read back.
+pub trait Packed: Clone + Send + 'static {
+    const MAGIC: &'static [u8; 8];
+    const EXT: &'static str;
+    const FLOATS: usize;
+    fn write_floats(&self, into: &mut Vec<u8>);
+    fn from_floats(f: &[f32]) -> Self;
+}
+
+impl Packed for PhotoPrint {
+    const MAGIC: &'static [u8; 8] = b"OCPRINT1";
+    const EXT: &'static str = "prints";
+    const FLOATS: usize = 2 * LEN;
+    fn write_floats(&self, into: &mut Vec<u8>) {
+        for x in self.mean.iter().chain(&self.min) {
+            into.extend_from_slice(&x.to_le_bytes());
+        }
+    }
+    fn from_floats(f: &[f32]) -> Self {
+        PhotoPrint { mean: f[..LEN].to_vec(), min: f[LEN..].to_vec() }
+    }
+}
+
+impl Packed for ScenePrint {
+    const MAGIC: &'static [u8; 8] = b"OCSCENE1";
+    const EXT: &'static str = "scenes";
+    const FLOATS: usize = crate::ai::scene::LEN;
+    fn write_floats(&self, into: &mut Vec<u8>) {
+        for x in &self.0 {
+            into.extend_from_slice(&x.to_le_bytes());
+        }
+    }
+    fn from_floats(f: &[f32]) -> Self {
+        ScenePrint(f.to_vec())
+    }
+}
+
 /// A photo's remembered analysis, with the version of the file it describes.
 type Entry = (String, Record);
 
@@ -133,12 +172,14 @@ pub struct Store {
     dir: PathBuf,
     /// The face prints of the same photos, kept beside their records.
     pub prints: PrintStore,
+    /// Their scene prints, for grouping photos taken of the same scene.
+    pub scenes: SceneStore,
 }
 
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).ok();
-        Self { prints: PrintStore::new(dir.clone()), dir }
+        Self { prints: PrintStore::new(dir.clone()), scenes: SceneStore::new(dir.clone()), dir }
     }
 
     fn file_for(&self, folder: &Path, rules: Rules) -> PathBuf {
@@ -167,7 +208,7 @@ impl Store {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return (0, 0) };
         let files: Vec<(u64, bool)> = entries
             .flatten()
-            .filter_map(|e| Some((e.metadata().ok().filter(|m| m.is_file())?.len(), e.path().extension().is_some_and(|x| x == "prints"))))
+            .filter_map(|e| Some((e.metadata().ok().filter(|m| m.is_file())?.len(), e.path().extension().is_some_and(|x| x == PhotoPrint::EXT || x == ScenePrint::EXT))))
             .collect();
         (files.iter().map(|f| f.0).sum(), files.iter().filter(|f| !f.1).count())
     }
@@ -175,6 +216,7 @@ impl Store {
     /// Forgets everything. Folders are analysed again when next opened.
     pub fn clear(&self) {
         self.prints.forget();
+        self.scenes.forget();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
         for entry in entries.flatten() {
             std::fs::remove_file(entry.path()).ok();
@@ -182,18 +224,19 @@ impl Store {
     }
 }
 
-/// The face prints of a folder's photos, remembered as the records are:
-/// by folder, under the Advanced rules' version, each with the version of
-/// the file it describes. Prints are only ever made by the Advanced rules.
+/// The prints of one kind (face prints, scene prints) of a folder's photos,
+/// remembered as the records are: by folder, under the Advanced rules'
+/// version, each with the version of the file it describes. Prints are only
+/// ever made by the Advanced rules.
 ///
-/// A print is 4 KB, so they are kept apart from the records, in a file only
-/// ever added to: saving writes only what is new, not the whole folder
-/// again. The two folders last asked about are held in memory, so judging
+/// Prints are large next to a record, so they are kept apart from the
+/// records, per folder, in a file only ever added to: saving writes only
+/// what is new, not the whole folder again. The two folders last asked about are held in memory, so judging
 /// one folder does not put out the folder being scanned.
 #[derive(Clone)]
-pub struct PrintStore {
+pub struct PrintStore<P: Packed = PhotoPrint> {
     dir: PathBuf,
-    open: Arc<Mutex<Held>>,
+    open: Arc<Mutex<Held<P>>>,
     /// Woken whenever a folder's file has been read in.
     read_in: Arc<Condvar>,
     /// Counts the files of prints read, for the tests.
@@ -202,9 +245,8 @@ pub struct PrintStore {
 }
 
 /// The folders whose prints are held, the one last asked about last.
-#[derive(Default)]
-struct Held {
-    folders: Vec<Prints>,
+struct Held<P> {
+    folders: Vec<Prints<P>>,
     /// The folders whose file is being read in. Whoever else asks about one
     /// waits for that read rather than reading the file again.
     reading: Vec<PathBuf>,
@@ -217,9 +259,9 @@ struct Held {
 const HELD: usize = 2;
 
 /// One folder's prints, as held in memory.
-struct Prints {
+struct Prints<P> {
     folder: PathBuf,
-    known: HashMap<String, (String, PhotoPrint)>,
+    known: HashMap<String, (String, P)>,
     /// Paths put since the last save.
     unsaved: Vec<String>,
     /// How many entries the file holds, the stale ones included.
@@ -228,10 +270,17 @@ struct Prints {
     damaged: bool,
 }
 
-/// What a file of prints starts with.
-const PRINTS_MAGIC: &[u8; 8] = b"OCPRINT1";
+impl<P> Default for Held<P> {
+    fn default() -> Self {
+        Self { folders: Vec::new(), reading: Vec::new(), changes: 0 }
+    }
+}
 
-impl PrintStore {
+/// The scene prints of a folder's photos, used to group photos of the same
+/// scene. They are made only while visual grouping is on.
+pub type SceneStore = PrintStore<ScenePrint>;
+
+impl<P: Packed> PrintStore<P> {
     pub fn new(dir: PathBuf) -> Self {
         Self {
             dir,
@@ -244,7 +293,7 @@ impl PrintStore {
 
     fn file_for(&self, folder: &Path) -> PathBuf {
         let key = format!("{}\0{}", version(Rules::Advanced), folder.to_string_lossy());
-        self.dir.join(format!("{:032x}.prints", xxh3_128(key.as_bytes())))
+        self.dir.join(format!("{:032x}.{}", xxh3_128(key.as_bytes()), P::EXT))
     }
 
     /// Holds `folder`'s prints in memory, reading them in if they were not
@@ -252,7 +301,7 @@ impl PrintStore {
     /// folder already held are not kept waiting, and once: photos of the same
     /// folder that ask meanwhile wait for that read. Making room puts out the
     /// folder asked about longest ago, after saving what of it was not yet saved.
-    fn with<T>(&self, folder: &Path, then: impl FnOnce(&mut Prints) -> T) -> T {
+    fn with<T>(&self, folder: &Path, then: impl FnOnce(&mut Prints<P>) -> T) -> T {
         loop {
             let seen = {
                 let mut held = self.open.lock().unwrap();
@@ -295,12 +344,12 @@ impl PrintStore {
     }
 
     /// A photo's print, if one is remembered for this version of the file.
-    pub fn get(&self, folder: &Path, path: &Path, version: &str) -> Option<PhotoPrint> {
+    pub fn get(&self, folder: &Path, path: &Path, version: &str) -> Option<P> {
         self.with(folder, |p| p.known.get(path.to_string_lossy().as_ref()).filter(|(was, _)| was == version).map(|(_, print)| print.clone()))
     }
 
     /// Remembers a photo's print, until the next `save` in memory only.
-    pub fn put(&self, folder: &Path, path: &Path, version: &str, print: PhotoPrint) {
+    pub fn put(&self, folder: &Path, path: &Path, version: &str, print: P) {
         let path = path.to_string_lossy().into_owned();
         self.with(folder, |p| {
             p.known.insert(path.clone(), (version.to_string(), print));
@@ -322,18 +371,18 @@ impl PrintStore {
         held.changes += 1;
     }
 
-    fn read(&self, folder: &Path) -> Prints {
-        let mut prints = Prints { folder: folder.to_path_buf(), known: HashMap::new(), unsaved: Vec::new(), on_disk: 0, damaged: false };
+    fn read(&self, folder: &Path) -> Prints<P> {
+        let mut prints = Prints::<P> { folder: folder.to_path_buf(), known: HashMap::new(), unsaved: Vec::new(), on_disk: 0, damaged: false };
         #[cfg(test)]
         self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let Ok(bytes) = std::fs::read(self.file_for(folder)) else { return prints };
-        if !bytes.starts_with(PRINTS_MAGIC) {
+        if !bytes.starts_with(P::MAGIC) {
             prints.damaged = true;
             return prints;
         }
-        let mut at = PRINTS_MAGIC.len();
+        let mut at = P::MAGIC.len();
         while at < bytes.len() {
-            let Some((path, version, print, next)) = entry(&bytes, at) else {
+            let Some((path, version, print, next)) = entry::<P>(&bytes, at) else {
                 // Cut short, most likely while being written: what came
                 // before is whole.
                 prints.damaged = true;
@@ -346,7 +395,7 @@ impl PrintStore {
         prints
     }
 
-    fn write(&self, prints: &mut Prints) {
+    fn write(&self, prints: &mut Prints<P>) {
         if prints.unsaved.is_empty() && !prints.damaged {
             return;
         }
@@ -355,7 +404,7 @@ impl PrintStore {
         let afresh = prints.damaged || prints.on_disk == 0 || prints.on_disk > 2 * prints.known.len();
         let mut bytes = Vec::new();
         if afresh {
-            bytes.extend_from_slice(PRINTS_MAGIC);
+            bytes.extend_from_slice(P::MAGIC);
             for (p, (v, print)) in &prints.known {
                 encode(&mut bytes, p, v, print);
             }
@@ -393,12 +442,12 @@ impl PrintStore {
 
 /// A folder whose file is being read in. Going, it makes sure the folder is
 /// no longer marked as being read, and wakes whoever waits so they look again.
-struct Reading<'a> {
-    store: &'a PrintStore,
+struct Reading<'a, P: Packed> {
+    store: &'a PrintStore<P>,
     folder: &'a Path,
 }
 
-impl Drop for Reading<'_> {
+impl<P: Packed> Drop for Reading<'_, P> {
     fn drop(&mut self) {
         let mut held = self.store.open.lock().unwrap_or_else(|e| e.into_inner());
         held.reading.retain(|f| f != self.folder);
@@ -408,20 +457,18 @@ impl Drop for Reading<'_> {
 }
 
 /// One photo's print as it is written: the path and the file's version,
-/// each with its length before it, then the mean and the least.
-fn encode(into: &mut Vec<u8>, path: &str, version: &str, print: &PhotoPrint) {
+/// each with its length before it, then the print's numbers.
+fn encode<P: Packed>(into: &mut Vec<u8>, path: &str, version: &str, print: &P) {
     for text in [path, version] {
         into.extend_from_slice(&(text.len() as u32).to_le_bytes());
         into.extend_from_slice(text.as_bytes());
     }
-    for x in print.mean.iter().chain(&print.min) {
-        into.extend_from_slice(&x.to_le_bytes());
-    }
+    print.write_floats(into);
 }
 
 /// The entry starting at `at`, and where the next starts. `None` if it is
 /// not all there.
-fn entry(bytes: &[u8], at: usize) -> Option<(String, String, PhotoPrint, usize)> {
+fn entry<P: Packed>(bytes: &[u8], at: usize) -> Option<(String, String, P, usize)> {
     let mut at = at;
     let mut text = || -> Option<String> {
         let len = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
@@ -430,9 +477,8 @@ fn entry(bytes: &[u8], at: usize) -> Option<(String, String, PhotoPrint, usize)>
         Some(s)
     };
     let (path, version) = (text()?, text()?);
-    let numbers: Vec<f32> = bytes.get(at..at + 2 * LEN * 4)?.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
-    let print = PhotoPrint { mean: numbers[..LEN].to_vec(), min: numbers[LEN..].to_vec() };
-    Some((path, version, print, at + 2 * LEN * 4))
+    let numbers: Vec<f32> = bytes.get(at..at + P::FLOATS * 4)?.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+    Some((path, version, P::from_floats(&numbers), at + P::FLOATS * 4))
 }
 
 /// The remembered analysis of a photo, if it still describes the file.
@@ -510,7 +556,7 @@ mod tests {
         assert!(store.usage().0 > 2 * 4096);
         store.clear();
         assert_eq!(store.prints.get(folder, b, "v1"), None, "forgotten with the records");
-        assert_eq!(PrintStore::new(dir.clone()).get(folder, b, "v1"), None);
+        assert_eq!(PrintStore::<PhotoPrint>::new(dir.clone()).get(folder, b, "v1"), None);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -524,11 +570,11 @@ mod tests {
         let photo = Path::new("/shoots/a/1.ARW");
         store.put(a, photo, "v1", print(0.25));
         assert_eq!(store.get(b, Path::new("/shoots/b/1.ARW"), "v1"), None);
-        assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), None, "a is still held, not yet saved");
+        assert_eq!(PrintStore::<PhotoPrint>::new(dir.clone()).get(a, photo, "v1"), None, "a is still held, not yet saved");
         assert_eq!(store.get(a, photo, "v1"), Some(print(0.25)));
         // b was asked about before a last was, so c puts out b, not a.
         store.get(c, Path::new("/shoots/c/1.ARW"), "v1");
-        assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), None, "a is still held");
+        assert_eq!(PrintStore::<PhotoPrint>::new(dir.clone()).get(a, photo, "v1"), None, "a is still held");
         store.get(b, Path::new("/shoots/b/1.ARW"), "v1");
         assert_eq!(PrintStore::new(dir.clone()).get(a, photo, "v1"), Some(print(0.25)), "put out, and saved as it went");
         assert_eq!(store.get(a, photo, "v1"), Some(print(0.25)));
@@ -628,12 +674,74 @@ mod tests {
         let file = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e == "prints")).unwrap();
         let bytes = std::fs::read(&file).unwrap();
         std::fs::write(&file, &bytes[..bytes.len() - 100]).unwrap();
-        let back = PrintStore::new(dir.clone());
+        let back = PrintStore::<PhotoPrint>::new(dir.clone());
         let whole = [Path::new("/shoots/wedding/A.ARW"), Path::new("/shoots/wedding/B.ARW")].iter().filter(|p| back.get(folder, p, "v1").is_some()).count();
         assert_eq!(whole, 1, "the photo written in full is kept, the one cut short is not");
         std::fs::write(&file, b"not prints at all").unwrap();
-        assert_eq!(PrintStore::new(dir.clone()).get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), None);
+        assert_eq!(PrintStore::<PhotoPrint>::new(dir.clone()).get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), None);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn scene(seed: f32) -> ScenePrint {
+        ScenePrint((0..512).map(|i| seed + i as f32 / 1000.0).collect())
+    }
+
+    #[test]
+    fn scene_prints_are_kept_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-scenes-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SceneStore::new(dir.clone());
+        let folder = Path::new("/shoots/wedding");
+        store.put(folder, Path::new("/shoots/wedding/A.ARW"), "v1", scene(0.25));
+        store.save(folder);
+        let back = SceneStore::new(dir.clone());
+        assert_eq!(back.get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), Some(scene(0.25)));
+        assert_eq!(back.get(folder, Path::new("/shoots/wedding/A.ARW"), "v2"), None, "another version of the file");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn scene_prints_and_face_prints_live_in_different_files() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-both-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Store::new(dir.clone());
+        let folder = Path::new("/shoots/wedding");
+        store.prints.put(folder, Path::new("/shoots/wedding/A.ARW"), "v1", print(0.25));
+        store.scenes.put(folder, Path::new("/shoots/wedding/A.ARW"), "v1", scene(0.5));
+        store.prints.save(folder);
+        store.scenes.save(folder);
+        let back = Store::new(dir.clone());
+        assert_eq!(back.prints.get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), Some(print(0.25)));
+        assert_eq!(back.scenes.get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), Some(scene(0.5)));
+        assert_eq!(back.usage().1, 0, "neither kind of print is counted as a folder");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_damaged_scene_file_reads_what_is_whole() {
+        let dir = std::env::temp_dir().join(format!("opencull-ai-scenes-cut-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SceneStore::new(dir.clone());
+        let folder = Path::new("/shoots/wedding");
+        store.put(folder, Path::new("/shoots/wedding/A.ARW"), "v1", scene(0.25));
+        store.put(folder, Path::new("/shoots/wedding/B.ARW"), "v1", scene(0.5));
+        store.save(folder);
+        let file = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e == "scenes")).unwrap();
+        let bytes = std::fs::read(&file).unwrap();
+        std::fs::write(&file, &bytes[..bytes.len() - 100]).unwrap();
+        let back = SceneStore::new(dir.clone());
+        let whole = [Path::new("/shoots/wedding/A.ARW"), Path::new("/shoots/wedding/B.ARW")].iter().filter(|p| back.get(folder, p, "v1").is_some()).count();
+        assert_eq!(whole, 1, "the photo written in full is kept, the one cut short is not");
+        std::fs::write(&file, b"not scenes at all").unwrap();
+        assert_eq!(SceneStore::new(dir.clone()).get(folder, Path::new("/shoots/wedding/A.ARW"), "v1"), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_advanced_version_does_not_name_scene_prints() {
+        assert!(version(Rules::Advanced).ends_with("|print-1") && !version(Rules::Advanced).contains("scene"));
     }
 
     #[test]

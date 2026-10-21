@@ -183,6 +183,11 @@ mod cuda_tests {
                                 vec![("face", vec![n, 3, 224, 224])],
                                 vec!["embedding"],
                             ),
+                            (
+                                include_bytes!("../../models/scene.onnx"),
+                                vec![("picture", vec![n, 3, 224, 224])],
+                                vec!["embedding"],
+                            ),
                         ];
                         for (bytes, shapes, outputs) in cases {
                             let inputs = shapes

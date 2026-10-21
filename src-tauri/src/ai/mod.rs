@@ -19,6 +19,7 @@ pub mod key;
 pub mod mobileclip;
 pub mod onnx;
 pub mod queue;
+pub mod scene;
 pub mod score;
 pub mod series;
 pub mod state;
@@ -583,7 +584,7 @@ mod tests {
         let planes = pictures(&[7, 11]);
         assert_eq!(photo_print(Rules::Basic, &planes, &[true, true]), None);
         assert_eq!(store::version(Rules::Basic), "finder-yunet-0.6|judge-3h|junk-0.8-unsure-0.5|shut-0.9|away-0.50-glance-0.15|rules-2|key-1");
-        assert!(store::version(Rules::Advanced).ends_with("|print-1"));
+        assert!(store::version(Rules::Advanced).ends_with("|print-1") && !store::version(Rules::Advanced).contains("scene"));
     }
 
     #[test]

@@ -737,7 +737,7 @@ export const useStore = create<Store>((set, get) => {
   }
 
   function compareRuns(touched: number[]) {
-    const { photos, ai, session, smartGroups, groupingRevision, aiMobileClipGrouping, mobileClipGrouping, aiEnabled } = get();
+    const { photos, ai, session, smartGroups, groupingRevision, aiMobileClipGrouping, mobileClipGrouping, aiEnabled, aiAdvanced } = get();
     if (!session) return;
     const visualGrouping = aiMobileClipGrouping && aiEnabled;
     const found = currentRuns();
@@ -752,12 +752,12 @@ export const useStore = create<Store>((set, get) => {
       .aiCompare(
         ready.map((run) => run.map((i) => ({ ...ai[i]!, index: i, time: photos[i].captureMs, burst: photos[i].group, upright: uprightOf(photos[i]) }))),
         smartGroups,
-        { session: session.id, revision: groupingRevision, mobileClip: visualGrouping, mobileClipGrouping },
+        { session: session.id, revision: groupingRevision, mobileClip: visualGrouping, mobileClipGrouping, advanced: aiAdvanced },
       )
       .then((marked) => {
         const now = get();
         // A folder or grouping choice changed while this was asked.
-        if (now.session?.id !== session.id || now.groupingRevision !== groupingRevision || now.smartGroups !== smartGroups || now.aiMobileClipGrouping !== aiMobileClipGrouping || now.mobileClipGrouping !== mobileClipGrouping || now.aiEnabled !== aiEnabled) return;
+        if (now.session?.id !== session.id || now.groupingRevision !== groupingRevision || now.smartGroups !== smartGroups || now.aiMobileClipGrouping !== aiMobileClipGrouping || now.mobileClipGrouping !== mobileClipGrouping || now.aiEnabled !== aiEnabled || now.aiAdvanced !== aiAdvanced) return;
         const compared = now.compared.slice();
         const ranks = now.ranks.slice();
         const poses = now.poses.slice();

@@ -308,7 +308,7 @@ export async function runSelfTest(folder: string): Promise<void> {
         new Promise<number>((resolve, reject) => {
           const began = performance.now();
           api
-            .aiScan(s().session!.id, some, advanced, (e) => {
+            .aiScan(s().session!.id, some, advanced, false, (e) => {
               if (e.type === "done") return resolve(performance.now() - began);
               for (const item of e.items) {
                 if (!advanced) {

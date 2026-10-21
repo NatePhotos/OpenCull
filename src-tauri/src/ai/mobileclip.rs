@@ -39,6 +39,19 @@ impl Grouping {
             Self::Tight => 0.90,
         }
     }
+
+    /// Where the scene network is not sure enough to decide without MobileCLIP:
+    /// below the first number it says different, above the second the same,
+    /// between them MobileCLIP decides. Chosen by measurement: MobileCLIP still
+    /// finds at least 95% of the scene changes it finds alone, while looking at
+    /// a small share of the photos.
+    pub fn band(self) -> (f32, f32) {
+        match self {
+            Self::Loose => (0.68, 0.86),
+            Self::Normal => (0.79, 0.93),
+            Self::Tight => (0.87, 0.97),
+        }
+    }
 }
 const MODEL_FILE: &str = "mobileclip-s0-vision-v1.onnx";
 const DIM: usize = 512;

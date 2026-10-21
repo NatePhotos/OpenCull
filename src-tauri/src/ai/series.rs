@@ -25,6 +25,7 @@
 
 use serde::Serialize;
 
+use super::scene::ScenePrint;
 use super::score;
 use super::store::{FaceRecord, Record};
 
@@ -122,20 +123,23 @@ fn same_pose(a: &Record, b: &Record) -> bool {
     found as f32 >= SAME_PEOPLE * a.len().max(b.len()) as f32
 }
 
-/// Marks a run of photos, given in the order they were shot: splits it into
-/// poses — the frames of one burst, and frames taken soon after one another
-/// with the same people in the same places — and marks the frames of each
-/// pose against each other. Without `across_presses` a pose is a burst and
-/// nothing more.
-pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
-    compare_run_with_visual(frames, across_presses, None, super::mobileclip::Grouping::Normal)
+/// How the pictures of two frames compare, as far as a cheap look can tell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Look {
+    Same,
+    Different,
+    /// Not sure: ask the costlier check.
+    Ask,
+    /// The pictures cannot say: decide as without them (faces).
+    Unknown,
 }
 
-/// Visual matching replaces face position when MobileCLIP is explicitly
-/// enabled. Adjacent and anchor comparisons prevent a chain of gradually
-/// changing frames from becoming one group, while the span and orientation
-/// gates remain in force.
-pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: Option<&[Vec<f32>]>, grouping: super::mobileclip::Grouping) -> Vec<Compared> {
+/// Marks a run, with how its pictures compare given by `look` for each pair
+/// of frames (by place in the run) and, where `look` is not sure, by `ask`.
+/// Each frame is compared with the one before and with its group's first.
+/// Time, the camera turning and presses are checked first: a pair they part
+/// is never looked at.
+fn compare_run_by(frames: &[Frame], across_presses: bool, mut look: impl FnMut(usize, usize) -> Look, mut ask: impl FnMut(usize, usize) -> bool) -> Vec<Compared> {
     let mut out: Vec<Compared> = Vec::with_capacity(frames.len());
     let mut start = 0;
     let mut pose = 0;
@@ -147,12 +151,24 @@ pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: O
             // The camera turned between them — even, rarely, within a press.
             let turned = matches!((a.upright, b.upright), (Some(a), Some(b)) if a != b);
             let within_span = matches!((frames[start].time, b.time), (Some(t0), Some(t1)) if (t1 - t0).abs() <= POSE_GAP_MS);
-            if let Some(embeddings) = visual {
-                let alike = super::mobileclip::matching(embeddings.get(at - 1).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping)
-                    && super::mobileclip::matching(embeddings.get(start).map(Vec::as_slice), embeddings.get(at).map(Vec::as_slice), grouping);
-                !turned && within_span && alike && (one_press || (across_presses && soon))
-            } else {
-                !turned && within_span && (one_press || (across_presses && soon && same_pose(a.record, b.record)))
+            !turned && within_span && (one_press || (across_presses && soon)) && {
+                let before = look(at - 1, at);
+                let first = look(start, at);
+                if before == Look::Different || first == Look::Different {
+                    false
+                } else {
+                    let before_ok = match before {
+                        Look::Same => true,
+                        Look::Ask => ask(at - 1, at),
+                        // As without pictures: one press, or the same people in the same places.
+                        Look::Unknown | Look::Different => one_press || same_pose(a.record, b.record),
+                    };
+                    before_ok
+                        && match first {
+                            Look::Ask => ask(start, at),
+                            Look::Same | Look::Unknown | Look::Different => true,
+                        }
+                }
             }
         };
         if !joined {
@@ -163,6 +179,48 @@ pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: O
         }
     }
     out
+}
+
+/// Marks a run of photos, given in the order they were shot: splits it into
+/// poses — the frames of one burst, and frames taken soon after one another
+/// with the same people in the same places — and marks the frames of each
+/// pose against each other. Without `across_presses` a pose is a burst and
+/// nothing more.
+pub fn compare_run(frames: &[Frame], across_presses: bool) -> Vec<Compared> {
+    compare_run_by(frames, across_presses, |_, _| Look::Unknown, |_, _| false)
+}
+
+/// Visual matching replaces face position when MobileCLIP is explicitly
+/// enabled. Adjacent and anchor comparisons prevent a chain of gradually
+/// changing frames from becoming one group, while the span and orientation
+/// gates remain in force.
+pub fn compare_run_with_visual(frames: &[Frame], across_presses: bool, visual: Option<&[Vec<f32>]>, grouping: super::mobileclip::Grouping) -> Vec<Compared> {
+    match visual {
+        None => compare_run(frames, across_presses),
+        Some(e) => compare_run_by(frames, across_presses, |_, _| Look::Ask, |i, j| super::mobileclip::matching(e.get(i).map(Vec::as_slice), e.get(j).map(Vec::as_slice), grouping)),
+    }
+}
+
+fn scene_similarity(scene: &[Option<ScenePrint>], i: usize, j: usize) -> Option<f32> {
+    Some(super::scene::similarity(scene.get(i)?.as_ref()?, scene.get(j)?.as_ref()?))
+}
+
+/// Marks a run by the scene network first and MobileCLIP only where the
+/// network is not sure (`Grouping::band`) or a print is missing. `clip`
+/// gives a frame's MobileCLIP fingerprint; each frame is asked once at most.
+pub fn compare_run_cascade(frames: &[Frame], across_presses: bool, scene: &[Option<ScenePrint>], mut clip: impl FnMut(usize) -> Option<Vec<f32>>, grouping: super::mobileclip::Grouping) -> Vec<Compared> {
+    let (lo, hi) = grouping.band();
+    let mut known: std::collections::HashMap<usize, Option<Vec<f32>>> = std::collections::HashMap::new();
+    compare_run_by(frames, across_presses, |i, j| match scene_similarity(scene, i, j) {
+        Some(s) if s < lo => Look::Different,
+        Some(s) if s > hi => Look::Same,
+        _ => Look::Ask,
+    }, |i, j| {
+        for k in [i, j] {
+            known.entry(k).or_insert_with(|| clip(k));
+        }
+        super::mobileclip::matching(known[&i].as_deref(), known[&j].as_deref(), grouping)
+    })
 }
 
 /// Who each face is, for every frame: faces given the same number are the
@@ -544,5 +602,109 @@ mod tests {
         let got = marks(&[frame(vec![face(0.2, 0.30), open]), frame(vec![face(0.2, 0.30), passer_by])]);
         assert_eq!(got[1].score, Some(100.0));
         assert!(got[1].eyes[1].unwrap() < 0.4, "but it is still told how its eyes compare");
+    }
+
+    use super::super::mobileclip::Grouping;
+
+    /// Frames at the given times, each with its press and its record.
+    fn shots<'a>(records: &'a [Record], times: &[f64], bursts: &[Option<u32>]) -> Vec<Frame<'a>> {
+        records.iter().zip(times).zip(bursts).map(|((record, time), burst)| Frame { record, time: Some(*time), burst: *burst, upright: Some(true) }).collect()
+    }
+
+    /// Frames 1 s apart, each its own press, whose subjects are never where
+    /// the one before had them.
+    fn strangers(n: usize) -> Vec<Record> {
+        (0..n).map(|i| frame(vec![face(0.1 + 0.3 * (i % 3) as f32, 0.30)])).collect()
+    }
+
+    /// Frames 1 s apart, each its own press, whose subjects stand where they did.
+    fn lookalikes(n: usize) -> Vec<Record> {
+        (0..n).map(|_| frame(vec![face(0.2, 0.30), face(0.6, 0.28)])).collect()
+    }
+
+    fn seconds(n: usize) -> Vec<f64> {
+        (0..n).map(|i| i as f64 * 1_000.0).collect()
+    }
+
+    fn printed(seeds: &[Option<f32>]) -> Vec<Option<ScenePrint>> {
+        // A print whose similarity to the first is chosen: unit vectors at an angle.
+        seeds.iter().map(|s| s.map(|cos| { let mut v = vec![0.0; 512]; v[0] = cos; v[1] = (1.0 - cos * cos).max(0.0).sqrt(); ScenePrint(v) })).collect()
+    }
+
+    fn pose_numbers(got: Vec<Compared>) -> Vec<usize> {
+        got.iter().map(|c| c.pose).collect()
+    }
+
+    #[test]
+    fn the_first_frame_of_the_group_is_also_compared() {
+        // Each step is above the band's top, but the third is below its bottom
+        // against the first: unit vectors at 0, 20 and 40 degrees give cos 0.94
+        // a step and 0.77 overall.
+        let (lo, hi) = Grouping::Normal.band();
+        let records = strangers(3);
+        let frames = shots(&records, &seconds(3), &[None; 3]);
+        let at = |deg: f32| { let r = deg.to_radians(); let mut v = vec![0.0; 512]; v[0] = r.cos(); v[1] = r.sin(); Some(ScenePrint(v)) };
+        let prints = [at(0.0), at(20.0), at(40.0)];
+        let cos = |a: usize, b: usize| super::super::scene::similarity(prints[a].as_ref().unwrap(), prints[b].as_ref().unwrap());
+        assert!(cos(0, 1) > hi && cos(1, 2) > hi && cos(0, 2) < lo, "the example must straddle Normal's band");
+        let asked = std::cell::Cell::new(0);
+        let poses = pose_numbers(compare_run_cascade(&frames, true, &prints, |_| { asked.set(asked.get() + 1); None }, Grouping::Normal));
+        assert_eq!((poses, asked.get()), (vec![0, 0, 1], 0));
+    }
+
+    #[test]
+    fn the_gates_split_before_any_network_is_asked() {
+        // Two frames 6 s apart: split, and neither look nor ask is called.
+        let (lo, hi) = Grouping::Normal.band();
+        let records = lookalikes(2);
+        let frames = shots(&records, &[0.0, 6_000.0], &[None; 2]);
+        let asked = std::cell::Cell::new(0);
+        // Prints that would make the network ask, were the pair not already parted.
+        let poses = pose_numbers(compare_run_cascade(&frames, true, &printed(&[Some(1.0), Some((lo + hi) / 2.0)]), |_| { asked.set(asked.get() + 1); None }, Grouping::Normal));
+        assert_eq!((poses, asked.get()), (vec![0, 1], 0));
+    }
+
+    #[test]
+    fn the_cascade_asks_mobileclip_only_inside_the_band() {
+        let (lo, hi) = Grouping::Normal.band();
+        let records = strangers(2);
+        let frames = shots(&records, &seconds(2), &[None; 2]);
+        for (cos, asks) in [(lo - 0.02, 0), (hi + 0.02, 0), ((lo + hi) / 2.0, 2)] {
+            let asked = std::cell::Cell::new(0);
+            compare_run_cascade(&frames, true, &printed(&[Some(1.0), Some(cos)]), |_| { asked.set(asked.get() + 1); Some(vec![1.0; 512]) }, Grouping::Normal);
+            assert_eq!(asked.get(), asks, "cos {cos}");
+        }
+    }
+
+    #[test]
+    fn outside_the_band_the_network_decides() {
+        let (lo, hi) = Grouping::Normal.band();
+        let records = strangers(2);
+        let frames = shots(&records, &seconds(2), &[None; 2]);
+        let go = |cos: f32| pose_numbers(compare_run_cascade(&frames, true, &printed(&[Some(1.0), Some(cos)]), |_| None, Grouping::Normal));
+        assert_eq!((go(lo - 0.02), go(hi + 0.02)), (vec![0, 1], vec![0, 0]));
+    }
+
+    #[test]
+    fn inside_the_band_mobileclip_decides_as_today() {
+        let (lo, hi) = Grouping::Normal.band();
+        let records = strangers(2);
+        let frames = shots(&records, &seconds(2), &[None; 2]);
+        let mid = printed(&[Some(1.0), Some((lo + hi) / 2.0)]);
+        let unit = |k: usize| { let mut v = vec![0.0; 512]; v[k] = 1.0; v };
+        let same = pose_numbers(compare_run_cascade(&frames, true, &mid, |_| Some(unit(0)), Grouping::Normal));
+        let apart = pose_numbers(compare_run_cascade(&frames, true, &mid, |i| Some(unit(i)), Grouping::Normal));
+        assert_eq!((same, apart), (vec![0, 0], vec![0, 1]));
+    }
+
+    #[test]
+    fn a_missing_print_asks_mobileclip_and_each_photo_is_fingerprinted_once() {
+        let records = strangers(3);
+        let frames = shots(&records, &seconds(3), &[None; 3]);
+        let asked = std::cell::RefCell::new(Vec::new());
+        compare_run_cascade(&frames, true, &printed(&[None, None, None]), |i| { asked.borrow_mut().push(i); Some(vec![1.0; 512]) }, Grouping::Normal);
+        let mut a = asked.into_inner();
+        a.sort();
+        assert_eq!(a, [0, 1, 2]);
     }
 }

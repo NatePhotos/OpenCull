@@ -154,7 +154,7 @@ export interface Backend {
    * Finds and judges faces, `order` first to last; photos done before come at once. Asking again stops the last asking.
    * `advanced` judges them the newer way; otherwise as the last release did. Each remembers a folder separately.
    */
-  aiScan(session: number, order: number[], advanced: boolean, onEvent: (e: AiEvent) => void): Promise<void>;
+  aiScan(session: number, order: number[], advanced: boolean, scene: boolean, onEvent: (e: AiEvent) => void): Promise<void>;
   /** Tells the scan now running which photos are being looked at, nearest first: it analyses those before the rest. */
   aiLookAt(order: number[]): Promise<void>;
   /**
@@ -254,12 +254,12 @@ const tauri: Backend = {
   lightroomCatalogs: () => invoke("lightroom_catalogs"),
   openInEditor: (editor, files, catalog) => invoke("open_in_editor", { editor, files, catalog }),
   pathsExist: (paths) => invoke("paths_exist", { paths }),
-  aiScan: (session, order, advanced, onEvent) => {
+  aiScan: (session, order, advanced, scene, onEvent) => {
     const events = new Channel<AiEvent>();
     events.onmessage = onEvent;
-    return invoke("ai_scan", { session, order, advanced, events });
+    return invoke("ai_scan", { session, order, advanced, scene, events });
   },
-  aiCompare: (runs, poses, options = {}) => invoke("ai_compare", { runs, poses, session: options.session, revision: options.revision, mobileClip: options.mobileClip ?? false, mobileClipGrouping: options.mobileClipGrouping ?? "normal" }),
+  aiCompare: (runs, poses, options = {}) => invoke("ai_compare", { runs, poses, session: options.session, revision: options.revision, mobileClip: options.mobileClip ?? false, mobileClipGrouping: options.mobileClipGrouping ?? "normal", advanced: options.advanced ?? false }),
   autocullJudge: (frames, around, mobileClip, kind) => invoke("autocull_judge", { frames, around, mobileClip, kind }),
   autocullLearn: (folder, frames, mobileClip, kind, source) => invoke("autocull_learn", { folder, frames, mobileClip, kind, source }),
   autocullKind: (folder) => invoke("autocull_kind", { folder }),

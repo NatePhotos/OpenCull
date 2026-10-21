@@ -16,6 +16,38 @@ const LOOK_REACH = 16;
 const LOOK_SETTLE_MS = 120;
 
 /**
+ * Starts a scan of the folder and returns what stops it. Scene prints are
+ * asked for only while Advanced and MobileCLIP grouping are both on, read
+ * as the scan starts: turning the switch on later does not restart it.
+ */
+export function scanFolder(session: number, advanced: boolean): (() => void) | undefined {
+  const { order, current, photos } = useStore.getState();
+  if (photos.length === 0) return;
+  const scene = advanced && useStore.getState().aiMobileClipGrouping;
+  const here = Math.max(0, order.indexOf(current));
+  const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index).filter((i) => !isVideo(photos[i].path));
+
+  useStore.setState({ aiRunning: true });
+  // A scan that has been stopped may still have answers on their way.
+  // Judged by other rules, they must not be taken for this scan's.
+  let live = true;
+  void api
+    .aiScan(session, nearest, advanced, scene, (event) => {
+      const s = useStore.getState();
+      if (!live || s.session?.id !== session) return; // stopped, or a folder since closed
+      if (event.type === "batch") s.addAnalysis(event.items);
+      else s.set("aiRunning", false);
+    })
+    .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
+
+  return () => {
+    live = false;
+    void api.aiStop().catch(() => {});
+    if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
+  };
+}
+
+/**
  * Keeps the open folder analysed.
  *
  * Starts once the folder's details are in — bursts are not known before
@@ -88,28 +120,6 @@ export function useFaceScan(): void {
 
   useEffect(() => {
     if (!enabled || session === null) return;
-    const { order, current, photos } = useStore.getState();
-    if (photos.length === 0) return;
-    const here = Math.max(0, order.indexOf(current));
-    const nearest = order.map((index, place) => ({ index, far: Math.abs(place - here) })).sort((a, b) => a.far - b.far).map((o) => o.index).filter((i) => !isVideo(photos[i].path));
-
-    useStore.setState({ aiRunning: true });
-    // A scan that has been stopped may still have answers on their way.
-    // Judged by other rules, they must not be taken for this scan's.
-    let live = true;
-    void api
-      .aiScan(session, nearest, advanced, (event) => {
-        const s = useStore.getState();
-        if (!live || s.session?.id !== session) return; // stopped, or a folder since closed
-        if (event.type === "batch") s.addAnalysis(event.items);
-        else s.set("aiRunning", false);
-      })
-      .catch(() => useStore.getState().session?.id === session && useStore.setState({ aiRunning: false }));
-
-    return () => {
-      live = false;
-      void api.aiStop().catch(() => {});
-      if (useStore.getState().session?.id === session) useStore.setState({ aiRunning: false });
-    };
+    return scanFolder(session, advanced);
   }, [enabled, session, advanced]);
 }
