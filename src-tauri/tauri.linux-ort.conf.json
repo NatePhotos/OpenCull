@@ -1,0 +1,21 @@
+{
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/libonnxruntime.so": "target/release/libonnxruntime.so"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/libonnxruntime.so": "target/release/libonnxruntime.so"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/bin/libonnxruntime.so": "target/release/libonnxruntime.so"
+        }
+      }
+    }
+  }
+}

@@ -38,7 +38,7 @@
   <summary>Table of Contents</summary>
   <ol>
     <li>
-      <a href="#about-the-project">About The Project</a>
+      <a href="#about-opencull">About OpenCull</a>
       <ul>
         <li><a href="#built-with">Built With</a></li>
       </ul>
@@ -59,7 +59,7 @@
 </details>
 
 <!-- ABOUT THE PROJECT -->
-## About The Project
+## About OpenCull
 
 [![OpenCull, with a photo open: the camera's settings on the left, the photo in the middle, each face cut out large on the right, and the filmstrip below][product-screenshot]](docs/images/screenshot.jpg)
 
