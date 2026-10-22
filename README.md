@@ -167,7 +167,7 @@ Installers are on the [releases page][release-url].
 |---|---|
 | macOS, Apple silicon (M1 and later) | `.dmg` |
 | Windows 10 and 11 | `-setup.exe` |
-| Linux (Ubuntu 24.04, Fedora 40, Debian 13 or newer) | `.AppImage`, `.deb` or `.rpm` |
+| Linux (Ubuntu 22.04, Debian 12, Fedora 36 or newer) | `.AppImage`, `.deb` or `.rpm` |
 
 They are not signed with a paid developer certificate, so each system asks
 before running them the first time:

@@ -14,8 +14,6 @@ on:
   pull_request:
     paths-ignore: ["**.md", "docs/**", "LICENSE"]
   workflow_dispatch:
-    inputs:
-      reuse_run: { description: "TEMPORARY: test the AppImage of this run only", required: false, default: "" }
 
 concurrency:
   group: build-${{ github.ref }}
@@ -23,7 +21,6 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ !inputs.reuse_run }}
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     env:
@@ -224,17 +221,12 @@ jobs:
   linux-older:
     name: Linux AppImage on Ubuntu 22.04
     needs: build
-    if: ${{ always() && (needs.build.result == 'success' || inputs.reuse_run) }}
     runs-on: ubuntu-22.04
-    permissions:
-      actions: read
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: OpenCull-Linux
           path: installers
-          run-id: ${{ inputs.reuse_run || github.run_id }}
-          github-token: ${{ github.token }}
 
       - name: Unpack the AppImage
         run: |
@@ -251,7 +243,7 @@ jobs:
           versions() { # $1: GLIBC or GLIBCXX
             find squashfs-root -type f -print0 | while IFS= read -r -d '' f; do
               [ "$(od -An -tx1 -N4 "$f")" = " 7f 45 4c 46" ] || continue
-              objdump -T "$f" 2>/dev/null | grep '\*UND\*' | grep -oE "$1_[0-9]+(\.[0-9]+)+" | sed "s/^$1_//" | awk -v f="$f" '{ print f, $0 }' 
+              objdump -T "$f" 2>/dev/null | grep '\*UND\*' | grep -oE "$1_[0-9]+(\.[0-9]+)+" | sed "s/^$1_//" | awk -v f="$f" '{ print f, $0 }'
             done | sort -k2 -V
           }
           for kind in GLIBC GLIBCXX; do
