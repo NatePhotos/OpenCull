@@ -4,12 +4,14 @@ import { ReviewDialog } from "@/components/ingest/ReviewBar";
 import { Button } from "@/components/ui/button";
 import { filmstripVisible, useStore } from "@/lib/store";
 import { useFaceScan } from "@/lib/faces";
+import { useRundown } from "@/lib/rundown";
 import { useWarmAhead } from "@/lib/warm";
 import { ExifPanel } from "./ExifPanel";
 import { FacePanel } from "./FacePanel";
 import { Filmstrip } from "./Filmstrip";
 import { Grid } from "./Grid";
 import { Loupe } from "./Loupe";
+import { Rundown } from "./Rundown";
 import { SceneOverview, SceneView } from "./SceneView";
 import { Toolbar } from "./Toolbar";
 import { AiAccelerationError } from "./AiAccelerationError";
@@ -43,6 +45,7 @@ export function CullingView() {
   const exifPanelWidth = useStore((s) => s.exifPanelWidth);
   const facePanelWidth = useStore((s) => s.facePanelWidth);
   const empty = useStore((s) => !s.loading && s.photos.length === 0);
+  const rundown = useRundown((s) => s.open);
   useWarmAhead();
   useFaceScan();
 
@@ -70,7 +73,7 @@ export function CullingView() {
             )}
             {showExif && <PanelHandle panel="exifPanelWidth" direction={1} />}
             <div className="min-w-0 flex-1 overflow-hidden">
-              {viewMode === "scene" ? <SceneView /> : <Loupe />}
+              {rundown ? <Rundown /> : viewMode === "scene" ? <SceneView /> : <Loupe />}
             </div>
             {showFaces && <PanelHandle panel="facePanelWidth" direction={-1} />}
             {showFaces && (

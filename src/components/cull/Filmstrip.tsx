@@ -4,8 +4,10 @@ import { memo, useMemo, useRef } from "react";
 import { bucket, THUMB_SIZES } from "@/lib/api";
 import { groupOf, hasActiveFilter, useStore } from "@/lib/store";
 import { stripPhotoWidth } from "@/lib/strip-aspect";
+import { useRundown } from "@/lib/rundown";
 import { cn } from "@/lib/utils";
 import { PhotoMenu } from "./PhotoMenu";
+import { FinishTile } from "./Rundown";
 import { useStrip } from "./strip";
 import { FlagBadge, FramedThumb, RankBar, Rings, StarRow, useHasRankBar } from "./Thumb";
 
@@ -13,6 +15,8 @@ const HANDLE = 4;
 const PAD = 10;
 const MIN_HEIGHT = 72;
 const MAX_HEIGHT = 300;
+/** The space before the flag tile after the last photo. */
+const FINISH_GAP = 12;
 
 /** How tall a thumbnail is in a strip of the given height. */
 export function stripThumbHeight(stripHeight: number): number {
@@ -103,7 +107,10 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
   }, [rows, widths]);
   // Keep the photo in the loupe in the middle of the strip.
   const position = useMemo(() => rows.findIndex((r) => r.index === current), [rows, current]);
-  const { scroller, length, from, to, onScroll, onWheel } = useStrip({ starts, pad: PAD, position, anchor: current });
+  // The whole folder's strip ends in a flag that opens the rundown, counted
+  // in the strip's length so that it is in view beside the last photo.
+  const finish = !only && rows.length > 0 ? Math.round(thumbH * 0.75) : 0;
+  const { scroller, length, from, to, onScroll, onWheel } = useStrip({ starts, pad: PAD + (finish ? finish + FINISH_GAP : 0), position, anchor: current });
 
   return (
     <div className="relative flex shrink-0 flex-col bg-strip" style={{ height }}>
@@ -128,6 +135,11 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
               </div>
             );
           })}
+          {finish > 0 && (
+            <div className="absolute top-0 flex h-full items-center" style={{ left: starts[rows.length] + FINISH_GAP }}>
+              <FinishTile width={finish} height={thumbH} />
+            </div>
+          )}
         </div>
       </div>
       {!only && <Counter />}
@@ -146,7 +158,10 @@ const Cell = memo(function Cell({ index, width, height, size }: { index: number;
     <PhotoMenu index={index}>
       <button
         type="button"
-        onClick={(e) => useStore.getState().select(index, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
+        onClick={(e) => {
+          useRundown.setState({ open: false });
+          useStore.getState().select(index, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey });
+        }}
         className={cn("relative shrink-0 overflow-hidden rounded-[5px] bg-[var(--ui-surface-141414)] transition-transform duration-100", !primary && !selected && "hover:scale-[1.03]")}
         style={{ width, height }}
       >

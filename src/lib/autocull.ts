@@ -44,7 +44,8 @@ export function framesFor(
   return out;
 }
 
-function isOwn(p: Photo, owned: Record<string, AutocullOwned>): boolean {
+/** Whether a photo still carries the colour Auto-label gave it. */
+export function isOwn(p: Photo, owned: Record<string, AutocullOwned>): boolean {
   const mine = owned[p.display];
   return mine !== undefined && mine.color === p.color;
 }
