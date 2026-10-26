@@ -110,17 +110,17 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
   // The whole folder's strip ends in a flag that opens the rundown, counted
   // in the strip's length so that it is in view beside the last photo.
   const finish = !only && rows.length > 0 ? Math.round(thumbH * 0.75) : 0;
-  const { scroller, length, from, to, onScroll, onWheel } = useStrip({ starts, pad: PAD + (finish ? finish + FINISH_GAP : 0), position, anchor: current });
+  const { scroller, plane, base, from, to, onWheel, bar } = useStrip({ starts, pad: PAD + (finish ? finish + FINISH_GAP : 0), position, anchor: current });
 
   return (
     <div className="relative flex shrink-0 flex-col bg-strip" style={{ height }}>
       {resizable ? <FilmstripResizeHandle /> : <div style={{ height: HANDLE }} className="shrink-0 bg-[var(--ui-surface-262626)]" />}
-      <div ref={scroller} onWheel={onWheel} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="relative h-full" style={{ width: length }}>
+      <div ref={scroller} onWheel={onWheel} className="relative min-h-0 flex-1 overflow-hidden">
+        <div ref={plane} className="absolute inset-y-0 left-0">
           {rows.slice(from, to).map((row, i) => {
             const at = from + i;
             return (
-              <div key={row.index} className="absolute top-0 flex h-full items-center" style={{ left: starts[at], width: starts[at + 1] - starts[at], paddingLeft: row.gap ? 6 : 0 }}>
+              <div key={row.index} className="absolute top-0 flex h-full items-center" style={{ left: starts[at] - base, width: starts[at + 1] - starts[at], paddingLeft: row.gap ? 6 : 0 }}>
                 <div
                   className={cn(
                     "flex h-[calc(100%-12px)] items-center",
@@ -135,12 +135,13 @@ export function Filmstrip({ only, height: fixedHeight, resizable = true }: { onl
               </div>
             );
           })}
-          {finish > 0 && (
-            <div className="absolute top-0 flex h-full items-center" style={{ left: starts[rows.length] + FINISH_GAP }}>
+          {finish > 0 && to === rows.length && (
+            <div className="absolute top-0 flex h-full items-center" style={{ left: starts[rows.length] + FINISH_GAP - base }}>
               <FinishTile width={finish} height={thumbH} />
             </div>
           )}
         </div>
+        {bar}
       </div>
       {!only && <Counter />}
     </div>
