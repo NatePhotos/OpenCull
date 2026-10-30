@@ -72,8 +72,8 @@ function Tool({ label, active, onClick, children, className }: { label: string; 
   );
 }
 
-export function Divider({ className }: { className?: string }) {
-  return <span className={cn("mx-3 h-[26px] w-px shrink-0 bg-[var(--ui-surface-2e2e2e)]", className)} />;
+export function Divider({ className, bars }: { className?: string; bars?: boolean }) {
+  return <span data-bars-line={bars || undefined} className={cn("mx-3 h-[26px] w-px shrink-0 bg-[var(--ui-surface-2e2e2e)]", className)} />;
 }
 
 const REVIEW_NOTE = {
@@ -108,6 +108,7 @@ function outerWidth(e: Element): number {
  */
 function useBarsRow(row: RefObject<HTMLDivElement | null>, bars: RefObject<HTMLDivElement | null>, open: boolean): boolean {
   const [split, setSplit] = useState(false);
+  const between = useRef(0);
   useLayoutEffect(() => {
     const el = row.current;
     if (!el) return;
@@ -117,7 +118,14 @@ function useBarsRow(row: RefObject<HTMLDivElement | null>, bars: RefObject<HTMLD
       const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       // The stretch between the left and right groups needs only its least width.
       let need = [...el.children].filter((k) => !(k as HTMLElement).dataset.spacer).reduce((w, k) => w + outerWidth(k), 8);
-      if (split) need += [...(bars.current?.children ?? [])].reduce((w, k) => w + outerWidth(k), 0);
+      // The line before the bars is only there while they are beside the
+      // buttons, so on a row of their own it is counted from when it was.
+      // Left out, moving them back always looked to need less room than it
+      // did: MEASURED, 17 px against 12 px of slack, and the bars went back
+      // and forth until the window gave up and went blank.
+      const line = el.querySelector(":scope > [data-bars-line]");
+      if (line) between.current = outerWidth(line);
+      if (split) need += [...(bars.current?.children ?? [])].reduce((w, k) => w + outerWidth(k), between.current);
       setSplit(split ? need > room - 12 : need > room + 0.5);
     };
     check();
@@ -200,7 +208,7 @@ export function Toolbar() {
 
       {!barsRow && (
         <>
-          <Divider className="mx-2" />
+          <Divider className="mx-2" bars />
           {aiButton}
           {aiBar && <AiBar />}
           {filterButton}

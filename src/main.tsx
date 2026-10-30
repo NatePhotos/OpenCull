@@ -39,7 +39,12 @@ if (retired.length) {
   await applyPreferences({ ...changes, ...Object.fromEntries(retired.map((key) => [key, null])) }).catch(console.error);
 }
 const { default: App } = await import("./App");
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+const { api } = await import("./lib/api");
+// An error while drawing takes the whole window down to blank. Say where it
+// happened, in the app's log, so it can be found without developer tools.
+const reportDrawing = (error: unknown, info: { componentStack?: string }) =>
+  api.report(`drawing failed: ${String(error)}${info.componentStack ?? ""}`);
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement, { onUncaughtError: reportDrawing }).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
