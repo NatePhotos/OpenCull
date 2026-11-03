@@ -248,8 +248,10 @@ function Ship() {
 
     let result: Shipped;
     try {
-      result = await api.ship(shipped.map(files), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
-        setProgress(0.1 + 0.7 * (done / total)),
+      result = await useStore.getState().whileCopying(() =>
+        api.ship(shipped.map(files), transferring ? settings.destination : null, settings.operation === "move", skipDuplicates, (done) =>
+          setProgress(0.1 + 0.7 * (done / total)),
+        ),
       );
     } catch (e) {
       setShipping(false);

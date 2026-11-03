@@ -55,6 +55,18 @@ pub fn run(jobs: &[Job], destination: &Path, moving: bool, conflict: Conflict, p
     outcome
 }
 
+/// Keeps one source file open in each folder photos are copied from, for as
+/// long as this is kept. A card with a file open cannot be ejected in the
+/// ordinary way: the system says OpenCull is using it, so the card stays put
+/// until the copy is done. (Force Eject still works; nothing can stop that.)
+pub struct SourceHold(#[allow(dead_code)] Vec<std::fs::File>);
+
+pub fn hold_sources<'a>(files: impl IntoIterator<Item = &'a Path>) -> SourceHold {
+    let mut folders = std::collections::HashSet::new();
+    let open = files.into_iter().filter(|f| folders.insert(f.parent().map(Path::to_path_buf))).filter_map(|f| std::fs::File::open(f).ok());
+    SourceHold(open.collect())
+}
+
 /// How many of `jobs` would land on a file already at `destination`: the
 /// photo's own name taken, or that of anything travelling with it.
 pub fn conflicts(jobs: &[Job], destination: &Path) -> usize {

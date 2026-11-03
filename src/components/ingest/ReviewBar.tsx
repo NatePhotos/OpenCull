@@ -101,7 +101,7 @@ function Finish() {
       const present = await api.pathsExist(recorded.map((p) => review.completed[p.path]));
       const complete = new Set(recorded.filter((_, i) => present[i]).map((p) => p.path));
       const pending = images.filter((p) => !complete.has(p.path));
-      const result = await copyReview(pending, destination, review.sources, setDone);
+      const result = await useStore.getState().whileCopying(() => copyReview(pending, destination, review.sources, setDone));
       const next = { ...review, destination, chosen, completed: { ...review.completed, ...result.completed } };
       useStore.setState({ review: next }); await saveReview(next);
       if (result.failed.length || result.sidecarFailed.length) throw new Error([...result.failed, ...result.sidecarFailed].join("\n"));

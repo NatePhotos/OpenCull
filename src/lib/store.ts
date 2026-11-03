@@ -49,6 +49,8 @@ interface State {
   reviewFinishOpen: boolean;
   /** A card review is being copied: its dialog cannot be dismissed. */
   reviewCopying: boolean;
+  /** How many copies of photos are running: while any is, the folder cannot change. */
+  copies: number;
   /** The folder is still being listed. */
   loading: boolean;
   /** How much of the folder's ratings and EXIF has been read, 0–1. */
@@ -231,6 +233,8 @@ interface Actions {
   openFolder(path: string, review?: ReviewSession): Promise<void>;
   closeFolder(): void;
   reloadForSubfolders(): void;
+  /** Runs a copy of photos, counted in `copies` while it runs. */
+  whileCopying<T>(work: () => Promise<T>): Promise<T>;
 
   select(index: number, mods: { meta: boolean; shift: boolean }): void;
   selectAll(): void;
@@ -840,6 +844,13 @@ export const useStore = create<Store>((set, get) => {
     return ai.flatMap((r, i) => (r !== undefined && (found.of.get(i) === undefined || compared[i] !== undefined) ? [i] : []));
   }
 
+  /** While photos are being copied the folder stays put: says so, and answers true. */
+  function refusedWhileCopying(): boolean {
+    if (get().copies === 0) return false;
+    set({ notice: { title: "A copy is still running", body: "Wait for the photos to finish copying, or cancel the copy, before opening another folder." } });
+    return true;
+  }
+
   function rememberPosition() {
     const { session, photos, current } = get();
     if (session && current >= 0) save(`position.${session.folder}`, photos[current].path);
@@ -853,6 +864,7 @@ export const useStore = create<Store>((set, get) => {
     review: null,
     reviewFinishOpen: false,
     reviewCopying: false,
+    copies: 0,
     loading: false,
     metaProgress: 0,
     openError: null,
@@ -979,6 +991,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async openFolder(path, review) {
+      if (refusedWhileCopying()) return;
       const before = get();
       if (before.session) get().closeFolder();
 
@@ -1126,11 +1139,20 @@ export const useStore = create<Store>((set, get) => {
 
     closeFolder() {
       const { session } = get();
-      if (!session) return;
+      if (!session || refusedWhileCopying()) return;
       rememberPosition();
       set({ groupingRevision: get().groupingRevision + 1, aiGroupingError: null });
       if (session.id >= 0) void api.closeFolder(session.id);
       set({ session: null, review: null, loading: false, photos: [], order: [], view: [], current: -1, selected: new Set(), trashPending: null, cropOpen: false, warmRemaining: 0, ai: [], compared: [], ranks: [], poses: [], judged: [], judgeError: null, autocullAsk: null, aiDone: 0, aiRunning: false, faceZoom: null });
+    },
+
+    async whileCopying(work) {
+      set({ copies: get().copies + 1 });
+      try {
+        return await work();
+      } finally {
+        set({ copies: get().copies - 1 });
+      }
     },
 
     reloadForSubfolders() {
@@ -1460,7 +1482,7 @@ export const useStore = create<Store>((set, get) => {
       const items = targets.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }));
       let result;
       try {
-        result = await api.transferPhotos(items, destination, moving);
+        result = await get().whileCopying(() => api.transferPhotos(items, destination, moving));
       } catch (e) {
         set({ notice: { title: moving ? "The photos were not moved" : "The photos were not copied", body: String(e) } });
         return;

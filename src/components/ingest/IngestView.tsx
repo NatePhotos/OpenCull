@@ -410,7 +410,7 @@ export function IngestView() {
 
     let result;
     try {
-      result = await api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, onProgress);
+      result = await useStore.getState().whileCopying(() => api.ingestCopy(chosen.map(({ path, display }) => ({ path, display })), destination, policy, onProgress));
     } catch (e) {
       result = { status: "failed" as const, message: String(e) };
     }
@@ -475,6 +475,8 @@ export function IngestView() {
               </div>
             ))}
           </div>
+          {/* While copying, the folder being copied from stays the one in hand. */}
+          <div inert={copying} title={copying ? "Wait for the copy to finish" : undefined} className={cn("flex min-h-0 flex-1 flex-col", copying && "opacity-40")}>
           {current ? (
             <div className="flex items-center gap-2 px-3 pb-2 pt-3.5">
               <button type="button" aria-label="Back" onClick={goBack} className="flex size-6 items-center justify-center rounded-md bg-white/[0.07] text-[#bfbfbf] hover:text-white">
@@ -520,6 +522,7 @@ export function IngestView() {
               <FolderPlus className="size-3.5 shrink-0" />
               Browse Folder…
             </Row>
+          </div>
           </div>
         </aside>
         <span className="w-px bg-white/[0.09]" />

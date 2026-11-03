@@ -628,6 +628,7 @@ pub async fn transfer_photos(app: AppState<'_>, items: Vec<TrashItem>, destinati
         // A rating still waiting to be written would otherwise stay behind.
         writer.flush();
         let jobs: Vec<transfer::Job> = items.iter().map(|i| transfer_job(i, true)).collect();
+        let _hold = transfer::hold_sources(jobs.iter().map(|j| j.owner.as_path()));
         transfer::run(&jobs, Path::new(&destination), moving, transfer::Conflict::KeepBoth, |_| {}).into()
     })
     .await
@@ -667,6 +668,7 @@ pub async fn ship(
         };
         let jobs: Vec<transfer::Job> = items.iter().map(|i| transfer_job(i, true)).collect();
         let conflict = if skip_duplicates { transfer::Conflict::Skip } else { transfer::Conflict::KeepBoth };
+        let _hold = transfer::hold_sources(jobs.iter().map(|j| j.owner.as_path()));
         transfer::run(&jobs, Path::new(&destination), moving, conflict, |done| {
             progress.send(done).ok();
         })
@@ -1373,6 +1375,7 @@ pub async fn ingest_copy(
             return Ingested { status: "failed", message: Some(format!("Could not use {}: {e}", destination.display())) };
         }
         let workers = ingest::parallel_copies(&destination);
+        let _hold = transfer::hold_sources(items.iter().map(|i| i.path.as_path()));
         let report = |p: ingest::Progress| {
             // Nothing more is said once the copy has been called off, so a
             // late report cannot put the bar back after it was taken down.
@@ -1592,6 +1595,7 @@ pub async fn review_copy(app: AppState<'_>, items: Vec<ReviewCopyItem>, sources:
     let cancel = Arc::new(AtomicBool::new(false)); *app.ingest_cancel.lock().unwrap() = cancel.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _running = running;
+        let _hold = transfer::hold_sources(items.iter().map(|i| i.path.as_path()));
         copy_review_items(&items, &sources, Path::new(&destination), &cancel, |done| { progress.send(done).ok(); }).map(|(result, completed)| ReviewCopied { result: result.into(), completed })
     }).await.map_err(|e| e.to_string())?
 }
