@@ -139,7 +139,8 @@ export interface Backend {
    * and `seed` the photo's marks, for a sidecar that has to be made.
    */
   setFraming(changes: { path: string; into: string[]; framing: Framing; upright: [number, number]; seed: Marks }[]): Promise<void>;
-  moveToTrash(items: { path: string; display: string }[]): Promise<string[]>;
+  /** `onProgress` hears how many photos have been dealt with. */
+  moveToTrash(items: { path: string; display: string }[], onProgress?: (done: number) => void): Promise<string[]>;
   /** Copies or moves photos, with their JPEGs and ratings, to another folder. Never replaces anything there. */
   transferPhotos(items: { path: string; display: string }[], destination: string, moving: boolean): Promise<Shipped>;
   /** How many of these photos, or their JPEGs, would land on a file already in `destination`. */
@@ -242,7 +243,11 @@ const tauri: Backend = {
   setMarks: (changes) => invoke("set_marks", { changes }),
   flushMarks: () => invoke("flush_marks"),
   setFraming: (changes) => invoke("set_framing", { changes }),
-  moveToTrash: (items) => invoke("move_to_trash", { items }),
+  moveToTrash: (items, onProgress) => {
+    const progress = new Channel<number>();
+    if (onProgress) progress.onmessage = onProgress;
+    return invoke("move_to_trash", { items, progress });
+  },
   transferPhotos: (items, destination, moving) => invoke("transfer_photos", { items, destination, moving }),
   shipConflicts: (items, destination) => invoke("ship_conflicts", { items, destination }),
   ship: (items, destination, moving, skipDuplicates, onProgress) => {

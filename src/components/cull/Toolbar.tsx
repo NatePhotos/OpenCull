@@ -368,6 +368,7 @@ function Status() {
   const toPrepare = useStore((s) => s.warmTotal);
   const analysing = useStore((s) => s.aiRunning);
   const analysed = useStore((s) => s.aiDone);
+  const trashing = useStore((s) => s.trashProgress);
   const chip = "ml-3 flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2 py-1 text-[11px] font-medium";
 
   if (loading) {
@@ -375,6 +376,16 @@ function Status() {
       <span className={cn(chip, "text-[#66b3ff]")} title="Listing the folder">
         <Loader2 className="size-3 animate-spin" />
         <span className="hidden lg:inline">Opening folder…</span>
+      </span>
+    );
+  }
+  // First, since the photos being trashed are still on screen until it is done.
+  if (trashing) {
+    return (
+      <span className={cn(chip, "text-[#f28080]")} title="Moving photos to the Trash. They leave the view once it is done.">
+        <Loader2 className="size-3 animate-spin" />
+        <span className="hidden lg:inline">Moving to Trash…</span>
+        <span className="tabular-nums">{trashing.done.toLocaleString()} of {trashing.total.toLocaleString()}</span>
       </span>
     );
   }

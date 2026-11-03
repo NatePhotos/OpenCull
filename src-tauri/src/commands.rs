@@ -560,14 +560,14 @@ pub struct TrashItem {
 ///
 /// Returns the photos that could not be moved.
 #[tauri::command]
-pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>) -> Result<Vec<String>, String> {
+pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>, progress: Channel<usize>) -> Result<Vec<String>, String> {
     let writer = app.writer.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // A sidecar still queued would be written straight back after its
         // photo had gone.
         writer.flush();
         let mut failed = Vec::new();
-        for item in items {
+        for (done, item) in items.into_iter().enumerate() {
             let owner = PathBuf::from(&item.path);
             let mut files = vec![owner.clone()];
             if item.display != item.path {
@@ -583,6 +583,7 @@ pub async fn move_to_trash(app: AppState<'_>, items: Vec<TrashItem>) -> Result<V
             if trash::delete_all(&files).is_err() {
                 failed.push(item.path);
             }
+            progress.send(done + 1).ok();
         }
         failed
     })

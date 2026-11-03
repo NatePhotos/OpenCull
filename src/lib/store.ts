@@ -221,6 +221,8 @@ interface State {
   notice: { title: string; body: string } | null;
   /** Photos waiting on a yes or no before they go to the trash. */
   trashPending: number[] | null;
+  /** Photos being moved to the trash: how many are done so far, of how many. */
+  trashProgress: { done: number; total: number } | null;
   zoom: ZoomCommand;
 
   recents: string[];
@@ -679,11 +681,28 @@ export const useStore = create<Store>((set, get) => {
     const going = indices.filter((i) => !trashing.has(i));
     if (going.length === 0) return;
     going.forEach((i) => trashing.add(i));
+    // Counted across every batch still going, so two presses show as one job.
+    const add = (done: number, total: number) => {
+      const was = get().trashProgress ?? { done: 0, total: 0 };
+      const next = { done: was.done + done, total: was.total + total };
+      set({ trashProgress: next.done >= next.total ? null : next });
+    };
+    add(0, going.length);
+    let counted = 0;
     try {
-      const failed = new Set(await api.moveToTrash(going.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display }))));
+      const failed = new Set(
+        await api.moveToTrash(
+          going.map((i) => ({ path: s.photos[i].path, display: s.photos[i].display })),
+          (done) => {
+            add(done - counted, 0);
+            counted = done;
+          },
+        ),
+      );
       // The folder may have been closed, or another opened, while this ran.
       if (get().session?.id === session) get().forget(going.filter((i) => !failed.has(s.photos[i].path)).map((i) => s.photos[i].path));
     } finally {
+      add(going.length - counted, 0);
       going.forEach((i) => trashing.delete(i));
     }
   }
@@ -963,6 +982,7 @@ export const useStore = create<Store>((set, get) => {
     ingestFrom: null,
     notice: null,
     trashPending: null,
+    trashProgress: null,
     zoom: { kind: "toggle", nonce: 0 },
 
     recents: load<string[]>("recents", []),
